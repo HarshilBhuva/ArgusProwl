@@ -1,0 +1,58 @@
+# Approved ATT&CK Mapping Registry — Phase 6.2
+#
+# This is the single authoritative ATT&CK mapping source for detection rules.
+# Rule metadata such as rules/*.yaml metadata.mitre_attack is candidate/reference
+# information only and is never promoted automatically.
+#
+# Mapping types:
+#   DIRECT     - detector directly observes the represented behavior.
+#   SUPPORTED  - detection supports the technique but does not establish it alone.
+#   CONTEXTUAL - contextual association only.
+#   NONE       - no ATT&CK assertion.
+
+mappings:
+  - rule_id: port_scan
+    technique_id: T1046
+    mapping_type: DIRECT
+
+  - rule_id: vertical_scan
+    technique_id: T1046
+    mapping_type: DIRECT
+
+  - rule_id: horizontal_scan
+    technique_id: T1046
+    mapping_type: DIRECT
+
+  - rule_id: syn_scan
+    technique_id: T1046
+    mapping_type: SUPPORTED
+
+  - rule_id: syn_scan
+    technique_id: T1498
+    mapping_type: SUPPORTED
+
+  - rule_id: connection_flood
+    technique_id: T1498
+    mapping_type: DIRECT
+
+  - rule_id: failed_connections
+    technique_id: T1110
+    mapping_type: SUPPORTED
+
+  - rule_id: beaconing_detector
+    technique_id: T1071
+    mapping_type: SUPPORTED
+
+  - rule_id: long_connection
+    technique_id: T1041
+    mapping_type: SUPPORTED
+
+  - rule_id: long_connection
+    technique_id: T1071
+    mapping_type: SUPPORTED
+
+  - rule_id: event_count_correlation
+    technique_id: T1110
+    mapping_type: SUPPORTED
+    condition: "authentication-context"
+    rationale: "Applies only when the rule explicitly represents the approved CP3.1 authentication filter/context."

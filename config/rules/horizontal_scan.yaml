@@ -1,0 +1,31 @@
+# Horizontal Scan Detection Rule
+# Detects scanning across multiple destination IPs on the same port
+
+rule_id: horizontal_scan
+name: "Horizontal Scan Detection"
+description: "Detects horizontal scanning across multiple destination IPs"
+enabled: true
+version: 1
+
+detector: HorizontalScanDetector
+parameters:
+  min_unique_dst_ips: 5
+  min_connection_rate: 2.0
+
+severity: MEDIUM
+confidence_threshold: 0.5
+
+tags:
+  - reconnaissance
+  - scanning
+  - horizontal
+
+metadata:
+  mitre_attack:
+    - T1046: Network Service Scanning
+  cwe:
+    - CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+
+  # Alert suppression
+  cooldown_seconds: 300
+  max_alerts_per_hour: 10

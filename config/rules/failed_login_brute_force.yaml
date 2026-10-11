@@ -1,0 +1,27 @@
+rule_id: event_count_correlation
+name: "Failed Login Brute Force Detection"
+description: "Detects repeated authentication failures from a single source"
+enabled: true
+version: 1
+
+detector: EventCountCorrelationDetector
+parameters:
+  correlation:
+    type: event_count
+    group_by:
+      - src_ip
+    count: 5
+    timespan: 5m
+    filter:
+      event_type: authentication_failed
+
+severity: HIGH
+confidence_threshold: 0.7
+
+tags:
+  - brute_force
+  - authentication
+
+metadata:
+  mitre_attack:
+    - T1110: Brute Force

@@ -1,0 +1,16 @@
+# First-seen destination IP from source
+# Detects when a new destination IP is observed from a source IP for the first time
+
+rule_id: first_seen_src_dst
+detector: EntityBehaviorDetector
+enabled: true
+version: 1
+confidence_threshold: 1.0
+tactic: Exfiltration
+technique: T1041  # Exfiltration Over C2 Channel
+
+parameters:
+  entity:
+    type: src_ip
+  dimension:
+    field: dst_ip

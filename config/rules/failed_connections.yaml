@@ -1,0 +1,32 @@
+# Failed Connections Detection Rule
+# Detects high rates of failed connection attempts
+
+rule_id: failed_connections
+name: "Failed Connections Detection"
+description: "Detects high rates of failed connection attempts"
+enabled: true
+version: 1
+
+detector: FailedConnectionsDetector
+parameters:
+  min_failed_ratio: 0.5
+  min_failed_count: 10
+
+severity: MEDIUM
+confidence_threshold: 0.5
+
+tags:
+  - reconnaissance
+  - brute_force
+  - authentication
+
+metadata:
+  mitre_attack:
+    - T1110: Brute Force
+    - T1046: Network Service Scanning
+  cwe:
+    - CWE-307: Improper Restriction of Excessive Authentication Attempts
+
+  # Alert suppression
+  cooldown_seconds: 300
+  max_alerts_per_hour: 15

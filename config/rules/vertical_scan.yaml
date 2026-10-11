@@ -1,0 +1,31 @@
+# Vertical Scan Detection Rule
+# Detects scanning of multiple ports on a single destination IP
+
+rule_id: vertical_scan
+name: "Vertical Scan Detection"
+description: "Detects vertical scanning on a single destination IP"
+enabled: true
+version: 1
+
+detector: VerticalScanDetector
+parameters:
+  min_unique_ports: 10
+  min_connection_rate: 2.0
+
+severity: MEDIUM
+confidence_threshold: 0.5
+
+tags:
+  - reconnaissance
+  - scanning
+  - vertical
+
+metadata:
+  mitre_attack:
+    - T1046: Network Service Scanning
+  cwe:
+    - CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+
+  # Alert suppression
+  cooldown_seconds: 300
+  max_alerts_per_hour: 10

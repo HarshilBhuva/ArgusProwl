@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run a short-lived health check through the repository-local .venv.
+#
+# Usage:
+#   ./scripts/health
+#   ./scripts/health --config config/default.yaml
+set -e
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ ! -d "$REPO_ROOT/.venv" ]; then
+  printf "Error: repository-local .venv not found at %s\n" "$REPO_ROOT/.venv" >&2
+  printf "Run: uv sync --group dev\n" >&2
+  exit 1
+fi
+exec "$REPO_ROOT/.venv/bin/python" -m argusprowl health "$@"

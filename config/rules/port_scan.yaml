@@ -1,0 +1,31 @@
+# Port Scan Detection Rule
+# Detects scanning activity targeting multiple unique ports
+
+rule_id: port_scan
+name: "Port Scan Detection"
+description: "Detects port scanning activity from a single source IP"
+enabled: true
+version: 1
+
+detector: PortScanDetector
+parameters:
+  min_unique_ports: 10
+  min_connection_rate: 1.0
+
+severity: MEDIUM
+confidence_threshold: 0.5
+
+tags:
+  - reconnaissance
+  - scanning
+  - network
+
+metadata:
+  mitre_attack:
+    - T1046: Network Service Scanning
+  cwe:
+    - CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+
+  # Alert suppression
+  cooldown_seconds: 300
+  max_alerts_per_hour: 10

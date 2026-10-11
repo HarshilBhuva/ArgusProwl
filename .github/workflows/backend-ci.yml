@@ -1,0 +1,113 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "config/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "config/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Compile check
+        run: uv run python -m compileall -q src tests scripts
+
+      - name: Lint (ruff) - check
+        run: uv run ruff check src tests
+
+      - name: Run full test suite
+        run: uv run pytest -q --maxfail=1
+
+      - name: Validate config (no external services)
+        run: uv run python -m argusprowl validate-config
+
+  security-scan:
+    name: Bandit static security analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: false
+
+      - name: Run Bandit security scan
+        # -ll reports medium/high severity findings; low-severity noise is excluded.
+        run: uvx --from bandit==1.9.4 bandit -r src/ -ll
+
+  integration:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and start product container
+        run: docker compose up -d --build
+
+      - name: Wait for API health endpoint
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health > /dev/null; then
+              echo "API healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API never became healthy"
+          docker compose logs argusprowl
+          exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

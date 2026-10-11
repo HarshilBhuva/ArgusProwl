@@ -1,0 +1,98 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+build/
+dist/
+pip-wheel-metadata/
+
+# Tests and analysis
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Frontend dependencies and build output
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+/data/
+/store/
+/metadata/
+/metadata_dropped/
+/preprocessed_configs/
+/clickhouse/
+/vector/
+/logs/*
+!logs/.gitkeep
+/scripts/logs/*
+!scripts/logs/.gitkeep
+/runs/*
+!runs/.gitkeep
+/tmp/*
+!tmp/.gitkeep
+
+# Captures and model artifacts
+*.pcap
+*.pcapng
+*.joblib
+*.pkl
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+.obsidian/
+.claude/
+.remember/
+
+# Internal working material
+docs-internal/
+frontend/docs-internal/
+project.txt
+chatgpt-packages/
+chatgpt_request.txt
+pack.sh
+pack_for_chatgpt.py
+test.txt
+test.py
+test_extractor.py
+context_graph.json
+graphify-out/
+
+# Temporary audit backups
+*.pre-community-cleanup
+*.pre-attck-version-fix

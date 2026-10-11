@@ -1,0 +1,71 @@
+#!/bin/bash
+# Start the ArgusProwl platform
+# This script launches one Python process that serves both the backend API
+# and the React frontend from frontend/dist/. No separate Vite or backend
+# process is required.
+#
+# Usage:
+#   ./scripts/start
+#   ./scripts/start --config config/default.yaml
+
+set -e
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Ensure .venv exists
+if [ ! -d "$REPO_ROOT/.venv" ]; then
+  printf "Error: repository-local .venv not found at %s\n" "$REPO_ROOT/.venv" >&2
+  printf "Run: uv sync --group dev\n" >&2
+  exit 1
+fi
+
+# Use the provided config or the default
+ARGS=()
+if [[ "$1" == "--config" ]]; then
+  if [[ -n "$2" ]]; then
+    ARGS+=("--config" "$2")
+    shift 2
+  else
+    printf "Error: --config requires an argument\n" >&2
+    exit 1
+  fi
+fi
+
+# Add any remaining arguments
+ARGS+=("$@")
+
+# Single-port: both API and UI are served from one uvicorn process on this port.
+BACKEND_HOST="127.0.0.1"
+BACKEND_PORT="${BACKEND_PORT:-8080}"
+
+# Port preflight: check that expected ports are free before launching anything.
+# Report which service/port is unavailable; do NOT kill the existing process.
+check_port_available() {
+  local host="$1"
+  local port="$2"
+  local service="$3"
+  if ss -tlnp 2>/dev/null | grep -qE ":${port} +"; then
+    printf "Error: port %s is already in use (expected by %s on %s:%s)\n" \
+      "$port" "$service" "$host" "$port" >&2
+    return 1
+  fi
+  return 0
+}
+
+# Set up signal trap so we exit cleanly on SIGINT/SIGTERM.
+trap 'exit 130' SIGINT
+trap 'exit 143' SIGTERM
+
+printf "[+] Starting ArgusProwl\n"
+
+# Port preflight: fail before starting the service.
+printf "[+] Checking port availability...\n"
+check_port_available "$BACKEND_HOST" "$BACKEND_PORT" "Backend API" \
+  || { printf "Error: port conflict detected. Aborting without starting any services.\n" >&2; exit 1; }
+# Frontend is served by the same process on the same port; no separate preflight.
+
+# Launch the single-process server (foreground, blocking).
+printf "[+] Launching ArgusProwl on http://%s:%s (API + UI)\n" "$BACKEND_HOST" "$BACKEND_PORT"
+printf "[+] Press Ctrl+C to stop.\n\n"
+
+exec "$REPO_ROOT/.venv/bin/python" -m argusprowl start "${ARGS[@]}"

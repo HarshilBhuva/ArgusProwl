@@ -1,0 +1,32 @@
+# Long Connection Detection Rule
+# Detects abnormally long-lived connections
+
+rule_id: long_connection
+name: "Long Connection Detection"
+description: "Detects abnormally long-lived connections"
+enabled: true
+version: 1
+
+detector: LongConnectionDetector
+parameters:
+  min_duration_seconds: 3600.0  # 1 hour
+  min_bytes_transferred: 1048576  # 1 MB
+
+severity: MEDIUM
+confidence_threshold: 0.5
+
+tags:
+  - data_exfiltration
+  - c2
+  - anomaly
+
+metadata:
+  mitre_attack:
+    - T1041: Exfiltration Over C2 Channel
+    - T1071: Application Layer Protocol
+  cwe:
+    - CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+
+  # Alert suppression
+  cooldown_seconds: 600
+  max_alerts_per_hour: 5

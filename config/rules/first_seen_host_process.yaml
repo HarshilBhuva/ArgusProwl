@@ -1,0 +1,16 @@
+# First-seen process on host
+# Detects when a new process is observed on a host for the first time
+
+rule_id: first_seen_host_process
+detector: EntityBehaviorDetector
+enabled: true
+version: 1
+confidence_threshold: 1.0
+tactic: Discovery
+technique: T1057  # Process Discovery
+
+parameters:
+  entity:
+    type: hostname
+  dimension:
+    field: process_name

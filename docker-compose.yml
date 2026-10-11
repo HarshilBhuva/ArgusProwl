@@ -1,0 +1,42 @@
+# Product deployment: single argusprowl container (compiled React frontend +
+# FastAPI backend in one process). Research/dev-only infrastructure (sensor
+# capture, telemetry store, log streaming) is intentionally NOT part of the
+# product image.
+#
+# Usage:
+#   docker compose up --build
+#   -> product UI + API at http://localhost:8080
+
+services:
+  argusprowl:
+    container_name: argusprowl
+    image: argusprowl:latest
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Product API host/port (config/default.yaml uses 127.0.0.1:8080;
+      # bind all interfaces inside the container so the port mapping works).
+      - TH_API__HOST=0.0.0.0
+      - TH_API__PORT=8080
+    # The image bakes ownership into its build: /app/data, /app/logs and the
+    # virtualenv are pre-owned by `user` at image-build time, and the image
+    # declares `USER user`. Docker's first attach of a named volume populates
+    # it with that image-layer content, so the volumes arrive pre-owned by
+    # `user` — no runtime privilege escalation is required.
+    #
+    # If an older root-owned volume from a previous build still exists,
+    # remove it once:  docker volume rm argusprowl_data argusprowl_logs
+    volumes:
+      # Persistent SQLite storage and logs (named volumes keep data across
+      # image rebuilds; the image already ships /app/data and /app/logs).
+      - argusprowl_data:/app/data
+      - argusprowl_logs:/app/logs
+
+volumes:
+  argusprowl_data:
+    name: argusprowl_data
+  argusprowl_logs:
+    name: argusprowl_logs

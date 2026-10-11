@@ -1,0 +1,32 @@
+# SYN Scan Detection Rule
+# Detects SYN flood/scan attacks with high SYN packet ratios
+
+rule_id: syn_scan
+name: "SYN Scan Detection"
+description: "Detects SYN scanning attacks with high failure rates"
+enabled: true
+version: 1
+
+detector: SynScanDetector
+parameters:
+  min_syn_ratio: 0.7
+  min_syn_count: 10
+
+severity: HIGH
+confidence_threshold: 0.6
+
+tags:
+  - reconnaissance
+  - scanning
+  - syn_flood
+
+metadata:
+  mitre_attack:
+    - T1046: Network Service Scanning
+    - T1498: Network Denial of Service
+  cwe:
+    - CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+
+  # Alert suppression
+  cooldown_seconds: 300
+  max_alerts_per_hour: 5

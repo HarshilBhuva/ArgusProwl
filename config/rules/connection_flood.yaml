@@ -1,0 +1,32 @@
+# Connection Flood Detection Rule
+# Detects high-volume connection flooding attacks
+
+rule_id: connection_flood
+name: "Connection Flood Detection"
+description: "Detects connection flooding and DoS attempts"
+enabled: true
+version: 1
+
+detector: ConnectionFloodDetector
+parameters:
+  min_connection_rate: 10.0
+  min_connection_count: 20
+
+severity: HIGH
+confidence_threshold: 0.6
+
+tags:
+  - denial_of_service
+  - flooding
+  - network
+
+metadata:
+  mitre_attack:
+    - T1498: Network Denial of Service
+    - T1499: Endpoint Denial of Service
+  cwe:
+    - CWE-400: Uncontrolled Resource Consumption
+
+  # Alert suppression
+  cooldown_seconds: 180
+  max_alerts_per_hour: 20
