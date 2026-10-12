@@ -66,7 +66,7 @@ argusprowl is designed following **Clean Architecture** principles. The core dom
 
 10. **Feature Engineering (`src/argusprowl/feature_engineering/`)**:
     - Sliding window aggregation, statistical calculations, and feature vector generation.
-    - Transforms raw ConnectionEvents into FeatureVectors suitable for detection.
+    - Transforms normalized events into feature vectors suitable for detection.
 
 11. **Detection (`src/argusprowl/detection/`)**:
     - Detector registry, detection manager, and concrete detector implementations.
@@ -274,7 +274,7 @@ A rigorous cross-collector audit was performed across Zeek, Suricata, Sysmon, Wi
 - No shared normalization helper was introduced because the audited semantics are not sufficiently identical.
 
 **Remaining Normalization Debt:**
-- `ConnectionEvent` is still an active runtime dependency for feature engineering and should be migrated to `NormalizedEvent` in a future phase.
+- `ConnectionEvent` is no longer a runtime dependency; feature engineering and detection use `NormalizedEvent`.
 - Tag generation and UID resolution are deferred to later semantic layers.
 
 ### Phase 3.10 — Complete Canonical Runtime Migration
@@ -306,31 +306,6 @@ Plugin framework removed in Phase 4.2S. No plugin infrastructure exists.
 
 `Incident` exists now as the UUID-backed, schema-versioned investigation aggregate for alert references and analyst metadata. It contains no grouping or correlation logic: defining the durable domain contract early means the future correlation engine can be added without a persistence or API migration.
 
-## Component Interactions
-
-### 1. Ingestion → Feature Engineering
-- `ZeekIngestionService` parses raw log lines into `ConnectionEvent` objects
-- Events are published to `EventBus`
-- `FeatureExtractor` subscribes to events and maintains per-source-IP `SlidingWindow` instances
-- Windows aggregate events and produce `FeatureVector` objects
-
-### 2. Feature Engineering → Detection
-- `DetectionManager` receives `FeatureVector` objects
-- Dispatches to all enabled detectors via `DetectorRegistry`
-- Each detector evaluates the feature vector independently
-- Returns `DetectionResult` objects
-
-### 3. Detection → Decision Engine
-- `DecisionEngine` processes `DetectionResult` objects
-- Applies deduplication (cooldown-based)
-- Normalizes severity based on confidence
-- Enriches evidence with metadata
-- Creates final `Alert` objects
-
-### 4. Decision Engine → Alerting
-- `AlertManager` receives `Alert` objects
-- Dispatches to all registered `AlertProvider` instances
-- Each provider delivers alerts through its channel (console, JSON, etc.)
 
 ## Extension Points
 
@@ -365,8 +340,7 @@ Plugin framework removed in Phase 4.2S. No plugin infrastructure exists.
 5. Use `CollectorManager.add_collector(factory.create("my_source", config))`
    or register directly via `CollectorRegistry`
 
-The framework handles all state transitions, locking, metrics, EventBus publishing,
-and error recording automatically.
+The framework handles collector state transitions, locking, metrics, and error recording. Collectors route normalized events through the configured queue.
 
 ---
 
@@ -434,7 +408,7 @@ transition not in the table raises `CollectorStateError` before touching I/O.
 `CollectorManager` wraps every per-collector call in its own `try/except`.
 A collector that raises during `start_all()` or `stop_all()`:
 - transitions itself to `FAILED` (recorded in metrics and error_message)
-- publishes a `COLLECTOR_FAILED` event to the EventBus
+- records the failure in collector state, metrics, and the collector error message
 - is captured in the returned `{name: Exception | None}` result dict
 - **never prevents other collectors from completing their operation**
 
@@ -447,8 +421,8 @@ A collector that raises during `start_all()` or `stop_all()`:
   produces one `ComponentHealth` per collector. FAILED → UNHEALTHY, PAUSED →
   DEGRADED, RUNNING → HEALTHY. Absent manager = silent skip (backward-compatible).
 - **ServiceContainer**: `CollectorManager` is registered as a singleton in
-  `Application._register_services()`. Shutdown calls `stop_all()` before
-  tearing down the EventBus.
+  `Application._register_services()`. Shutdown stops collectors before the
+  application processing loop and dependent services are torn down.
 
 ---
 

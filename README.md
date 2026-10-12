@@ -30,6 +30,13 @@ The production Docker image uses a multi-stage build:
 
 Main backend areas include API routes, application lifecycle and dependency injection, telemetry parsing and normalization, detection and decision logic, alert and investigation services, and storage. SQLite is the default local backend. Other adapters or references in architecture documentation may be incomplete or intended for future deployment scenarios; do not assume every documented adapter is production-ready.
 
+The FastAPI application serves the compiled React single-page application
+alongside its API. API routes and the OpenAPI documentation are handled by
+FastAPI; frontend assets are served from `frontend/dist/`, with a fallback
+for client-side UI routes. When running locally, build the frontend before
+starting the API. A missing frontend build is a startup error, not a usable
+UI-less deployment.
+
 ## Quickstart with Docker
 
 ### Prerequisites
@@ -183,7 +190,7 @@ The repository's CI workflows are the authoritative source for which checks run 
 
 ```text
 config/                  Default configuration and detection rules
-docs/                    Architecture, replay, testing, and deployment notes
+docs/                    Architecture, replay, and testing guidance
 frontend/                React + TypeScript application
 scripts/                 ATT&CK installation and development utilities
 src/argusprowl/          Python backend
@@ -197,7 +204,6 @@ uv.lock                  Locked Python dependency versions
 Further implementation details:
 
 - [Architecture](docs/architecture.md)
-- [Single-process deployment](docs/single-process.md)
 - [Replay](docs/replay.md)
 - [Testing](docs/testing.md)
 - [Contributing](CONTRIBUTING.md)

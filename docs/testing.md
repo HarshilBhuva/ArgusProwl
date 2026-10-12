@@ -8,7 +8,7 @@ Before modifying code or adding features:
 2. **Locate Existing Tests**: Search `tests/` for existing test coverage of the component.
 3. **Trace Runtime Path**: Understand how data flows through the component in production.
 4. **Inspect Fixtures**: Check existing fixtures in `tests/conftest.py` or local test files.
-5. **Identify Invariants**: Understand the invariants and invariants being asserted.
+5. **Identify Invariants**: Understand the invariants being asserted.
 6. **Reuse Test Infrastructure**: Reuse `mock_config`, `sample_event`, and established fixtures before creating new ones.
 
 ### 2. Test Design & Scoping
@@ -45,11 +45,11 @@ Features operating on temporal or stateful logic must verify:
 ### 7. Execution & Verification Workflow
 1. **Targeted Run**: Run tests for the specific module under edit:
    ```bash
-   .venv/bin/pytest -q tests/test_<module>.py
+   uv run pytest -q tests/test_<module>.py
    ```
 2. **Full Regression Suite**: Verify no regressions across the codebase:
    ```bash
-   .venv/bin/pytest -q
+   uv run pytest -q
    ```
 3. **Project Diagnostics & Hygiene**:
    ```bash
