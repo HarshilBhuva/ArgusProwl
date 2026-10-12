@@ -166,7 +166,7 @@ describe('IncidentDetailPage', () => {
     renderDetail();
     expect(screen.getByText('Breach Attempt')).toBeInTheDocument();
     expect(screen.getByText('HIGH')).toBeInTheDocument();
-    expect(screen.getByText('OPEN')).toBeInTheDocument();
+    expect(screen.getAllByText('OPEN')).toHaveLength(2);
     expect(screen.getByText('2')).toBeInTheDocument(); // alert count
   });
 
