@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "Dockerfile"
+      - ".dockerignore"
       - "docker-compose.yml"
       - "frontend/**"
       - "src/**"
@@ -16,6 +17,7 @@ on:
   pull_request:
     paths:
       - "Dockerfile"
+      - ".dockerignore"
       - "docker-compose.yml"
       - "frontend/**"
       - "src/**"
@@ -25,6 +27,11 @@ on:
       - "uv.lock"
       - ".github/workflows/docker-build.yml"
   workflow_dispatch: {}
+
+# Avoid wasting runner minutes building obsolete commits on the same ref.
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
