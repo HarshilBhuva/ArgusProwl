@@ -151,12 +151,7 @@ describe('AlertsPage', () => {
   });
 
   it('shows error state when API fails', () => {
-    const err = new (class extends Error {
-      constructor() {
-        super('boom');
-        this.name = 'ApiClientError';
-      }
-    })();
+    const err = new Error('boom');
     mockUseAlerts.mockReturnValue({ isLoading: false, error: err, data: null, refetch: vi.fn() });
     renderAlertsPage();
     expect(screen.getByRole('alert')).toHaveTextContent(/unable to load alerts from the backend/i);
