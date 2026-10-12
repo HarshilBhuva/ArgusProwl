@@ -132,8 +132,6 @@ describe('IncidentsPage', () => {
     expect(link.getAttribute('href')).toContain(sampleIncident.incident_id);
   });
 
-});
-
 describe('IncidentDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
