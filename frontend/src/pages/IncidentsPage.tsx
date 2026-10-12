@@ -37,7 +37,7 @@ export function IncidentsPage() {
     const filtered =
       filterStatus === 'ALL'
         ? incidentsQuery.data.incidents
-        : incidentsQuery.data.incidents.filter((inc) => inc.status === filterStatus.toLowerCase());
+        : incidentsQuery.data.incidents.filter((inc) => inc.status === filterStatus);
 
     body = (
       <div className="space-y-4">

@@ -95,7 +95,7 @@ describe('AlertsPage', () => {
   it('renders loading state', () => {
     mockUseAlerts.mockReturnValue({ isLoading: true, error: null, data: null, refetch: vi.fn() });
     renderAlertsPage();
-    expect(screen.getByText('Alerts')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Alerts' })).toBeInTheDocument();
     // Skeleton renders, no data rows
     expect(screen.queryByText('Suspicious process launch')).toBeNull();
   });
@@ -133,8 +133,9 @@ describe('AlertsPage', () => {
       refetch: vi.fn(),
     });
     renderAlertsPage();
-    expect(screen.getByText('CRITICAL')).toBeInTheDocument();
-    expect(screen.getByText('MEDIUM')).toBeInTheDocument();
+    expect(screen.getAllByText('CRITICAL')).toHaveLength(2);
+    expect(screen.getAllByText('MEDIUM')).toHaveLength(2);
+    expect(screen.getByText('ACKNOWLEDGED')).toBeInTheDocument();
   });
 
   it('links each alert to its detail page', () => {
@@ -150,25 +151,23 @@ describe('AlertsPage', () => {
   });
 
   it('shows error state when API fails', () => {
-    const err = new (class extends Error {
-      constructor() {
-        super('boom');
-        this.name = 'ApiClientError';
-      }
-    })();
+    const err = new Error('boom');
     mockUseAlerts.mockReturnValue({ isLoading: false, error: err, data: null, refetch: vi.fn() });
     renderAlertsPage();
-    expect(screen.getByText(/boom/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/unable to load alerts from the backend/i);
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/boom/i);
   });
 
-  it('shows retry button in error state', () => {
+  it('shows retry button in error state and invokes refetch', () => {
+    const refetch = vi.fn();
     mockUseAlerts.mockReturnValue({
       isLoading: false,
       error: new Error('x'),
       data: null,
-      refetch: vi.fn(),
+      refetch,
     });
     renderAlertsPage();
-    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    screen.getByRole('button', { name: /retry/i }).click();
+    expect(refetch).toHaveBeenCalledOnce();
   });
 });
