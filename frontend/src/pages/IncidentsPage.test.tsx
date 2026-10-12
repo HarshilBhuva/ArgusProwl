@@ -112,6 +112,7 @@ describe('IncidentsPage', () => {
     expect(screen.getByText('Closed incident')).toBeInTheDocument();
     expect(screen.queryByText('Breach Attempt')).not.toBeInTheDocument();
   });
+
   it('shows error state when API fails', () => {
     mockUseIncidents.mockReturnValue({
       isLoading: false, error: new Error('boom'), data: null, refetch: vi.fn(),
