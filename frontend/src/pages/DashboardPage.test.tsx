@@ -108,7 +108,8 @@ describe('DashboardPage', () => {
 
     renderDashboard();
     expect(screen.getByText('DEGRADED')).toBeInTheDocument();
-    expect(screen.getByText(/Total alerts/i)).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText(/alerts_total/i)).toBeInTheDocument();
   });
 
   it('renders alerts data when loaded', () => {
