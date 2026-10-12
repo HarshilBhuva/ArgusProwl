@@ -131,6 +131,7 @@ describe('IncidentsPage', () => {
     const link = screen.getByRole('link', { name: /investigate/i });
     expect(link.getAttribute('href')).toContain(sampleIncident.incident_id);
   });
+
 });
 
 describe('IncidentDetailPage', () => {
