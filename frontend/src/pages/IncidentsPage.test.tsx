@@ -95,23 +95,23 @@ describe('IncidentsPage', () => {
     expect(screen.getByText('OPEN')).toBeInTheDocument();
   });
 
-  it('filters incidents by status tab', () => {
+  it('filters incidents by status and shows the matching incident', () => {
+    const closedIncident = {
+      ...sampleIncident,
+      incident_id: '22222222-2222-2222-2222-222222222222',
+      title: 'Closed incident',
+      status: 'CLOSED',
+    };
     mockUseIncidents.mockReturnValue({
       isLoading: false, error: null,
-      data: {
-        incidents: [
-          { ...sampleIncident, status: 'OPEN' },
-          { ...sampleIncident, incident_id: '22222222-2222-2222-2222-222222222222', status: 'CLOSED' },
-        ],
-        total_count: 2,
-      },
+      data: { incidents: [sampleIncident, closedIncident], total_count: 2 },
       refetch: vi.fn(),
     });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /CLOSED \(\d+\)/ }));
-    expect(screen.getByText('Breach Attempt')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /CLOSED\s*\(1\)/ }));
+    expect(screen.getByText('Closed incident')).toBeInTheDocument();
+    expect(screen.queryByText('Breach Attempt')).not.toBeInTheDocument();
   });
-
   it('shows error state when API fails', () => {
     mockUseIncidents.mockReturnValue({
       isLoading: false, error: new Error('boom'), data: null, refetch: vi.fn(),
