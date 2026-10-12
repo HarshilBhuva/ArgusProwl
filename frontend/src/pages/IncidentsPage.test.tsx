@@ -232,7 +232,7 @@ describe('IncidentDetailPage', () => {
       refetch: vi.fn(),
     });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /CLOSED\\s*\\(1\\)/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'CLOSED(2)' }));
     expect(screen.getByText('Closed incident')).toBeInTheDocument();
     expect(screen.queryByText('Breach Attempt')).not.toBeInTheDocument();
   });
@@ -291,7 +291,7 @@ describe('IncidentDetailPage', () => {
     renderDetail();
     expect(screen.getByText('Breach Attempt')).toBeInTheDocument();
     expect(screen.getByText('HIGH')).toBeInTheDocument();
-    expect(screen.getByText('OPEN')).toBeInTheDocument();
+    expect(screen.getAllByText('OPEN')).toHaveLength(2);
     expect(screen.getByText('2')).toBeInTheDocument(); // alert count
   });
 
