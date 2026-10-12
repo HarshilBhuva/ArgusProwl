@@ -134,7 +134,7 @@ describe('AlertsPage', () => {
     });
     renderAlertsPage();
     expect(screen.getAllByText('CRITICAL')).toHaveLength(2);
-    expect(screen.getByText('MEDIUM')).toBeInTheDocument();
+    expect(screen.getAllByText('MEDIUM')).toHaveLength(2);
     expect(screen.getByText('ACKNOWLEDGED')).toBeInTheDocument();
   });
 
