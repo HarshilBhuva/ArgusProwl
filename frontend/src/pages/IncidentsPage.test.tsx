@@ -108,7 +108,7 @@ describe('IncidentsPage', () => {
       refetch: vi.fn(),
     });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /CLOSED\\s*\\(1\\)/ }));
+    fireEvent.click(screen.getByRole('button', { name: /CLOSED\s*\(2\)/ }));
     expect(screen.getByText('Closed incident')).toBeInTheDocument();
     expect(screen.queryByText('Breach Attempt')).not.toBeInTheDocument();
   });
