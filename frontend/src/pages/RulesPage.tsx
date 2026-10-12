@@ -302,7 +302,7 @@ export function RulesPage() {
           <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">{rulesQuery.data?.total_count ?? 0} rules loaded</p>
         </div>
       </div>
-      <Card title="Rule Catalog" description="Read-only projection from the runtime registry">
+      <Card title="Rule Catalog" description="Runtime detection rule registry">
         <RulesList
           data={rulesQuery.data}
           isLoading={rulesQuery.isLoading}

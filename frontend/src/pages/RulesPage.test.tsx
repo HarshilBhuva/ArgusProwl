@@ -85,7 +85,7 @@ describe('RulesPage', () => {
         <RulesPage />
       </MemoryRouter>
     );
-    expect(screen.getByText(/Read-only projection from the runtime registry/i)).toBeInTheDocument();
+    expect(screen.getByText(/Runtime detection rule registry/i)).toBeInTheDocument();
   });
 
   it('renders error state', () => {
