@@ -63,7 +63,6 @@ export function Header() {
           <div className="h-3 w-px bg-border" />
           <p className="text-[10px] text-muted-foreground font-mono uppercase">System Active</p>
         </div>
-        <p className="hidden text-[10px] font-mono text-muted-foreground sm:block">READ-ONLY API VIEW</p>
       </div>
     </header>
   );
