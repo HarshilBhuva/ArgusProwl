@@ -68,11 +68,8 @@ function RulesList({
     return <ErrorState message={message} onRetry={() => {}} />;
   }
 
-  if (!data || data.rules.length === 0) {
-    const hasFilters = enabledFilter !== 'ALL' || detectorClassFilter.length > 0;
-    return (
-      <EmptyState message={hasFilters ? 'No rules match the applied filters.' : 'No detection rules are currently loaded.'} />
-    );
+  if (!data) {
+    return <EmptyState message="No detection rules are currently loaded." />;
   }
 
   return (
@@ -130,6 +127,15 @@ function RulesList({
           {data.total_count} rule{data.total_count === 1 ? '' : 's'}
         </span>
       </div>
+      {data.rules.length === 0 ? (
+        <EmptyState
+          message={
+            enabledFilter !== 'ALL' || detectorClassFilter.length > 0
+              ? 'No rules match the applied filters.'
+              : 'No detection rules are currently loaded.'
+          }
+        />
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border text-xs font-semibold text-muted-foreground uppercase">
@@ -151,6 +157,7 @@ function RulesList({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
