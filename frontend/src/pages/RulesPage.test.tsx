@@ -120,6 +120,29 @@ describe('RulesPage', () => {
     expect(screen.getByText(/No detection rules are currently loaded/i)).toBeInTheDocument();
   });
 
+  it('keeps rule filters visible when the selected filter returns no rules', () => {
+    mockUseRules.mockImplementation((filters) => ({
+      data: filters?.enabled === false
+        ? { rules: [], total_count: 0 }
+        : sampleRules,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }));
+
+    render(
+      <MemoryRouter>
+        <RulesPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^Disabled$/i }));
+
+    expect(screen.getByRole('button', { name: /Disabled/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /All/i })).toBeInTheDocument();
+    expect(screen.getByText(/No rules match the applied filters/i)).toBeInTheDocument();
+  });
+
   it('renders empty state when filters match no rules', () => {
     mockUseRules.mockReturnValue({
       data: { rules: [], total_count: 0 },
