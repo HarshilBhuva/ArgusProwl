@@ -317,23 +317,30 @@ class AlertQueue:
         """
         return self._transition(alert_id, AlertLifecycleState.ACKNOWLEDGED)
 
-    def close(self, alert_id: UUID) -> Alert:
-        """Transition an alert to CLOSED.
+    def close(self, alert_id: UUID | None = None) -> Alert | None:
+        """Transition an alert to CLOSED, or act as a no-op cleanup hook.
 
-        Valid from OPEN or ACKNOWLEDGED. Delegates to
-        :func:`transition_lifecycle` and replaces the stored immutable alert
-        with the returned immutable alert.
+        When called with an ``alert_id``, transitions the alert from OPEN or
+        ACKNOWLEDGED to CLOSED via :func:`transition_lifecycle`.
+
+        When called with no arguments, this is a no-op satisfying the DI
+        container's ``close()`` shutdown contract. AlertQueue holds no
+        external resources.
 
         Args:
-            alert_id: The id of the alert to close.
+            alert_id: The id of the alert to close. Pass ``None`` (default)
+                to invoke the no-op shutdown path.
 
         Returns:
-            The new immutable alert with ``lifecycle_state=CLOSED``.
+            The new immutable alert with ``lifecycle_state=CLOSED``, or
+            ``None`` when called without an ``alert_id``.
 
         Raises:
             AlertNotFoundError: If ``alert_id`` is not in the queue.
             ValueError: If the transition is invalid (e.g. CLOSED -> CLOSED).
         """
+        if alert_id is None:
+            return None
         return self._transition(alert_id, AlertLifecycleState.CLOSED)
 
     def _transition(self, alert_id: UUID, new_state: AlertLifecycleState) -> Alert:

@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import Logo from '../assets/argusprowl_owl_logo_same_style.svg';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true },
@@ -38,9 +39,12 @@ function NavItems({ className }: { className?: string }) {
 export function Sidebar() {
   return (
     <aside className="hidden w-52 shrink-0 border-r border-border bg-surface p-4 md:block">
-      <div className="px-2 mb-6">
-        <h1 className="text-sm font-bold tracking-tight text-foreground uppercase">ArgusProwl</h1>
-        <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">THREAT HUNTER CONSOLE</p>
+      <div className="px-2 mb-6 flex items-center gap-2">
+        <img src={Logo} alt="ArgusProwl" className="w-8 h-8" />
+        <div>
+          <h1 className="text-sm font-bold tracking-tight text-foreground uppercase">ArgusProwl</h1>
+          <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">THREAT HUNTER CONSOLE</p>
+        </div>
       </div>
       <NavItems className="flex flex-col gap-0.5" />
       <div className="mt-auto pt-8 px-2">
