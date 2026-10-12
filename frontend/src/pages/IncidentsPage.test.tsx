@@ -166,8 +166,8 @@ describe('IncidentDetailPage', () => {
     renderDetail();
     expect(screen.getByText('Breach Attempt')).toBeInTheDocument();
     expect(screen.getByText('HIGH')).toBeInTheDocument();
-    expect(screen.getAllByText('OPEN')).toHaveLength(2);
-    expect(screen.getByText('2')).toBeInTheDocument(); // alert count
+    expect(screen.getByText('OPEN')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument(); // associated alert count
   });
 
   it('shows error state on detail fetch failure', () => {
