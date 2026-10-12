@@ -133,7 +133,7 @@ describe('AlertsPage', () => {
       refetch: vi.fn(),
     });
     renderAlertsPage();
-    expect(screen.getByText('CRITICAL')).toBeInTheDocument();
+    expect(screen.getAllByText('CRITICAL')).toHaveLength(2);
     expect(screen.getByText('MEDIUM')).toBeInTheDocument();
     expect(screen.getByText('ACKNOWLEDGED')).toBeInTheDocument();
   });
