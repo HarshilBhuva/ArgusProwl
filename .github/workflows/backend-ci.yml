@@ -97,16 +97,16 @@ jobs:
 
       - name: Wait for API health endpoint
         run: |
-          for i in $(seq 1 60); do
-            if curl -fsS http://localhost:8080/health > /dev/null; then
-              echo "API healthy after ${i}s"
-              exit 0
+          deadline=$((SECONDS + 20))
+          until curl --fail --silent --show-error --max-time 1 http://localhost:8080/health > /dev/null; do
+            if (( SECONDS >= deadline )); then
+              echo "API never became healthy within 20 seconds"
+              docker compose logs argusprowl
+              exit 1
             fi
-            sleep 1
+            sleep 0.2
           done
-          echo "API never became healthy"
-          docker compose logs argusprowl
-          exit 1
+          echo "API is healthy"
 
       - name: Tear down
         if: always()
