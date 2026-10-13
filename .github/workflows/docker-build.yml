@@ -72,12 +72,13 @@ jobs:
         run: |
           docker run -d --name argusprowl-ci -p 8080:8080 \
             -e TH_API__HOST=0.0.0.0 -e TH_API__PORT=8080 argusprowl:ci
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/health > /dev/null; then
-              echo "API healthy after ${i}s"
-              exit 0
+          deadline=$((SECONDS + 20))
+          until curl --fail --silent --show-error --max-time 1 http://localhost:8080/health > /dev/null; do
+            if (( SECONDS >= deadline )); then
+              echo "API never became healthy within 20 seconds"
+              docker logs argusprowl-ci
+              exit 1
             fi
-            sleep 1
+            sleep 0.2
           done
-          docker logs argusprowl-ci
-          exit 1
+          echo "API is healthy"
