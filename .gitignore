@@ -1,37 +1,4 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-.eggs/
-.venv/
-venv/
-env/
-build/
-dist/
-pip-wheel-metadata/
-
-# Tests and analysis
-.pytest_cache/
-.coverage
-coverage.xml
-htmlcov/
-.mypy_cache/
-.ruff_cache/
-.pyre/
-.pytype/
-
-# Frontend dependencies and build output
-node_modules/
-frontend/node_modules/
-frontend/dist/
-frontend/playwright-report/
-frontend/test-results/
-*.tsbuildinfo
-
-# Environment and secrets
-.env
+# Environment files and secrets
 .env.*
 !.env.example
 secrets/
@@ -39,6 +6,19 @@ secrets/
 *.key
 *.p12
 *.pfx
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+.venv/
+venv/
 
 # Local databases and runtime state
 *.db
@@ -52,10 +32,17 @@ secrets/
 /preprocessed_configs/
 /clickhouse/
 /vector/
+
+# Logs
+*.log
 /logs/*
 !logs/.gitkeep
 /scripts/logs/*
 !scripts/logs/.gitkeep
+/frontend/logs/*
+!frontend/logs/.gitkeep
+
+# Local run and temporary output
 /runs/*
 !runs/.gitkeep
 /tmp/*
@@ -71,28 +58,15 @@ data/*
 models/*
 !models/.gitkeep
 
+# Frontend dependencies, caches, and build output
+frontend/node_modules/
+frontend/dist/
+**/.vite/
+frontend/.vite/
+node_modules/
+
 # Editors and operating systems
 .DS_Store
 .idea/
 .vscode/
 .obsidian/
-.claude/
-.remember/
-
-# Internal working material
-docs-internal/
-frontend/docs-internal/
-project.txt
-chatgpt-packages/
-chatgpt_request.txt
-pack.sh
-pack_for_chatgpt.py
-test.txt
-test.py
-test_extractor.py
-context_graph.json
-graphify-out/
-
-# Temporary audit backups
-*.pre-community-cleanup
-*.pre-attck-version-fix

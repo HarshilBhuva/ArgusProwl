@@ -22,7 +22,6 @@ from argusprowl.behavior.entity_behavior_service import EntityBehaviorService
 from argusprowl.collectors.manager import CollectorManager
 from argusprowl.collectors.registry import CollectorRegistry
 from argusprowl.config.config_manager import ConfigManager
-from argusprowl.constants.attck import AttckKnowledgeStatus
 from argusprowl.constants.log_names import LogName
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.correlation.correlator import EndpointCorrelator
@@ -384,9 +383,12 @@ class Application:
                 alert_search_service=self._container.resolve(AlertSearchService)
                 if alert_persistence is not None
                 else None,
-                attck_enrichment_service=self._container.resolve(AttckEnrichmentService)
-                if self._config.attck.enabled
-                else None,
+                attck_enrichment_service=(
+                    self._container.resolve(AttckEnrichmentService)
+                    if self._config.attck.enabled
+                    and self._container.is_registered(AttckEnrichmentService)
+                    else None
+                ),
             ),
         )
         # Phase 5.5: Register AlertSearchService
@@ -539,35 +541,31 @@ class Application:
                 enabled=attck_cfg.enabled,
             )
 
-            # ATT&CK data is an operator-installed local prerequisite, not a
-            # bundled application asset. Core detection remains independent
-            # when ATT&CK is disabled.
-            if knowledge_service.get_status() == AttckKnowledgeStatus.EMPTY:
-                raise RuntimeError(
-                    "ATT&CK enrichment is enabled, but no local snapshot is installed. "
-                    "Run `.venv/bin/python scripts/download_attck_snapshot.py` "
-                    "from the project root, or set attck.snapshot_path to an "
-                    "already imported snapshot."
-                )
-
             self._container.register_singleton(AttckKnowledgeService, knowledge_service)
-            self._container.register_singleton(
-                AttckMappingRegistry,
-                lambda: AttckMappingRegistry(knowledge_service=knowledge_service),
-            )
-            # Resolve immediately so an enabled deployment fails closed when
-            # the authoritative mapping source or ATT&CK knowledge is invalid.
-            mapping_registry = self._container.resolve(AttckMappingRegistry)
 
-            self._container.register_singleton(
-                AttckEnrichmentService,
-                lambda: AttckEnrichmentService(
-                    knowledge_service=knowledge_service,
-                    mapping_registry=mapping_registry,
-                    detection_manager=self._container.resolve(DetectionManager),
-                ),
-            )
-            self._logger.info("ATT&CK knowledge service and mapping registry enabled")
+            if knowledge_service.get_status().value in {"AVAILABLE", "DEGRADED"}:
+                self._container.register_singleton(
+                    AttckMappingRegistry,
+                    lambda: AttckMappingRegistry(knowledge_service=knowledge_service),
+                )
+                # Validate mappings eagerly when knowledge is available.
+                mapping_registry = self._container.resolve(AttckMappingRegistry)
+
+                self._container.register_singleton(
+                    AttckEnrichmentService,
+                    lambda: AttckEnrichmentService(
+                        knowledge_service=knowledge_service,
+                        mapping_registry=mapping_registry,
+                        detection_manager=self._container.resolve(DetectionManager),
+                    ),
+                )
+                self._logger.info("ATT&CK knowledge service and mapping registry enabled")
+            else:
+                self._logger.warning(
+                    "ATT&CK snapshot is not available (status=%s); "
+                    "continuing without ATT&CK enrichment",
+                    knowledge_service.get_status().value,
+                )
 
         # Phase 5.3: Register InvestigationContextService
         from argusprowl.behavior.analyst_behavior_query_service import AnalystBehaviorQueryService

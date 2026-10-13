@@ -125,7 +125,7 @@ alert_persistence:
   db_path: data/alerts.db
   max_alerts: 10000
 attck:
-  enabled: false
+  enabled: true
   snapshot_path: data/attck_snapshot.json
   previous_snapshot_path: ''
 baseline:

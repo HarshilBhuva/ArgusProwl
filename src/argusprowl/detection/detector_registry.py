@@ -3,14 +3,12 @@
 Provides plugin-like registration and management of threat detectors.
 """
 
-from argusprowl.detection.detectors.tls_c2_detector import TLSC2Detector
 from argusprowl.interfaces.detector import Detector
 
 # Classes the detection manager is able to construct. RuleLoader.DETECTORS
 # is the YAML allow-list that actually instantiates detectors at startup;
 # this mapping is the registry-side catalog of the same classes.
 BUILTIN_DETECTORS: dict[str, type[Detector]] = {
-    "TLSC2Detector": TLSC2Detector,
 }
 
 

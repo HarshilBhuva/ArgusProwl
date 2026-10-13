@@ -149,8 +149,18 @@ def create_api_app(
             reserved = ("api/", "docs", "redoc", "openapi.json", "health")
             if full_path.startswith(reserved):
                 return JSONResponse(status_code=404, content={"detail": "Not Found"})
+            # Serve existing root-level public files (favicon, icons, etc.)
+            # before the SPA fallback. Never return HTML for a static asset.
+            requested_file = os.path.realpath(os.path.join(static_dir, full_path))
+            static_root = os.path.realpath(static_dir)
+            if (
+                os.path.commonpath([static_root, requested_file]) == static_root
+                and os.path.isfile(requested_file)
+            ):
+                return FileResponse(requested_file)
+
             # Never fall back to index.html for missing static assets.
-            if full_path.startswith("assets/"):
+            if full_path.startswith("assets/") or "." in os.path.basename(full_path):
                 return JSONResponse(status_code=404, content={"detail": "Asset not found"})
             if not os.path.exists(_idx):
                 raise HTTPException(status_code=404, detail="Frontend index.html not found")
