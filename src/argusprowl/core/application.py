@@ -70,6 +70,7 @@ class Application:
         self._shutdown_event = Event()
         self._event_queue: queue.Queue[NormalizedEvent] = queue.Queue()
         self._api_server: Any = None
+        self._uvicorn_server: Any = None
         self._api_thread: Thread | None = None
         self._api_startup_event: Event | None = None
         self._api_startup_error: Exception | None = None
@@ -212,6 +213,7 @@ class Application:
             )
             config.load()  # required before using Server methods
             server = uvicorn.Server(config)
+            self._uvicorn_server = server
             server.lifespan = config.lifespan_class(config)  # required for startup()
 
             async def _serve_and_signal() -> None:
@@ -273,14 +275,26 @@ class Application:
 
     def _stop_api_server(self) -> None:
         """Stop the API server if running."""
-        if self._api_thread is not None and self._api_thread.is_alive():
-            # Signal uvicorn to exit its main loop, then let the daemon thread drain
-            if self._api_server is not None:
-                self._api_server.should_exit = True
-            self._api_thread.join(timeout=3.0)
-            self._api_thread = None
-            self._api_server = None
-            self._logger.info("API server stopped")
+        thread = self._api_thread
+        if thread is None:
+            return
+
+        # Signal the actual Uvicorn server, not the FastAPI application object.
+        # Uvicorn checks this flag in main_loop() and then performs graceful shutdown.
+        if self._uvicorn_server is not None:
+            self._uvicorn_server.should_exit = True
+
+        if thread.is_alive():
+            thread.join(timeout=3.0)
+
+        if thread.is_alive():
+            self._logger.warning("API server thread did not stop within 3 seconds")
+            return
+
+        self._api_thread = None
+        self._api_server = None
+        self._uvicorn_server = None
+        self._logger.info("API server stopped")
 
     def _safe_clear(self) -> None:
         self._container.clear()
