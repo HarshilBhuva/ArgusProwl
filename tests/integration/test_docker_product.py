@@ -283,33 +283,31 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _http_request(port: int, path: str, timeout: float = 2.0) -> tuple[int, str]:
+    """Request one local endpoint and return its status and body.
+
+    urllib keeps the runtime smoke test in-process instead of launching a
+    curl subprocess for every assertion. HTTP errors still return their
+    status/body; connection and timeout errors become status 0.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"http://127.0.0.1:{port}{path}"
+    request = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as error:
+        return error.code, error.read().decode("utf-8", errors="replace")
+    except (OSError, TimeoutError):
+        return 0, ""
+
+
 def _curl(port: int, path: str, timeout: float = 2.0) -> int:
-    """Return the HTTP status, treating startup/network errors as not-ready."""
-    try:
-        result = subprocess.run(
-            [
-                "curl",
-                "--silent",
-                "--show-error",
-                "--max-time",
-                str(timeout),
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}",
-                f"http://127.0.0.1:{port}{path}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout + 1,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return 0
-    try:
-        return int(result.stdout.strip() or "0")
-    except ValueError:
-        return 0
+    """Return an HTTP status code for readiness and endpoint checks."""
+    status, _ = _http_request(port, path, timeout)
+    return status
 
 
 def _wait_for_http(port: int, timeout: float = 20.0) -> bool:
@@ -440,84 +438,29 @@ def test_docker_container_boots_and_serves(docker_image):
         assert _curl(port, "/health") == 200
 
         # / serves the SPA (HTML content)
-        root_result = subprocess.run(
-            ["curl", "-s", f"http://127.0.0.1:{port}/"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert "<" in root_result.stdout, "GET / did not return HTML"
+        root_status, root_body = _http_request(port, "/")
+        assert root_status == 200, f"GET / returned HTTP {root_status}"
+        assert "<" in root_body, "GET / did not return HTML"
 
-        # Unknown /api/v1/ path returns JSON 404, not SPA HTML
-        api_result = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "-H",
-                "Accept: application/json",
-                f"http://127.0.0.1:{port}/api/v1/nonexistent",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
+        # Unknown /api/v1/ path returns JSON 404/405, not SPA HTML.
+        api_status, api_body = _http_request(port, "/api/v1/nonexistent")
+        assert api_status in (404, 405), (
+            f"unknown API path returned {api_status}, expected 404/405"
         )
-        api_status = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}",
-                f"http://127.0.0.1:{port}/api/v1/nonexistent",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert api_status.stdout.strip() in ("404", "405"), (
-            f"unknown API path returned {api_status.stdout.strip()}, expected 404/405"
-        )
-        assert "html" not in api_result.stdout.lower(), (
+        assert "html" not in api_body.lower(), (
             "unknown /api/ path returned HTML (SPA swallowed the API route)"
         )
 
-        # A valid /api/v1/ endpoint works
-        health_api = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}",
-                f"http://127.0.0.1:{port}/api/v1/health",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert health_api.stdout.strip() in ("200", "503"), (
-            f"/api/v1/health returned {health_api.stdout.strip()}"
+        # A valid /api/v1/ endpoint works.
+        health_api_status, _ = _http_request(port, "/api/v1/health")
+        assert health_api_status in (200, 503), (
+            f"/api/v1/health returned {health_api_status}"
         )
 
-        # A SPA route resolves to the frontend (200 HTML)
-        spa = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}",
-                f"http://127.0.0.1:{port}/alerts/xyz",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert spa.stdout.strip() == "200", (
-            f"SPA route /alerts/xyz returned {spa.stdout.strip()}, expected 200"
+        # A SPA route resolves to the frontend (200 HTML).
+        spa_status, _ = _http_request(port, "/alerts/xyz")
+        assert spa_status == 200, (
+            f"SPA route /alerts/xyz returned {spa_status}, expected 200"
         )
 
         # The process is running inside the container
