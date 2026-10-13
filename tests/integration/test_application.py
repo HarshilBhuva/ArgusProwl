@@ -46,9 +46,15 @@ def test_application_lifecycle(temp_dir: Path):
     app_instance.startup()
     assert app_instance.is_running is True
     assert app_instance.config.app_name == "Test App"
+    api_thread = app_instance._api_thread
+    uvicorn_server = app_instance._uvicorn_server
+    assert api_thread is not None
+    assert uvicorn_server is not None
 
     health = app_instance.health_check()
     assert health.status == HealthStatus.HEALTHY
 
     app_instance.shutdown()
     assert app_instance.is_running is False
+    assert uvicorn_server.should_exit is True
+    assert not api_thread.is_alive(), "Uvicorn API thread should terminate during shutdown"

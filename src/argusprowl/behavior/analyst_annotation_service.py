@@ -90,6 +90,7 @@ class AnalystAnnotationService:
         # target_key -> list of AnalystAnnotation (ordered by created_at desc)
         self._annotations: dict[str, list[AnalystAnnotation]] = {}
         self._all_annotations: list[AnalystAnnotation] = []
+        self._active_annotation_count = 0
         self._lock = __import__("threading").RLock()
 
         # Load persisted state if available
@@ -109,6 +110,7 @@ class AnalystAnnotationService:
             with self._lock:
                 self._annotations.clear()
                 self._all_annotations.clear()
+                self._active_annotation_count = len(annotations)
                 for annotation in annotations:
                     target = annotation.target_key
                     if target not in self._annotations:
@@ -240,9 +242,8 @@ class AnalystAnnotationService:
                     f"Maximum annotations per target ({self._max_annotations_per_target}) reached."
                 )
 
-            # Check total limit (count non-tombstoned only)
-            total_count = sum(1 for a in self._all_annotations if not a.tombstoned)
-            if total_count >= self._max_total_annotations:
+            # Check total limit in O(1); keep the count synchronized under this lock.
+            if self._active_annotation_count >= self._max_total_annotations:
                 raise RuntimeError(
                     f"Maximum total annotations ({self._max_total_annotations}) reached."
                 )
@@ -260,10 +261,10 @@ class AnalystAnnotationService:
                 self._annotations[target_key] = []
             self._annotations[target_key].append(annotation)
             self._all_annotations.append(annotation)
+            self._active_annotation_count += 1
 
-            # Sort by created_at descending
-            self._all_annotations.sort(key=lambda a: a.created_at, reverse=True)
-            self._annotations[target_key].sort(key=lambda a: a.created_at, reverse=True)
+            # Avoid sorting the complete history on every insertion. Public list/query
+            # methods sort their bounded result when ordering is actually required.
 
         # Persist if available
         if self._persistence is not None:
@@ -332,11 +333,14 @@ class AnalystAnnotationService:
         bounded_limit = min(limit, _MAX_ANNOTATIONS_PER_TARGET_QUERY)
 
         with self._lock:
-            annotations = self._annotations.get(target_key, [])
+            annotations = list(self._annotations.get(target_key, []))
 
         # Filter by tombstone status
         if not include_tombstoned:
             annotations = [a for a in annotations if not a.tombstoned]
+
+        # Preserve the public newest-first ordering without sorting on every write.
+        annotations.sort(key=lambda a: a.created_at, reverse=True)
 
         # Apply limit
         annotations = annotations[:bounded_limit]
@@ -376,6 +380,9 @@ class AnalystAnnotationService:
         # Filter by tombstone status
         if not include_tombstoned:
             annotations = [a for a in annotations if not a.tombstoned]
+
+        # Preserve newest-first ordering while keeping writes inexpensive.
+        annotations.sort(key=lambda a: a.created_at, reverse=True)
 
         # Apply limit
         annotations = annotations[:bounded_limit]
@@ -434,6 +441,7 @@ class AnalystAnnotationService:
             tombstoned = annotation.with_tombstone()
 
             # Update in-memory store
+            self._active_annotation_count -= 1
             for i, a in enumerate(self._all_annotations):
                 if a.annotation_id == annotation_id:
                     self._all_annotations[i] = tombstoned
@@ -467,8 +475,11 @@ class AnalystAnnotationService:
         """
         with self._lock:
             if target_key is not None:
-                return len([a for a in self._annotations.get(target_key, []) if not a.tombstoned])
-            return len([a for a in self._all_annotations if not a.tombstoned])
+                return sum(
+                    1 for annotation in self._annotations.get(target_key, [])
+                    if not annotation.tombstoned
+                )
+            return self._active_annotation_count
 
     def get_annotation_count(self) -> int:
         """Get total annotation count (non-tombstoned).
@@ -494,3 +505,4 @@ class AnalystAnnotationService:
         with self._lock:
             self._annotations.clear()
             self._all_annotations.clear()
+            self._active_annotation_count = 0
