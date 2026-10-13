@@ -283,24 +283,50 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _wait_for_http(port: int, timeout: float = 30.0) -> bool:
-    """Wait for the API health endpoint, not merely an open TCP port."""
+def _curl(port: int, path: str, timeout: float = 2.0) -> int:
+    """Return the HTTP status, treating startup/network errors as not-ready."""
+    try:
+        result = subprocess.run(
+            [
+                "curl",
+                "--silent",
+                "--show-error",
+                "--max-time",
+                str(timeout),
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                f"http://127.0.0.1:{port}{path}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 1,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+    try:
+        return int(result.stdout.strip() or "0")
+    except ValueError:
+        return 0
+
+
+def _wait_for_http(port: int, timeout: float = 20.0) -> bool:
+    """Poll health responsively with a strict overall deadline.
+
+    A short per-request timeout prevents a single stalled request from
+    consuming the remaining readiness budget. Polling starts immediately;
+    no fixed startup sleep is required.
+    """
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _curl(port, "/health", timeout=3) == 200:
+    while True:
+        if _curl(port, "/health", timeout=1.0) == 200:
             return True
-        time.sleep(0.5)
-    return False
-
-
-def _curl(port: int, path: str, timeout: int = 10) -> int:
-    result = subprocess.run(
-        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", f"http://127.0.0.1:{port}{path}"],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    return int(result.stdout.strip() or "0")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.2, remaining))
 
 
 def test_docker_image_runs_non_root(docker_image):
@@ -391,18 +417,18 @@ def test_docker_container_boots_and_serves(docker_image):
     container_id = proc.stdout.strip()
 
     try:
-        if not _wait_for_http(port, timeout=60.0):
+        if not _wait_for_http(port, timeout=20.0):
             logs = subprocess.run(
                 ["docker", "logs", container_id],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=5,
             )
             state = subprocess.run(
                 ["docker", "inspect", "--format", "{{.State.Status}} {{.State.ExitCode}}", container_id],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=5,
             )
             raise AssertionError(
                 "container never became ready "
