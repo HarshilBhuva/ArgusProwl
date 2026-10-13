@@ -342,9 +342,6 @@ class AnalystAnnotationService:
         # Preserve the public newest-first ordering without sorting on every write.
         annotations.sort(key=lambda a: a.created_at, reverse=True)
 
-        # Preserve the public newest-first ordering without sorting on every write.
-        annotations.sort(key=lambda a: a.created_at, reverse=True)
-
         # Apply limit
         annotations = annotations[:bounded_limit]
 
@@ -383,6 +380,9 @@ class AnalystAnnotationService:
         # Filter by tombstone status
         if not include_tombstoned:
             annotations = [a for a in annotations if not a.tombstoned]
+
+        # Preserve newest-first ordering while keeping writes inexpensive.
+        annotations.sort(key=lambda a: a.created_at, reverse=True)
 
         # Apply limit
         annotations = annotations[:bounded_limit]
