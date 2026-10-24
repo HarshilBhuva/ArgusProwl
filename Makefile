@@ -1,20 +1,29 @@
+.PHONY: test lint frontend-install frontend-test frontend-lint frontend-build deploy stop clean
 
-graph:
-	.venv/bin/python scripts/build_context_graph.py
+test:
+	uv run pytest
 
-bundle:
-	@echo "Packaging lab for transport..."
-	tar --exclude='./.venv' --exclude='./.git' --exclude='*.tar.gz' --exclude='*/__pycache__/*' --exclude='./clickhouse_data' -czvf argusprowl_lab.tar.gz .
-	@echo "Saved to argusprowl_lab.tar.gz"
+lint:
+	uv run ruff check src tests
+	uv run ruff format --check src tests
+
+frontend-install:
+	cd frontend && npm ci
+
+frontend-test:
+	cd frontend && npx vitest run
+
+frontend-lint:
+	cd frontend && npm run lint
+
+frontend-build:
+	cd frontend && npm run build
 
 deploy:
-	@echo "Starting ArgusProwl product container..."
-	docker compose up -d
+	docker compose up -d --build
 
-clean:
-	@echo "Stopping container and removing all data/logs volumes..."
-	docker compose down -v
+stop:
+	docker compose down
 
-run-sweep:
-	@echo "Executing N=40 Boundary Sweep..."
-	.venv/bin/python scripts/evaluate_jitter_boundary.py --count 40 --baseline-runs 5
+# Stop services without deleting persisted volumes or application data.
+clean: stop
