@@ -9,7 +9,6 @@ from typing import Any
 
 from argusprowl.detection.detectors.tls_c2_detector import TLSC2Detector
 
-
 BUILTIN_DETECTORS: dict[str, type[Any]] = {
     "TLSC2Detector": TLSC2Detector,
 }
