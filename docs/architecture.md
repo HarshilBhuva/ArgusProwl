@@ -439,7 +439,7 @@ src/argusprowl/core/application.py
         │   ├── src/argusprowl/metrics/
         │   └── src/argusprowl/models/collector_health.py
         ├── src/argusprowl/feature_engineering/
-        │   └── src/argusprowl/models/connection_event.py
+        │   └── src/argusprowl/models/normalized_event.py
         ├── src/argusprowl/detection/
         │   ├── src/argusprowl/feature_engineering/
         │   └── src/argusprowl/models/
