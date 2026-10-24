@@ -1,17 +1,11 @@
-# Copilot instructions for Threat Hunter
+# Copilot instructions for ArgusProwl
 
 ## Python environment rule
 
-Before running any Python command in this workspace, always check whether a project-local virtual environment exists at `.venv`.
-
-Use the project environment for Python work:
-- Prefer `.venv/bin/python`
-- Prefer `.venv/bin/pytest`
-- Prefer `.venv/bin/python -m ...` for module execution
-
-Do not run bare `python`, `pytest`, or other Python entrypoints against the system interpreter when a workspace virtual environment is available.
-
-If `.venv` is missing, stop and inform the user rather than running Python commands with the global environment. If appropriate, suggest creating the environment before continuing.
+Use the repository-managed environment for Python work:
+- Prefer `uv run python ...`, `uv run pytest ...`, and `uv run ruff ...`.
+- Run `uv sync` first when dependencies are not installed.
+- Do not bypass the project dependency lockfile by installing arbitrary packages into the system interpreter.
 
 ## Report output preference
 
