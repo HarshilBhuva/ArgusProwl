@@ -216,19 +216,10 @@ Contributions and bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.m
 
 ArgusProwl is licensed under Apache-2.0. See [LICENSE](LICENSE) for the full license text.
 
+## Repository consolidation provenance
 
-## Unified repository provenance
+This branch consolidates the maintained community application with selected non-sensitive documentation from the earlier `Threat_Hunter` repository. The community application's implementation, dependencies, license, and detection catalog remain authoritative.
 
-This repository consolidates the maintained ArgusProwl application with selected
-components and documentation from the earlier `Threat_Hunter` codebase. The
-community application's current deployment model, dependency lock, security
-guidance, and Apache-2.0 license remain authoritative.
+Private ML/C2 detection, its TLS-specific feature engineering, model artifacts, training and evaluation code, and internal research materials are intentionally excluded from this repository. They must remain in the private repository and must not be imported, registered, or exposed by the community edition.
 
-Selected carry-forwards are the optional TLS C2 flow feature extractor and
-detector with unit tests, plus productization and single-process architecture
-notes. The bundled ATT&CK JSON and editor backup files are not copied; use
-`scripts/download_attck_snapshot.py` to fetch and verify the pinned snapshot
-into ignored local data storage.
-
-The source repositories remain historical references until this unified branch
-passes CI and the final repository location has been established.
+The bundled ATT&CK JSON snapshot and editor backup files are not copied; use `scripts/download_attck_snapshot.py` to fetch and verify the pinned snapshot into ignored local data storage. Keep both source repositories until consolidation review is complete.
