@@ -1,26 +1,24 @@
 # Copilot instructions for ArgusProwl
 
-## Python environment rule
+## Environment and dependencies
 
-Use the repository-managed environment for Python work:
-- Prefer `uv run python ...`, `uv run pytest ...`, and `uv run ruff ...`.
-- Run `uv sync` first when dependencies are not installed.
-- Do not bypass the project dependency lockfile by installing arbitrary packages into the system interpreter.
+- Use the repository-managed Python environment: `uv run ...`.
+- Run `uv sync --group dev` when dependencies need to be installed or updated.
+- Keep `pyproject.toml` and `uv.lock` in sync; do not add a parallel `requirements.txt`.
+- Use Node.js 22 and `npm ci` for frontend work.
 
-## Report output preference
+## Validation
 
-When the user asks for a report, prefer returning a copyable text block directly in chat rather than creating a markdown file on disk unless the user explicitly asks for a file or a specific path.
+- Backend tests: `uv run pytest -q`.
+- Backend lint: `uv run ruff check src tests`.
+- Python formatting: `uv run ruff format --check src tests`.
+- Frontend tests: `cd frontend && npx vitest run`.
+- Frontend lint and build: `cd frontend && npm run lint && npm run build`.
+- Configuration validation: `uv run python -m argusprowl validate-config`.
 
-Default behavior:
-- Provide the report inline in the chat response as plain copyable text.
-- Keep it concise, structured, and easy to paste into issues, docs, or notes.
-- Use markdown headings and bullets when helpful, but keep it copy-friendly.
+## Repository boundaries
 
-Only create a `.md` file when:
-- the user specifically requests a file location,
-- the task explicitly says to save the report to a path, or
-- the user asks for a durable artifact in the workspace.
-
-## Scope
-
-This instruction applies to all Python-based development, validation, and test commands in this repository, and to report-generation requests made in this project.
+- Keep changes scoped to the community product and its verified capabilities.
+- Do not add generated runtime state, local databases, logs, secrets, or downloaded ATT&CK datasets to commits.
+- Prefer updating maintained user/developer documentation over adding planning notes or placeholder reports.
+- Do not claim checks passed unless they were run and their results were observed.
