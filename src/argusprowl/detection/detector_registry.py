@@ -5,9 +5,8 @@ by DetectionManager. The catalog below contains detectors with an explicit
 window-analysis API that is invoked by a service outside that event pipeline.
 """
 
-from typing import Any
-
 from argusprowl.detection.detectors.tls_c2_detector import TLSC2Detector
+from typing import Any
 
 
 BUILTIN_DETECTORS: dict[str, type[Any]] = {
