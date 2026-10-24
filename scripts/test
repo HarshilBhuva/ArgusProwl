@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/test
-#   ./scripts/test -- -k test_something
+#   ./scripts/test -k test_something
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ ! -d "$REPO_ROOT/.venv" ]; then
