@@ -15,6 +15,7 @@ from argusprowl.detection.detectors.long_connection import LongConnectionDetecto
 from argusprowl.detection.detectors.ordered_sequence_correlation import OrderedSequenceDetector
 from argusprowl.detection.detectors.port_scan import PortScanDetector
 from argusprowl.detection.detectors.syn_scan import SynScanDetector
+from argusprowl.detection.detectors.tls_c2_detector import TLSC2Detector
 from argusprowl.detection.detectors.vertical_scan import VerticalScanDetector
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "OrderedSequenceDetector",
     "PortScanDetector",
     "SynScanDetector",
+    "TLSC2Detector",
     "VerticalScanDetector",
 ]
