@@ -45,7 +45,7 @@ Features operating on temporal or stateful logic must verify:
 ### 7. Execution & Verification Workflow
 1. **Targeted Run**: Run tests for the specific module under edit:
    ```bash
-   uv run pytest -q tests/test_<module>.py
+   uv run pytest -q tests/unit/test_<module>.py  # or tests/integration/test_<module>.py when applicable
    ```
 2. **Full Regression Suite**: Verify no regressions across the codebase:
    ```bash
