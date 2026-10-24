@@ -2,40 +2,28 @@
 
 ## Baseline
 
-Use `argusprowl-community` `main` as the canonical code baseline. It has the
-more complete operational README, the Apache-2.0 license, the pinned lockfile,
-and recent passing CI and Docker-build runs. `Threat_Hunter` has unrelated Git
-history; do not rebase or force-reset either source branch.
+Use `argusprowl-community` `main` as the canonical code baseline. Preserve the existing source histories; do not rebase or force-reset either source branch.
 
 ## Carry forward
 
-- TLS flow feature extraction, its unit tests, and the optional TLS C2 detector
-  plus detector unit tests.
-- The relevant productization and single-process architecture documentation,
-  marked as historical reports until this consolidated branch is reverified.
-- The detector registration/export and feature-extractor export needed to
-  integrate the carried code with the current application structure.
+- Selected non-sensitive architecture and productization documentation from `Threat_Hunter`, clearly marked as historical until independently verified against this branch.
+- Repository-level provenance and cleanup notes that do not disclose private implementation details.
 
-## Exclude
+## Explicitly exclude
 
-- The checked-in ATT&CK STIX JSON snapshot. Use the community repository's
-  pinned downloader and integrity checks instead; local data is ignored.
-- `.orig` editor backups and generated frontend build metadata.
-- Generated logs, local databases, model artifacts, and other local runtime
-  state.
+- All private ML/C2 detection implementation, including TLS C2 detectors and detector-specific feature engineering.
+- C2 detector tests, model artifacts, training/evaluation code, experiments, and internal research materials.
+- Any import, registry entry, package export, or rule-loader allow-list entry that exposes private C2 functionality.
+- The checked-in ATT&CK STIX JSON snapshot; use the community repository's pinned downloader and integrity checks instead.
+- `.orig` editor backups, generated frontend build metadata, logs, local databases, and other generated runtime state.
 
-## License and provenance
+## Product boundary
 
-Keep the community repository's Apache-2.0 license as the baseline. Verify
-that all files carried from the former repository are authored by or licensed
-for inclusion by the project's maintainers before redistributing. Retain both
-source repositories until this branch passes CI and the canonical repository
-has been established.
+The community repository must not import or register private C2/ML components. Private code may be developed and tested only in the private repository. Any future premium product integration must use an explicitly reviewed product boundary and must not be implemented by copying private detector code into this repository.
 
 ## Validation required before release
 
-- Backend tests, Ruff, compile check, config validation, Bandit, Docker build,
-  and frontend tests/lint/build.
-- Confirm the TLS detector works with a configured ClickHouse client and real
-  Zeek SSL data. The optional model artifact is not checked in.
-- Review docs, README, CI path filters, license notice, and repo settings.
+- Confirm no C2-specific detector or TLS feature-extraction paths remain in the community tree.
+- Search for private detector names and imports in source, tests, configuration, and documentation.
+- Run backend tests, Ruff, compile checks, configuration validation, security checks, Docker build, and frontend tests/lint/build.
+- Review README, CI path filters, license notice, and repository settings.
