@@ -190,7 +190,7 @@ The repository's CI workflows are the authoritative source for which checks run 
 
 ```text
 config/                  Default configuration and detection rules
-docs/                    Architecture, replay, and testing guidance
+docs/                    Maintained user and developer documentation
 frontend/                React + TypeScript application
 scripts/                 ATT&CK installation and development utilities
 src/argusprowl/          Python backend
@@ -201,12 +201,7 @@ pyproject.toml           Python package, dependencies, and tooling
 uv.lock                  Locked Python dependency versions
 ```
 
-Further implementation details:
-
-- [Architecture](docs/architecture.md)
-- [Replay](docs/replay.md)
-- [Testing](docs/testing.md)
-- [Contributing](CONTRIBUTING.md)
+See the [documentation index](docs/README.md) for the maintained architecture, replay, and testing guides.
 
 ## Contributing
 
@@ -215,11 +210,3 @@ Contributions and bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.m
 ## License
 
 ArgusProwl is licensed under Apache-2.0. See [LICENSE](LICENSE) for the full license text.
-
-## Repository consolidation provenance
-
-This branch consolidates the maintained community application with selected non-sensitive documentation from the earlier `Threat_Hunter` repository. The community application's implementation, dependencies, license, and detection catalog remain authoritative.
-
-Private ML/C2 detection, its TLS-specific feature engineering, model artifacts, training and evaluation code, and internal research materials are intentionally excluded from this repository. They must remain in the private repository and must not be imported, registered, or exposed by the community edition.
-
-The bundled ATT&CK JSON snapshot and editor backup files are not copied; use `scripts/download_attck_snapshot.py` to fetch and verify the pinned snapshot into ignored local data storage. Keep both source repositories until consolidation review is complete.
