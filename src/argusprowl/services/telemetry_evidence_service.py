@@ -113,6 +113,10 @@ class TelemetryEvidenceService:
         self._max_retained = max_retained_events
         self._storage = storage
         self._lock = Lock()
+        # Recovery status describes completeness of the durable startup snapshot.
+        # In-memory-only callers have no recovery step and remain AVAILABLE.
+        self._recovery_status = "AVAILABLE"
+        self._recovery_reason: str | None = None
         self._persistence_writes_succeeded = self._counter(
             metrics_collector, "evidence_persistence_writes_succeeded"
         )
@@ -168,8 +172,11 @@ class TelemetryEvidenceService:
             rows = self._storage.list_records("telemetry_evidence", limit=self._max_retained)
         except Exception:
             self._persistence_operations_failed.increment()
+            self._recovery_status = "UNAVAILABLE"
+            self._recovery_reason = "Persisted evidence could not be loaded during startup."
             logger.exception("Unable to load persisted telemetry evidence during startup")
             return
+        malformed_records = 0
         for payload in reversed(rows):
             try:
                 raw_event = payload["event"]
@@ -189,8 +196,18 @@ class TelemetryEvidenceService:
                 self._events[event.event_id] = event
                 self._records[event.event_id] = record
             except (KeyError, TypeError, ValueError) as exc:
+                malformed_records += 1
                 self._persistence_operations_failed.increment()
                 logger.warning("Skipping malformed persisted telemetry evidence: %s", exc)
+        if malformed_records:
+            self._recovery_status = "DEGRADED"
+            self._recovery_reason = (
+                f"Evidence recovery skipped {malformed_records} malformed persisted record(s)."
+            )
+
+    def _query_status(self) -> tuple[str, str | None]:
+        """Return the recovery completeness associated with query results."""
+        return self._recovery_status, self._recovery_reason
 
     # ------------------------------------------------------------------
     # Insertion
@@ -394,8 +411,8 @@ class TelemetryEvidenceService:
                     return EvidenceSearchResult(
                         records=tuple(),
                         events={},
-                        status="AVAILABLE",
-                        reason=None,
+                        status=self._query_status()[0],
+                        reason=self._query_status()[1],
                         truncated=False,
                         total_count=0,
                         returned_count=0,
@@ -404,8 +421,8 @@ class TelemetryEvidenceService:
                 return EvidenceSearchResult(
                     records=tuple((record,)),
                     events={event_id: event},
-                    status="AVAILABLE",
-                    reason=None,
+                    status=self._query_status()[0],
+                    reason=self._query_status()[1],
                     truncated=False,
                     total_count=1,
                     returned_count=1,
@@ -467,8 +484,8 @@ class TelemetryEvidenceService:
             return EvidenceSearchResult(
                 records=tuple(records),
                 events=events,
-                status="AVAILABLE",
-                reason=None,
+                status=self._query_status()[0],
+                reason=self._query_status()[1],
                 truncated=truncated,
                 total_count=total,
                 returned_count=len(records),
@@ -489,8 +506,8 @@ class TelemetryEvidenceService:
             if event is not None:
                 return EvidenceDetailResult(
                     event_id=event_id,
-                    status="AVAILABLE",
-                    reason=None,
+                    status=self._query_status()[0],
+                    reason=self._query_status()[1],
                     event=event,
                     record=self._records[event_id],
                 )
@@ -500,8 +517,11 @@ class TelemetryEvidenceService:
                 return None
             return EvidenceDetailResult(
                 event_id=event_id,
-                status="EVICTED",
-                reason="Referenced contributing telemetry is no longer retained in memory.",
+                status=("DEGRADED" if self._recovery_status != "AVAILABLE" else "EVICTED"),
+                reason=(
+                    self._recovery_reason
+                    or "Referenced contributing telemetry is no longer retained in memory."
+                ),
                 event=None,
                 record=record,
             )
@@ -535,6 +555,8 @@ class TelemetryEvidenceService:
                 "eviction_count": self._eviction_count,
                 "capacity_used_pct": round(len(self._events) / self._max_retained * 100, 2),
                 "persistence_enabled": self._storage is not None,
+                "recovery_status": self._recovery_status,
+                "recovery_reason": self._recovery_reason,
                 "persistence_writes_succeeded": self._persistence_writes_succeeded.get_value(),
                 "persistence_writes_failed": self._persistence_writes_failed.get_value(),
                 "persistence_operations_failed": self._persistence_operations_failed.get_value(),
