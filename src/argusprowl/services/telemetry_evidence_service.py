@@ -247,7 +247,15 @@ class TelemetryEvidenceService:
                             UUID(str(value)) for value in raw_contributors
                         ),
                     )
-            if existing_record is not None and existing_record.provenance == PROVENANCE_DETECTION_SOURCE:
+            if existing_record is not None and (
+                existing_record.provenance == PROVENANCE_DETECTION_SOURCE
+                or (
+                    provenance == PROVENANCE_OBSERVED_CONTEXT
+                    and existing_record.provenance != PROVENANCE_OBSERVED_CONTEXT
+                )
+            ):
+                # Duplicate observations must not downgrade previously recorded
+                # detection or contributing-event provenance.
                 record = existing_record
             else:
                 record = EvidenceRecord(event_id=event.event_id, provenance=provenance)
