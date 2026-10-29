@@ -81,6 +81,7 @@ _MAX_DESCRIPTION_LEN: int = 4_096
 # one or two components to be conservative.
 _ATTCK_VERSION_PATTERN: re.Pattern[str] = re.compile(r"^\d+(\.\d+){1,2}$")
 
+
 class AttckKnowledgeService:
     """Read-only ATT&CK knowledge service with validated local snapshots.
 
@@ -661,9 +662,7 @@ class AttckKnowledgeService:
         return ""
 
     @staticmethod
-    def _extract_version(
-        data: dict[str, Any], *, integrity_hash: str | None = None
-    ) -> str:
+    def _extract_version(data: dict[str, Any], *, integrity_hash: str | None = None) -> str:
         """Extract the ATT&CK release from its authoritative collection object.
 
         The collection's x_mitre_version identifies the ATT&CK release.
@@ -696,7 +695,5 @@ class AttckKnowledgeService:
         if not versions:
             raise ValidationError("Missing authoritative ATT&CK version.")
         if len(versions) > 1:
-            raise ValidationError(
-                f"Ambiguous ATT&CK version: found {', '.join(sorted(versions))}."
-            )
+            raise ValidationError(f"Ambiguous ATT&CK version: found {', '.join(sorted(versions))}.")
         return next(iter(versions))

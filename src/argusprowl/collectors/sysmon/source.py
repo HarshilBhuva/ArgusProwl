@@ -74,6 +74,8 @@ class WindowsEventLogSource(SysmonEventSource):
             record_text = event.findtext(f"{_NS}System/{_NS}EventRecordID")
             record_id = int(record_text) if record_text and record_text.isdigit() else None
             records.append(
-                SysmonRawRecord(xml=ElementTree.tostring(event, encoding="unicode"), record_id=record_id)
+                SysmonRawRecord(
+                    xml=ElementTree.tostring(event, encoding="unicode"), record_id=record_id
+                )
             )
         return tuple(records)

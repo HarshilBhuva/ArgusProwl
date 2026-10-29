@@ -423,7 +423,13 @@ def test_docker_container_boots_and_serves(docker_image):
                 timeout=5,
             )
             state = subprocess.run(
-                ["docker", "inspect", "--format", "{{.State.Status}} {{.State.ExitCode}}", container_id],
+                [
+                    "docker",
+                    "inspect",
+                    "--format",
+                    "{{.State.Status}} {{.State.ExitCode}}",
+                    container_id,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -444,24 +450,18 @@ def test_docker_container_boots_and_serves(docker_image):
 
         # Unknown /api/v1/ path returns JSON 404/405, not SPA HTML.
         api_status, api_body = _http_request(port, "/api/v1/nonexistent")
-        assert api_status in (404, 405), (
-            f"unknown API path returned {api_status}, expected 404/405"
-        )
+        assert api_status in (404, 405), f"unknown API path returned {api_status}, expected 404/405"
         assert "html" not in api_body.lower(), (
             "unknown /api/ path returned HTML (SPA swallowed the API route)"
         )
 
         # A valid /api/v1/ endpoint works.
         health_api_status, _ = _http_request(port, "/api/v1/health")
-        assert health_api_status in (200, 503), (
-            f"/api/v1/health returned {health_api_status}"
-        )
+        assert health_api_status in (200, 503), f"/api/v1/health returned {health_api_status}"
 
         # A SPA route resolves to the frontend (200 HTML).
         spa_status, _ = _http_request(port, "/alerts/xyz")
-        assert spa_status == 200, (
-            f"SPA route /alerts/xyz returned {spa_status}, expected 200"
-        )
+        assert spa_status == 200, f"SPA route /alerts/xyz returned {spa_status}, expected 200"
 
         # The process is running inside the container
         running = subprocess.run(

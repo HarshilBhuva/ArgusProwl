@@ -476,7 +476,8 @@ class AnalystAnnotationService:
         with self._lock:
             if target_key is not None:
                 return sum(
-                    1 for annotation in self._annotations.get(target_key, [])
+                    1
+                    for annotation in self._annotations.get(target_key, [])
                     if not annotation.tombstoned
                 )
             return self._active_annotation_count

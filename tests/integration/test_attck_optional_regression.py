@@ -76,7 +76,10 @@ attck:
 
     # Inject application container or mock container resolution if needed
     # (By default FastAPI app routes use container singleton if wired)
-    with patch("argusprowl.dependency_injection.container.ServiceContainer.get_instance", return_value=app._container):
+    with patch(
+        "argusprowl.dependency_injection.container.ServiceContainer.get_instance",
+        return_value=app._container,
+    ):
         response = client.get("/api/v1/attck/overview")
         assert response.status_code == 200
         data = response.json()
@@ -208,7 +211,6 @@ attck:
 
         # ATT&CK investigation should return 404 (no matching alerts) instead of 500.
         response = client.get(
-            "/api/v1/attck/investigation?alert_ids="
-            "00000000-0000-0000-0000-000000000000"
+            "/api/v1/attck/investigation?alert_ids=00000000-0000-0000-0000-000000000000"
         )
         assert response.status_code == 404

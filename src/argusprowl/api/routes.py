@@ -868,7 +868,9 @@ async def acknowledge_alert(alert_id: str) -> LifecycleActionResponse:
         try:
             updated_alert = transition_lifecycle(existing_alert, AlertLifecycleState.ACKNOWLEDGED)
         except ValueError as exc:
-            raise HTTPException(status_code=409, detail="Invalid alert lifecycle transition") from exc
+            raise HTTPException(
+                status_code=409, detail="Invalid alert lifecycle transition"
+            ) from exc
 
         # Persist first so a failed HTTP request never leaves an unexplained
         # in-memory mutation behind a failed request.
@@ -959,7 +961,9 @@ async def close_alert(alert_id: str) -> LifecycleActionResponse:
         try:
             updated_alert = transition_lifecycle(existing_alert, AlertLifecycleState.CLOSED)
         except ValueError as exc:
-            raise HTTPException(status_code=409, detail="Invalid alert lifecycle transition") from exc
+            raise HTTPException(
+                status_code=409, detail="Invalid alert lifecycle transition"
+            ) from exc
 
         # Persist first so a failed HTTP request never leaves an unexplained
         # in-memory mutation behind a failed request.

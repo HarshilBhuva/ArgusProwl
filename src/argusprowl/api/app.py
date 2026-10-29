@@ -153,9 +153,8 @@ def create_api_app(
             # before the SPA fallback. Never return HTML for a static asset.
             requested_file = os.path.realpath(os.path.join(static_dir, full_path))
             static_root = os.path.realpath(static_dir)
-            if (
-                os.path.commonpath([static_root, requested_file]) == static_root
-                and os.path.isfile(requested_file)
+            if os.path.commonpath([static_root, requested_file]) == static_root and os.path.isfile(
+                requested_file
             ):
                 return FileResponse(requested_file)
 

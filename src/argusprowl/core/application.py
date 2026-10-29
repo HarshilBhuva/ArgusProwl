@@ -542,9 +542,7 @@ class Application:
                 snapshot_path = ProjectPath.ROOT / snapshot_path
 
             previous_snapshot_path = (
-                Path(attck_cfg.previous_snapshot_path)
-                if attck_cfg.previous_snapshot_path
-                else None
+                Path(attck_cfg.previous_snapshot_path) if attck_cfg.previous_snapshot_path else None
             )
             if previous_snapshot_path is not None and not previous_snapshot_path.is_absolute():
                 previous_snapshot_path = ProjectPath.ROOT / previous_snapshot_path
