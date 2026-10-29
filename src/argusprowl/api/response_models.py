@@ -422,9 +422,13 @@ class EvidenceSearchResponse(BaseModel):
     events: dict[str, EvidenceEventResponse] = Field(
         default_factory=dict, description="Event details keyed by event_id."
     )
-    status: str = Field(..., description="Search status: 'AVAILABLE' or 'DEGRADED'.")
+    status: str = Field(
+        ...,
+        description="Recovery-aware search status: AVAILABLE, DEGRADED, or UNAVAILABLE.",
+    )
     reason: str | None = Field(
-        default=None, description="Optional explanation for DEGRADED status."
+        default=None,
+        description="Recovery status explanation when evidence recovery is partial or failed.",
     )
     truncated: bool = Field(..., description="Whether results were truncated by the limit.")
     total_count: int = Field(..., description="Total matching events in the store.")
@@ -435,7 +439,10 @@ class EvidenceDetailResponse(BaseModel):
     """Single evidence lookup, including an explicit evicted state."""
 
     event_id: str = Field(..., description="Requested event identifier.")
-    status: str = Field(..., description="Evidence availability: AVAILABLE or EVICTED.")
+    status: str = Field(
+        ...,
+        description="Evidence status: AVAILABLE, DEGRADED, UNAVAILABLE, or EVICTED.",
+    )
     reason: str | None = Field(
         default=None, description="Explanation when retained telemetry is unavailable."
     )
@@ -455,6 +462,20 @@ class EvidenceStatsResponse(BaseModel):
     eviction_count: int = Field(..., description="Total events evicted since startup.")
     capacity_used_pct: float = Field(
         ..., description="Percentage of store capacity currently used."
+    )
+    persistence_enabled: bool = Field(
+        default=False, description="Whether durable evidence storage is configured."
+    )
+    recovery_status: str = Field(
+        default="AVAILABLE", description="Evidence recovery completeness: AVAILABLE, DEGRADED, or UNAVAILABLE."
+    )
+    recovery_reason: str | None = Field(
+        default=None, description="Reason evidence recovery is degraded or unavailable."
+    )
+    persistence_writes_succeeded: int = Field(default=0, description="Committed evidence writes.")
+    persistence_writes_failed: int = Field(default=0, description="Failed evidence writes.")
+    persistence_operations_failed: int = Field(
+        default=0, description="Failed recovery, lookup, or retention operations."
     )
 
 

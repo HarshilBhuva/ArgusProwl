@@ -71,7 +71,7 @@ class SQLiteAdapter(Storage):
         try:
             with self._lock:
                 rows = self._connection.execute(
-                    "SELECT payload FROM records WHERE collection=? ORDER BY created_at DESC LIMIT ?",
+                    "SELECT payload FROM records WHERE collection=? ORDER BY created_at DESC, rowid DESC LIMIT ?",
                     (collection, limit),
                 ).fetchall()
             return [json.loads(row[0]) for row in rows]

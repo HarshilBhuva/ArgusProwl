@@ -1,6 +1,6 @@
 """Telemetry evidence service for analyst investigation.
 
-Bounded, thread-safe, process-local in-memory evidence store.
+Bounded, thread-safe evidence store with a bounded in-memory query cache and optional durable storage.
 Provides provenance-aware insertion and read-only query capabilities
 for NormalizedEvent telemetry.
 
@@ -8,8 +8,8 @@ DETECTION_SOURCE: The primary event that triggered a detection rule.
 CONTRIBUTING_EVENT: Related events in multi-event/correlation detections.
 OBSERVED_CONTEXT: Events observed but not directly evidencing a detection.
 
-This service is completely isolated from detection, correlation,
-incidents, persistence, and lifecycle. It never mutates any other state.
+Evidence persistence is independent of alert persistence. When a Storage adapter is
+provided, each event and its provenance are committed as one storage record.
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ from threading import Lock
 from typing import Any
 from uuid import UUID
 
+from argusprowl.interfaces.storage import Storage
+from argusprowl.metrics.collector import MetricsCollector
+from argusprowl.metrics.metrics import Counter
 from argusprowl.models.normalized_event import NormalizedEvent
 
 logger = logging.getLogger(__name__)
@@ -88,21 +91,41 @@ class EvidenceDetailResult:
 
 
 class TelemetryEvidenceService:
-    """Bounded in-memory telemetry evidence store.
+    """Evidence service with a bounded cache and optional durable storage.
 
-    Stores NormalizedEvent objects with provenance metadata.
-    Deterministic FIFO eviction when the store is full.
-    Thread-safe for concurrent read and write access.
+    Stores NormalizedEvent objects with provenance metadata. Deterministic FIFO
+    eviction applies when the configured retention capacity is reached. The
+    service is thread-safe for concurrent read and write access.
     """
 
-    def __init__(self, max_retained_events: int = 100_000) -> None:
+    def __init__(
+        self,
+        max_retained_events: int = 100_000,
+        *,
+        storage: Storage | None = None,
+        metrics_collector: MetricsCollector | None = None,
+    ) -> None:
         if not isinstance(max_retained_events, int) or isinstance(max_retained_events, bool):
             raise ValueError("max_retained_events must be a positive integer.")
         if max_retained_events <= 0:
             raise ValueError("max_retained_events must be positive.")
 
         self._max_retained = max_retained_events
+        self._storage = storage
         self._lock = Lock()
+        # Recovery status describes completeness of the durable startup snapshot.
+        # In-memory-only callers have no recovery step and remain AVAILABLE.
+        self._recovery_status = "AVAILABLE"
+        self._recovery_reason: str | None = None
+        self._persistence_writes_succeeded = self._counter(
+            metrics_collector, "evidence_persistence_writes_succeeded"
+        )
+        self._persistence_writes_failed = self._counter(
+            metrics_collector, "evidence_persistence_writes_failed"
+        )
+        self._persistence_operations_failed = self._counter(
+            metrics_collector, "evidence_persistence_operations_failed"
+        )
         # OrderedDict preserves insertion order for deterministic eviction.
         self._events: OrderedDict[UUID, NormalizedEvent] = OrderedDict()
         self._records: dict[UUID, EvidenceRecord] = {}
@@ -110,6 +133,81 @@ class TelemetryEvidenceService:
         # This is bounded by the same configured capacity and never stores telemetry.
         self._evicted_contributing_records: OrderedDict[UUID, EvidenceRecord] = OrderedDict()
         self._eviction_count: int = 0
+        if self._storage is not None:
+            self._load_persisted_records()
+
+    @staticmethod
+    def _counter(metrics_collector: MetricsCollector | None, name: str) -> Counter:
+        if metrics_collector is None:
+            return Counter(name)
+        try:
+            return metrics_collector.get_counter(name)
+        except KeyError:
+            return metrics_collector.register_counter(name)
+
+    def _persist_event_record(self, event: NormalizedEvent, record: EvidenceRecord) -> None:
+        """Commit one event and its provenance as a single storage record."""
+        if self._storage is None:
+            return
+        payload: dict[str, object] = {
+            "event": event.to_dict(),
+            "provenance": record.provenance,
+            "detection_result_id": str(record.detection_result_id)
+            if record.detection_result_id
+            else None,
+            "contributing_event_ids": [str(value) for value in record.contributing_event_ids],
+        }
+        try:
+            self._storage.save("telemetry_evidence", event.event_id, payload)
+        except Exception:
+            self._persistence_writes_failed.increment()
+            logger.exception("Failed to persist telemetry evidence event_id=%s", event.event_id)
+            raise
+        self._persistence_writes_succeeded.increment()
+
+    def _load_persisted_records(self) -> None:
+        """Warm the bounded query cache from previously committed evidence."""
+        assert self._storage is not None
+        try:
+            rows = self._storage.list_records("telemetry_evidence", limit=self._max_retained)
+        except Exception:
+            self._persistence_operations_failed.increment()
+            self._recovery_status = "UNAVAILABLE"
+            self._recovery_reason = "Persisted evidence could not be loaded during startup."
+            logger.exception("Unable to load persisted telemetry evidence during startup")
+            return
+        malformed_records = 0
+        for payload in reversed(rows):
+            try:
+                raw_event = payload["event"]
+                if not isinstance(raw_event, dict):
+                    raise ValueError("Persisted evidence event payload is not an object")
+                event = NormalizedEvent.from_dict(raw_event)
+                raw_result_id = payload.get("detection_result_id")
+                raw_contributors = payload.get("contributing_event_ids", [])
+                if not isinstance(raw_contributors, list):
+                    raise ValueError("Persisted contributing_event_ids is not a list")
+                record = EvidenceRecord(
+                    event_id=event.event_id,
+                    provenance=str(payload["provenance"]),
+                    detection_result_id=UUID(str(raw_result_id)) if raw_result_id else None,
+                    contributing_event_ids=tuple(UUID(str(value)) for value in raw_contributors),
+                )
+                self._events[event.event_id] = event
+                self._records[event.event_id] = record
+            except (KeyError, TypeError, ValueError) as exc:
+                malformed_records += 1
+                self._persistence_operations_failed.increment()
+                logger.warning("Skipping malformed persisted telemetry evidence: %s", exc)
+        if malformed_records:
+            self._recovery_status = "DEGRADED"
+            self._recovery_reason = (
+                f"Evidence recovery skipped {malformed_records} malformed persisted record(s)."
+            )
+
+    def _query_status(self) -> tuple[str, str | None]:
+        """Return the recovery completeness associated with query results."""
+        return self._recovery_status, self._recovery_reason
 
     # ------------------------------------------------------------------
     # Insertion
@@ -132,8 +230,58 @@ class TelemetryEvidenceService:
             )
 
         with self._lock:
-            self._insert_event_unlocked(event, provenance)
-            return self._records[event.event_id]
+            existing_event = self._events.get(event.event_id)
+            if existing_event is not None and existing_event.to_dict() != event.to_dict():
+                raise ValueError(f"Conflicting telemetry payload for event_id={event.event_id}")
+            existing_record = self._records.get(event.event_id)
+            if existing_record is None and self._storage is not None:
+                try:
+                    persisted = self._storage.load("telemetry_evidence", event.event_id)
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception(
+                        "Unable to check existing evidence event_id=%s", event.event_id
+                    )
+                    raise
+                if persisted is not None:
+                    raw_event = persisted.get("event")
+                    if not isinstance(raw_event, dict):
+                        raise ValueError("Persisted evidence event payload is not an object")
+                    persisted_event = NormalizedEvent.from_dict(raw_event)
+                    if persisted_event.to_dict() != event.to_dict():
+                        raise ValueError(
+                            f"Conflicting telemetry payload for event_id={event.event_id}"
+                        )
+                    raw_result_id = persisted.get("detection_result_id")
+                    raw_contributors = persisted.get("contributing_event_ids", [])
+                    if not isinstance(raw_contributors, list):
+                        raise ValueError("Persisted contributing_event_ids is not a list")
+                    existing_record = EvidenceRecord(
+                        event_id=event.event_id,
+                        provenance=str(persisted["provenance"]),
+                        detection_result_id=UUID(str(raw_result_id)) if raw_result_id else None,
+                        contributing_event_ids=tuple(
+                            UUID(str(value)) for value in raw_contributors
+                        ),
+                    )
+            if existing_record is not None and (
+                existing_record.provenance == PROVENANCE_DETECTION_SOURCE
+                or (
+                    provenance == PROVENANCE_OBSERVED_CONTEXT
+                    and existing_record.provenance != PROVENANCE_OBSERVED_CONTEXT
+                )
+            ):
+                # Duplicate observations must not downgrade previously recorded
+                # detection or contributing-event provenance.
+                record = existing_record
+            else:
+                record = EvidenceRecord(event_id=event.event_id, provenance=provenance)
+            self._persist_event_record(event, record)
+            self._insert_event_unlocked(event, record.provenance)
+            # Preserve all provenance metadata (including contributing-event
+            # references) on repeated delivery and after durable recovery.
+            self._records[event.event_id] = record
+            return record
 
     def record_provenance(
         self,
@@ -168,6 +316,7 @@ class TelemetryEvidenceService:
                     detection_result_id=detection_result_id,
                     contributing_event_ids=contributing_event_ids,
                 )
+                self._persist_event_record(self._events[event_id], new_record)
                 self._records[event_id] = new_record
                 return new_record
 
@@ -184,6 +333,7 @@ class TelemetryEvidenceService:
                     detection_result_id=detection_result_id,
                     contributing_event_ids=contributing_event_ids,
                 )
+                self._persist_event_record(self._events[event_id], new_record)
                 self._records[event_id] = new_record
                 return new_record
 
@@ -191,10 +341,21 @@ class TelemetryEvidenceService:
 
     def _insert_event_unlocked(self, event: NormalizedEvent, provenance: str) -> None:
         """Insert an event, evicting oldest if necessary. Caller must hold lock."""
-        # Evict if at capacity before inserting.
-        while len(self._events) >= self._max_retained and self._events:
+        # Repeated delivery updates the existing record without evicting an
+        # unrelated event. Only a genuinely new ID consumes another slot.
+        while (
+            event.event_id not in self._events
+            and len(self._events) >= self._max_retained
+            and self._events
+        ):
             oldest_id, _ = self._events.popitem(last=False)
             oldest_record = self._records.pop(oldest_id, None)
+            if self._storage is not None:
+                try:
+                    self._storage.delete("telemetry_evidence", oldest_id)
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception("Failed to delete evicted evidence event_id=%s", oldest_id)
             if oldest_record is not None and oldest_record.provenance in (
                 PROVENANCE_CONTRIBUTING_EVENT,
                 PROVENANCE_DETECTION_SOURCE,
@@ -250,8 +411,8 @@ class TelemetryEvidenceService:
                     return EvidenceSearchResult(
                         records=tuple(),
                         events={},
-                        status="AVAILABLE",
-                        reason=None,
+                        status=self._query_status()[0],
+                        reason=self._query_status()[1],
                         truncated=False,
                         total_count=0,
                         returned_count=0,
@@ -260,8 +421,8 @@ class TelemetryEvidenceService:
                 return EvidenceSearchResult(
                     records=tuple((record,)),
                     events={event_id: event},
-                    status="AVAILABLE",
-                    reason=None,
+                    status=self._query_status()[0],
+                    reason=self._query_status()[1],
                     truncated=False,
                     total_count=1,
                     returned_count=1,
@@ -323,8 +484,8 @@ class TelemetryEvidenceService:
             return EvidenceSearchResult(
                 records=tuple(records),
                 events=events,
-                status="AVAILABLE",
-                reason=None,
+                status=self._query_status()[0],
+                reason=self._query_status()[1],
                 truncated=truncated,
                 total_count=total,
                 returned_count=len(records),
@@ -345,19 +506,30 @@ class TelemetryEvidenceService:
             if event is not None:
                 return EvidenceDetailResult(
                     event_id=event_id,
-                    status="AVAILABLE",
-                    reason=None,
+                    status=self._query_status()[0],
+                    reason=self._query_status()[1],
                     event=event,
                     record=self._records[event_id],
                 )
 
             record = self._evicted_contributing_records.get(event_id)
             if record is None:
+                if self._recovery_status != "AVAILABLE":
+                    return EvidenceDetailResult(
+                        event_id=event_id,
+                        status=self._recovery_status,
+                        reason=self._recovery_reason,
+                        event=None,
+                        record=None,
+                    )
                 return None
             return EvidenceDetailResult(
                 event_id=event_id,
-                status="EVICTED",
-                reason="Referenced contributing telemetry is no longer retained in memory.",
+                status=("DEGRADED" if self._recovery_status != "AVAILABLE" else "EVICTED"),
+                reason=(
+                    self._recovery_reason
+                    or "Referenced contributing telemetry is no longer retained in memory."
+                ),
                 event=None,
                 record=record,
             )
@@ -376,8 +548,8 @@ class TelemetryEvidenceService:
 
         with self._lock:
             for eid in event_ids:
-                if eid in self._events:
-                    status[eid] = "AVAILABLE"
+                if eid in self._events or self._recovery_status != "AVAILABLE":
+                    status[eid] = self._recovery_status
                 else:
                     status[eid] = "EVICTED"
         return status
@@ -390,6 +562,12 @@ class TelemetryEvidenceService:
                 "max_retained_events": self._max_retained,
                 "eviction_count": self._eviction_count,
                 "capacity_used_pct": round(len(self._events) / self._max_retained * 100, 2),
+                "persistence_enabled": self._storage is not None,
+                "recovery_status": self._recovery_status,
+                "recovery_reason": self._recovery_reason,
+                "persistence_writes_succeeded": self._persistence_writes_succeeded.get_value(),
+                "persistence_writes_failed": self._persistence_writes_failed.get_value(),
+                "persistence_operations_failed": self._persistence_operations_failed.get_value(),
             }
 
     # ------------------------------------------------------------------

@@ -50,6 +50,36 @@ class TestSearchEvidence:
         assert data["records"] == []
         assert data["status"] == "AVAILABLE"
 
+    @pytest.mark.parametrize(
+        ("status", "reason"),
+        [
+            ("DEGRADED", "Evidence recovery skipped malformed records."),
+            ("UNAVAILABLE", "Persisted evidence could not be loaded during startup."),
+        ],
+    )
+    def test_search_propagates_recovery_status(
+        self,
+        api_client: TestClient,
+        evidence_service: TelemetryEvidenceService,
+        status: str,
+        reason: str,
+    ) -> None:
+        evidence_service.search.return_value = EvidenceSearchResult(
+            records=(),
+            events={},
+            status=status,
+            reason=reason,
+            truncated=False,
+            total_count=0,
+            returned_count=0,
+        )
+
+        response = api_client.get("/api/v1/evidence")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == status
+        assert response.json()["reason"] == reason
+
     def test_search_with_params(
         self, api_client: TestClient, evidence_service: TelemetryEvidenceService
     ) -> None:
@@ -94,6 +124,25 @@ class TestEvidenceDetail:
         assert data["event_id"] == "00000000-0000-4000-8000-000000000001"
         assert data["status"] == "AVAILABLE"
 
+    def test_detail_propagates_unavailable_recovery(
+        self, api_client: TestClient, evidence_service: TelemetryEvidenceService
+    ) -> None:
+        from uuid import UUID
+
+        evidence_service.get_detail.return_value = EvidenceDetailResult(
+            event_id=UUID("00000000-0000-4000-8000-000000000001"),
+            status="UNAVAILABLE",
+            reason="Persisted evidence could not be loaded during startup.",
+            event=None,
+            record=None,
+        )
+
+        response = api_client.get("/api/v1/evidence/00000000-0000-4000-8000-000000000001")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "UNAVAILABLE"
+        assert response.json()["reason"] == "Persisted evidence could not be loaded during startup."
+
     def test_service_missing_returns_503(self) -> None:
         app = create_api_app()
         with TestClient(app) as client:
@@ -110,12 +159,20 @@ class TestEvidenceStats:
             "max_retained_events": 10000,
             "eviction_count": 0,
             "capacity_used_pct": 0.0,
+            "persistence_enabled": True,
+            "recovery_status": "UNAVAILABLE",
+            "recovery_reason": "Persisted evidence could not be loaded during startup.",
+            "persistence_operations_failed": 1,
         }
         response = api_client.get("/api/v1/evidence/stats")
         assert response.status_code == 200
         data = response.json()
         assert "retained_events" in data
         assert "max_retained_events" in data
+        assert data["recovery_status"] == "UNAVAILABLE"
+        assert data["recovery_reason"] == "Persisted evidence could not be loaded during startup."
+        assert data["persistence_enabled"] is True
+        assert data["persistence_operations_failed"] == 1
 
     def test_service_missing_returns_503(self) -> None:
         app = create_api_app()
