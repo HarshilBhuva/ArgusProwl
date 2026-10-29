@@ -119,6 +119,9 @@ class TelemetryEvidenceService:
         self._persistence_writes_failed = self._counter(
             metrics_collector, "evidence_persistence_writes_failed"
         )
+        self._persistence_operations_failed = self._counter(
+            metrics_collector, "evidence_persistence_operations_failed"
+        )
         # OrderedDict preserves insertion order for deterministic eviction.
         self._events: OrderedDict[UUID, NormalizedEvent] = OrderedDict()
         self._records: dict[UUID, EvidenceRecord] = {}
@@ -164,7 +167,7 @@ class TelemetryEvidenceService:
         try:
             rows = self._storage.list_records("telemetry_evidence", limit=self._max_retained)
         except Exception:
-            self._persistence_writes_failed.increment()
+            self._persistence_operations_failed.increment()
             logger.exception("Unable to load persisted telemetry evidence during startup")
             return
         for payload in reversed(rows):
@@ -186,7 +189,7 @@ class TelemetryEvidenceService:
                 self._events[event.event_id] = event
                 self._records[event.event_id] = record
             except (KeyError, TypeError, ValueError) as exc:
-                self._persistence_writes_failed.increment()
+                self._persistence_operations_failed.increment()
                 logger.warning("Skipping malformed persisted telemetry evidence: %s", exc)
 
     # ------------------------------------------------------------------
@@ -243,6 +246,10 @@ class TelemetryEvidenceService:
                 record = EvidenceRecord(event_id=event.event_id, provenance=provenance)
             self._persist_event_record(event, record)
             self._insert_event_unlocked(event, record.provenance)
+            if record.provenance == PROVENANCE_DETECTION_SOURCE:
+                # Preserve detection-result and contributing-event references
+                # when the record was recovered from durable storage after cache eviction.
+                self._records[event.event_id] = record
             return self._records[event.event_id]
 
     def record_provenance(
@@ -316,7 +323,7 @@ class TelemetryEvidenceService:
                 try:
                     self._storage.delete("telemetry_evidence", oldest_id)
                 except Exception:
-                    self._persistence_writes_failed.increment()
+                    self._persistence_operations_failed.increment()
                     logger.exception("Failed to delete evicted evidence event_id=%s", oldest_id)
             if oldest_record is not None and oldest_record.provenance in (
                 PROVENANCE_CONTRIBUTING_EVENT,
@@ -516,6 +523,7 @@ class TelemetryEvidenceService:
                 "persistence_enabled": self._storage is not None,
                 "persistence_writes_succeeded": self._persistence_writes_succeeded.get_value(),
                 "persistence_writes_failed": self._persistence_writes_failed.get_value(),
+                "persistence_operations_failed": self._persistence_operations_failed.get_value(),
             }
 
     # ------------------------------------------------------------------
