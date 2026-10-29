@@ -1,4 +1,11 @@
-"""End-to-end durability test for detection alerts and telemetry evidence."""
+"""Pipeline-orchestration durability test from normalized event to persisted alert/evidence.
+
+This test deliberately does not validate a production detection analytic: existing
+network analytics consume aggregated feature vectors or multiple observations,
+whereas this test isolates the durable alert/evidence lifecycle with a deterministic
+rule. Source-specific raw-log parsing is outside this test; the input contract here
+is the already-normalized NormalizedEvent envelope.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +28,12 @@ from argusprowl.services.telemetry_evidence_service import (
 
 
 class _DeterministicEventDetector(Detector):
-    """A deterministic test rule executed by the real DetectionManager."""
+    """Test-only orchestration rule, not a production detection analytic.
+
+    Matching a fixture UUID makes the test deterministic while leaving the
+    production DetectionManager, DecisionEngine, AlertManager, and persistence
+    paths under test. Existing analytics are intentionally not claimed as tested.
+    """
 
     def __init__(self, event_id: UUID) -> None:
         self._event_id = event_id
@@ -99,6 +111,9 @@ def _start_application(config_path: str):
 def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> None:
     config_path = _write_config(tmp_path)
     event_id = uuid4()
+    # Source-specific raw-event parsing is intentionally upstream of this test.
+    # NormalizedEvent validation/serialization has separate model tests; this
+    # integration test starts at the normalized-event ingestion API.
     event = NormalizedEvent(
         source_type="integration-test",
         event_type="process_start",
@@ -113,8 +128,10 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
 
     app, container, evidence = _start_application(config_path)
     try:
-        # Use a deterministic test rule, but execute it through the application's
-        # real queue consumer, DetectionManager, DecisionEngine, and AlertManager.
+        # Isolate orchestration from analytic correctness: do not treat this
+        # UUID-matching test detector as validation of a production detection rule.
+        # The event still traverses the real queue consumer, DetectionManager,
+        # DecisionEngine, and AlertManager.
         manager = container.resolve(DetectionManager)
         manager.get_registry().clear()
         manager.register_detector(_DeterministicEventDetector(event_id))
