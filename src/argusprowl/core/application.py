@@ -121,7 +121,33 @@ class Application:
                         api_key=self._config.api.api_key,
                     )
         except Exception as exc:
-            self._safe_clear()
+            # Startup may fail after the consumer or collector workers have
+            # started (for example, if the API cannot bind its port). Roll
+            # those workers back before clearing the dependency container.
+            if self._running:
+                try:
+                    self.shutdown()
+                except Exception:
+                    self._logger.exception("Application startup rollback failed")
+            else:
+                self._shutdown_event.set()
+                if self._event_queue is not None:
+                    self._event_queue.close()
+                processing_thread = self._processing_thread
+                timeout = (
+                    self._config.events.shutdown_timeout_seconds
+                    if self._config is not None
+                    else 5.0
+                )
+                if processing_thread is not None and processing_thread.is_alive():
+                    processing_thread.join(timeout=timeout)
+                if processing_thread is None or not processing_thread.is_alive():
+                    self._safe_clear()
+                else:
+                    self._logger.error(
+                        "Startup rollback left the processing worker active; "
+                        "retaining its dependencies"
+                    )
             raise LifecycleError("Application startup failed", {"reason": str(exc)}) from exc
 
     def shutdown(self) -> None:
