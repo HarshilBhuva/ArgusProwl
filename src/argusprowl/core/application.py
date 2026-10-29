@@ -6,10 +6,10 @@ adapter directly.
 """
 
 import contextlib
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Thread
-import time
 from typing import Any
 
 from argusprowl.alerting.alert_manager import AlertManager
