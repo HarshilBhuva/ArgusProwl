@@ -14,6 +14,7 @@ def test_api_paths_cannot_bypass_auth_by_file_extension() -> None:
     assert not _is_public_path("/api/v1/evidence.svg")
     assert not _is_public_path("/api/v1/alerts.js")
     assert not _is_public_path("/api/v1/rules.css", accept="text/html")
+    assert not _is_public_path("/api", accept="text/html")
 
 
 def test_docs_paths_are_exact_not_prefix_matches() -> None:
