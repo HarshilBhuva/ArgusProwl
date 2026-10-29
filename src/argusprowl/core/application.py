@@ -219,14 +219,6 @@ class Application:
                 except Exception:
                     pass  # Not registered or already closed
 
-                try:
-                    storage = self._container.resolve(Storage)
-                    close_storage = getattr(storage, "close", None)
-                    if callable(close_storage):
-                        close_storage()
-                except Exception:
-                    self._logger.exception("Unable to close shared storage adapter")
-
                 self._running = False
                 self._safe_clear()
                 self._logger.info("Application shutdown complete")
