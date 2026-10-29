@@ -724,7 +724,7 @@ class Application:
         # Log post-startup health state for every collector so the
         # ingestion topology is observable from the startup log.
         for collector_name, health in collector_manager.health_all().items():
-            if exc is None or results.get(collector_name) is None:
+            if results.get(collector_name) is None:
                 self._logger.info(
                     "Collector '%s' post-startup state=%s health=%s",
                     collector_name,
