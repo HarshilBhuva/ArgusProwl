@@ -105,9 +105,9 @@ class AlertSearchResponse(BaseModel):
     alerts: list[AlertResponse] = Field(
         default_factory=list, description="List of matching alerts."
     )
-    status: str = Field(..., description="Search status: 'AVAILABLE' or 'DEGRADED'.")
+    status: str = Field(..., description="Recovery-aware search status: AVAILABLE, DEGRADED, or UNAVAILABLE.")
     reason: str | None = Field(
-        default=None, description="Optional explanation for DEGRADED status."
+        default=None, description="Recovery status explanation when evidence recovery is partial or failed."
     )
     total_count: int = Field(..., description="Total number of alerts returned.")
 
@@ -435,7 +435,7 @@ class EvidenceDetailResponse(BaseModel):
     """Single evidence lookup, including an explicit evicted state."""
 
     event_id: str = Field(..., description="Requested event identifier.")
-    status: str = Field(..., description="Evidence availability: AVAILABLE or EVICTED.")
+    status: str = Field(..., description="Evidence status: AVAILABLE, DEGRADED, UNAVAILABLE, or EVICTED.")
     reason: str | None = Field(
         default=None, description="Explanation when retained telemetry is unavailable."
     )
