@@ -261,11 +261,10 @@ class TelemetryEvidenceService:
                 record = EvidenceRecord(event_id=event.event_id, provenance=provenance)
             self._persist_event_record(event, record)
             self._insert_event_unlocked(event, record.provenance)
-            if record.provenance == PROVENANCE_DETECTION_SOURCE:
-                # Preserve detection-result and contributing-event references
-                # when the record was recovered from durable storage after cache eviction.
-                self._records[event.event_id] = record
-            return self._records[event.event_id]
+            # Preserve all provenance metadata (including contributing-event
+            # references) on repeated delivery and after durable recovery.
+            self._records[event.event_id] = record
+            return record
 
     def record_provenance(
         self,
