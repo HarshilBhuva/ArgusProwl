@@ -258,7 +258,7 @@ class AlertPersistence:
                     self._status_reason = None
 
                 return True
-        except sqlite3.Error as exc:
+        except Exception as exc:
             # Roll back any eviction or partial write before returning a failed
             # persistence outcome; otherwise a later operation could commit it.
             with self._lock:
