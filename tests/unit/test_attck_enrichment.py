@@ -241,8 +241,8 @@ def test_enrichment_conditional_mapping_satisfied():
     detector_registry = DetectorRegistry()
     detector = EventCountCorrelationDetector(
         name="event_count_correlation",
-        filter_config={"event_type": "authentication_failed"},
-        config={"correlation": {"filter": {"event_type": "authentication_failed"}}},
+        filter_config={"event_type": "authentication_failure"},
+        config={"correlation": {"filter": {"event_type": "authentication_failure"}}},
     )
     detector_registry.register(detector)
     detection_manager = DetectionManager(detector_registry)
@@ -352,8 +352,8 @@ def test_enrichment_preserves_security_decision_fields():
     detector_registry = DetectorRegistry()
     detector = EventCountCorrelationDetector(
         name="event_count_correlation",
-        filter_config={"event_type": "authentication_failed"},
-        config={"correlation": {"filter": {"event_type": "authentication_failed"}}},
+        filter_config={"event_type": "authentication_failure"},
+        config={"correlation": {"filter": {"event_type": "authentication_failure"}}},
     )
     detector_registry.register(detector)
     detection_manager = DetectionManager(detector_registry)

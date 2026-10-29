@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -68,6 +68,9 @@ def create_api_app(
     description: str = "argusprowl - Modular Host-Based Threat Detection Platform API",
     version: str = "0.1.0",
     cors_origins: list[str] | None = None,
+    auth_enabled: bool = False,
+    auth_header_name: str = "X-ArgusProwl-Key",
+    api_key: str = "",
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -76,6 +79,9 @@ def create_api_app(
         description: API description.
         version: API version.
         cors_origins: List of allowed CORS origins. Empty list disables CORS.
+        auth_enabled: Whether to require the shared-secret API key.
+        auth_header_name: Header name carrying the API key.
+        api_key: Expected API key value (loaded from config/env).
 
     Returns:
         Configured FastAPI application instance.
@@ -104,8 +110,18 @@ def create_api_app(
     else:
         logger.info("CORS disabled (no origins configured)")
 
-    # Import and include routes
+    # Attach shared-secret auth middleware before routes are resolved so
+    # every handler (including those on included routers) is protected.
+    from argusprowl.api.auth import ApiKeyAuthMiddleware
     from argusprowl.api.routes import operational_router, router
+
+    if auth_enabled:
+        app.add_middleware(
+            ApiKeyAuthMiddleware,
+            auth_enabled=True,
+            api_key=api_key,
+            auth_header_name=auth_header_name,
+        )
 
     app.include_router(router)
     app.include_router(operational_router)

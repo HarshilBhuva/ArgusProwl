@@ -118,7 +118,7 @@ class AttckEnrichmentService:
                 correlation = detector.get_config("correlation", {})
                 filter_config = correlation.get("filter", {})
                 event_type = filter_config.get("event_type", "")
-                if isinstance(event_type, str) and event_type == "authentication_failed":
+                if isinstance(event_type, str) and event_type == "authentication_failure":
                     return True
 
         return False

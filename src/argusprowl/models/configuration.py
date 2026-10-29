@@ -144,6 +144,44 @@ class TemporalConfig:
 
 
 @dataclass(slots=True)
+class ZeekConfig:
+    """Zeek collector configuration.
+
+    Attributes:
+        enabled: Whether the Zeek collector is active.
+        log_path: Path to the Zeek connection log file (e.g. conn.log).
+        offset_file: Path to the Zeek offset tracking file.
+        poll_interval_sec: Sleep duration in seconds between tail iterations.
+        batch_size: Number of records to process per batch.
+    """
+
+    enabled: bool = False
+    log_path: str = "data/conn.log"
+    offset_file: str = "data/zeek-offsets.json"
+    poll_interval_sec: float = 0.5
+    batch_size: int = 1000
+
+
+@dataclass(slots=True)
+class SuricataConfig:
+    """Suricata collector configuration.
+
+    Attributes:
+        enabled: Whether the Suricata collector is active.
+        eve_path: Path to the Suricata EVE JSON log file.
+        bookmark_path: Path to the Suricata bookmark tracking file.
+        batch_size: Number of records to process per batch.
+        polling_interval: Sleep duration in seconds between reads.
+    """
+
+    enabled: bool = False
+    eve_path: str = "/var/log/suricata/eve.json"
+    bookmark_path: str = "data/suricata-bookmark.json"
+    batch_size: int = 100
+    polling_interval: float = 1.0
+
+
+@dataclass(slots=True)
 class SysmonConfig:
     enabled: bool = False
     channel: str = "Microsoft-Windows-Sysmon/Operational"
@@ -369,6 +407,8 @@ class AppConfiguration:
     analyst_annotations: AnalystAnnotationConfig = field(default_factory=AnalystAnnotationConfig)
     alert_persistence: AlertPersistenceConfig = field(default_factory=AlertPersistenceConfig)
     attck: AttckConfig = field(default_factory=AttckConfig)
+    zeek: ZeekConfig = field(default_factory=ZeekConfig)
+    suricata: SuricataConfig = field(default_factory=SuricataConfig)
     sysmon: SysmonConfig = field(default_factory=SysmonConfig)
     windows_event_log: WindowsEventLogConfig = field(default_factory=WindowsEventLogConfig)
     linux_audit: LinuxAuditConfig = field(default_factory=LinuxAuditConfig)

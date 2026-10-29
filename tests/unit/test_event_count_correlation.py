@@ -26,7 +26,7 @@ def _make_event(
     dst_ip: str | None = None,
     hostname: str | None = None,
     username: str | None = None,
-    event_type: str = "authentication_failed",
+    event_type: str = "authentication_failure",
     timestamp: datetime | None = None,
     source_record_id: str | None = None,
     attributes: dict[str, Any] | None = None,
@@ -50,7 +50,7 @@ def _make_events(
     src_ip: str = "192.168.1.1",
     interval_seconds: float = 10.0,
     start_time: datetime | None = None,
-    event_type: str = "authentication_failed",
+    event_type: str = "authentication_failure",
 ) -> list[NormalizedEvent]:
     """Create a list of events with regular intervals."""
     base = start_time or datetime.now(UTC)
@@ -427,14 +427,14 @@ class TestEventCountCorrelationDetector:
         detector = EventCountCorrelationDetector(
             count=3,
             timespan=timedelta(minutes=5),
-            filter_config={"event_type": "authentication_failed"},
+            filter_config={"event_type": "authentication_failure"},
         )
         # Mix of matching and non-matching events
         events = [
-            _make_event(event_type="authentication_failed"),
-            _make_event(event_type="authentication_failed"),
+            _make_event(event_type="authentication_failure"),
+            _make_event(event_type="authentication_failure"),
             _make_event(event_type="login_success"),  # Should be filtered out
-            _make_event(event_type="authentication_failed"),
+            _make_event(event_type="authentication_failure"),
         ]
         for event in events:
             detector.observe(event)
@@ -550,7 +550,7 @@ parameters:
     count: 5
     timespan: 5m
     filter:
-      event_type: authentication_failed
+      event_type: authentication_failure
 severity: HIGH
 confidence_threshold: 0.7
 """
@@ -752,11 +752,11 @@ class TestEventCountReplay:
 
         # 1. produces fewer than threshold events (2 events, threshold is 3)
         events = [
-            _make_event(src_ip="10.0.0.1", timestamp=base_time, event_type="authentication_failed"),
+            _make_event(src_ip="10.0.0.1", timestamp=base_time, event_type="authentication_failure"),
             _make_event(
                 src_ip="10.0.0.1",
                 timestamp=base_time + timedelta(seconds=10),
-                event_type="authentication_failed",
+                event_type="authentication_failure",
             ),
         ]
 
@@ -765,7 +765,7 @@ class TestEventCountReplay:
             _make_event(
                 src_ip="10.0.0.1",
                 timestamp=base_time + timedelta(seconds=20),
-                event_type="authentication_failed",
+                event_type="authentication_failure",
             )
         )
 
@@ -774,7 +774,7 @@ class TestEventCountReplay:
             _make_event(
                 src_ip="10.0.0.1",
                 timestamp=base_time + timedelta(seconds=30),
-                event_type="authentication_failed",
+                event_type="authentication_failure",
             )
         )
 
@@ -785,17 +785,17 @@ class TestEventCountReplay:
         events.extend(
             [
                 _make_event(
-                    src_ip="10.0.0.1", timestamp=clear_time, event_type="authentication_failed"
+                    src_ip="10.0.0.1", timestamp=clear_time, event_type="authentication_failure"
                 ),
                 _make_event(
                     src_ip="10.0.0.1",
                     timestamp=clear_time + timedelta(seconds=10),
-                    event_type="authentication_failed",
+                    event_type="authentication_failure",
                 ),
                 _make_event(
                     src_ip="10.0.0.1",
                     timestamp=clear_time + timedelta(seconds=20),
-                    event_type="authentication_failed",
+                    event_type="authentication_failure",
                 ),
             ]
         )
@@ -812,7 +812,7 @@ class TestEventCountReplay:
             correlator = EventCountCorrelationDetector(
                 count=3,
                 timespan=timedelta(minutes=5),
-                filter_config={"event_type": "authentication_failed"},
+                filter_config={"event_type": "authentication_failure"},
             )
             manager = DetectionManager()
             manager.register_detector(correlator)

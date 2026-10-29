@@ -117,6 +117,14 @@ class ReplayEngine:
 
         self._logger = LoggerFactory.get_logger("replay")
         self._events_processed = 0
+        # Distinct counters:
+        #   _detection_matches  – detector results with matched=True
+        #   _alerts_created     – actual Alert objects produced by the decision engine
+        #   _alerts_generated   – deprecated alias for _alerts_created (kept for
+        #                         backward compatibility with callers and dashboards)
+        self._detection_matches = 0
+        self._alerts_created = 0
+        # Backwards-compatible alias; see property below.
         self._alerts_generated = 0
 
     def _process_replay_event(
@@ -166,8 +174,8 @@ class ReplayEngine:
         for result in detection_results:
             if not result.matched:
                 continue
+            self._detection_matches += 1
             if self._intelligence_service is None or self._decision_engine is None:
-                self._alerts_generated += 1
                 continue
             assessment = self._intelligence_service.evaluate(result, event)
             alert = self._decision_engine.process_detection_result(
@@ -175,10 +183,12 @@ class ReplayEngine:
             )
             if alert is None:
                 continue
-            self._alerts_generated += 1
+            self._alerts_created += 1
             alerts.append(alert)
             if on_alert:
                 on_alert(alert)
+        # Keep the backwards-compat alias in sync with the true alert-creation count.
+        self._alerts_generated = self._alerts_created
         return alerts
 
     def run(self) -> list[Alert]:
@@ -294,6 +304,10 @@ class ReplayEngine:
         return {
             "reader": self._reader.get_statistics(),
             "events_processed": self._events_processed,
+            "detection_matches": self._detection_matches,
+            "alerts_created": self._alerts_created,
+            # Deprecated alias for alerts_created — kept so dashboards / CLI
+            # output that reads ``alerts_generated`` do not break.
             "alerts_generated": self._alerts_generated,
             "temporal_enabled": self._temporal_engine is not None,
             "feature_extractor": {
@@ -309,10 +323,30 @@ class ReplayEngine:
         return self._events_processed
 
     @property
+    def detection_matches(self) -> int:
+        """Total detection matches (result.matched=True) seen during replay."""
+        return self._detection_matches
+
+    @property
+    def alerts_created(self) -> int:
+        """Total Alert objects produced by the decision engine during replay."""
+        return self._alerts_created
+
+    @property
     def alerts_generated(self) -> int:
-        """Total alerts generated during replay."""
+        """Deprecated alias for :attr:`alerts_created`.
+
+        .. deprecated::
+            Use :attr:`alerts_created` instead.  This attribute still counts
+            only actual :class:`Alert` objects (not raw detection matches).
+        """
         return self._alerts_generated
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"ReplayEngine(events={self._events_processed}, alerts={self._alerts_generated})"
+        return (
+            f"ReplayEngine("
+            f"events={self._events_processed}, "
+            f"detections={self._detection_matches}, "
+            f"alerts={self._alerts_created})"
+        )

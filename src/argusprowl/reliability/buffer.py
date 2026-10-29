@@ -162,3 +162,21 @@ class BoundedIngestionBuffer[T]:
     def __len__(self) -> int:
         with self._condition:
             return len(self._items)
+
+    def empty(self) -> bool:
+        """Return True when no items are currently queued."""
+        with self._condition:
+            return not self._items
+
+    def get_nowait(self) -> T:
+        """Remove and return an item without blocking.
+
+        Raises:
+            queue.Empty: If the buffer is empty or closed.
+        """
+        import queue
+
+        item = self.get(timeout=0)
+        if item is None:
+            raise queue.Empty
+        return item

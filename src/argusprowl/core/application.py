@@ -21,6 +21,7 @@ from argusprowl.behavior.entity_behavior_persistence import EntityBehaviorPersis
 from argusprowl.behavior.entity_behavior_service import EntityBehaviorService
 from argusprowl.collectors.manager import CollectorManager
 from argusprowl.collectors.registry import CollectorRegistry
+from argusprowl.core.collector_factory import build_collectors
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.log_names import LogName
 from argusprowl.constants.paths import ProjectPath
@@ -68,7 +69,8 @@ class Application:
         self._logger = LoggerFactory.get_logger(LogName.CORE)
         self._processing_thread: Thread | None = None
         self._shutdown_event = Event()
-        self._event_queue: queue.Queue[NormalizedEvent] = queue.Queue()
+        # Bounded ingestion buffer — registered after config is loaded below.
+        self._event_queue: BoundedIngestionBuffer[NormalizedEvent] | None = None
         self._api_server: Any = None
         self._uvicorn_server: Any = None
         self._api_thread: Thread | None = None
@@ -109,6 +111,9 @@ class Application:
                         cors_origins=self._config.api.cors_origins
                         if self._config.api.cors_origins
                         else None,
+                        auth_enabled=self._config.api.auth_enabled,
+                        auth_header_name=self._config.api.auth_header_name,
+                        api_key=self._config.api.api_key,
                     )
         except Exception as exc:
             self._safe_clear()
@@ -139,6 +144,10 @@ class Application:
                 alert_persistence.close()
             except Exception:
                 pass  # Not registered or already closed
+            # Close the ingestion buffer so blocked producers and the consumer
+            # loop wake up and drain any remaining items.
+            if self._event_queue is not None:
+                self._event_queue.close()
         finally:
             # Wait for the processing thread to drain and exit.
             if self._processing_thread is not None and self._processing_thread.is_alive():
@@ -160,6 +169,9 @@ class Application:
 
             self._api_server = create_api_app(
                 cors_origins=api_cfg.cors_origins if api_cfg.cors_origins else None,
+                auth_enabled=api_cfg.auth_enabled,
+                auth_header_name=api_cfg.auth_header_name,
+                api_key=api_cfg.api_key,
             )
             self._api_startup_event = Event()
             self._api_startup_error = None
@@ -249,6 +261,9 @@ class Application:
                 cors_origins=self._config.api.cors_origins
                 if self._config.api.cors_origins
                 else None,
+                auth_enabled=self._config.api.auth_enabled,
+                auth_header_name=self._config.api.auth_header_name,
+                api_key=self._config.api.api_key,
             )
 
         config = uvicorn.Config(
@@ -305,12 +320,16 @@ class Application:
         metrics = MetricsCollector()
         self._container.register_singleton(MetricsCollector, metrics)
         reliability = self._config.reliability
-        self._container.register_singleton(
-            BoundedIngestionBuffer,
-            BoundedIngestionBuffer(
-                reliability.buffer.max_size, reliability.buffer.overflow_policy, metrics
-            ),
+        # Create the bounded ingestion buffer here so Application holds the
+        # same instance that downstream services and collectors receive via
+        # the container.
+        buffer_cfg = self._config.reliability.buffer
+        self._event_queue = BoundedIngestionBuffer(
+            max_size=buffer_cfg.max_size,
+            overflow_policy=buffer_cfg.overflow_policy,
+            metrics_collector=metrics,
         )
+        self._container.register_singleton(BoundedIngestionBuffer, self._event_queue)
         self._container.register_singleton(
             AlertDeduplicationEngine,
             AlertDeduplicationEngine(
@@ -339,14 +358,28 @@ class Application:
         # Phase 2.1: Collector framework - registered after health so the
         # HealthService can optionally query it via the container.
         registry = CollectorRegistry()
-        self._container.register_singleton(
-            CollectorManager,
-            lambda: CollectorManager(
-                registry=registry,
-                event_queue=self._event_queue,
-                metrics_collector=metrics,
-            ),
+        collector_manager = CollectorManager(
+            registry=registry,
+            event_queue=self._event_queue,
+            metrics_collector=metrics,
         )
+        self._container.register_singleton(CollectorManager, collector_manager)
+
+        # Instantiate and register configured collectors into the shared
+        # registry so _start_collectors() has something to start.
+        created_sources = [
+            source_name for source_name, _collector in build_collectors(
+                self._config, self._event_queue, registry
+            )
+        ]
+        if created_sources:
+            self._logger.info("Collectors registered: %s", ", ".join(created_sources))
+        else:
+            self._logger.info(
+                "No enabled collectors configured; no collectors registered"
+            )
+
+        self._container.register_singleton(CollectorRegistry, registry)
 
         self._container.register_singleton(
             FeatureExtractor,
@@ -662,9 +695,33 @@ class Application:
         for collector_name, exc in results.items():
             if exc is not None:
                 self._logger.error("Collector %s failed to start: %s", collector_name, exc)
+        # Log post-startup health state for every collector so the
+        # ingestion topology is observable from the startup log.
+        for collector_name, health in collector_manager.health_all().items():
+            if exc is None or results.get(collector_name) is None:
+                self._logger.info(
+                    "Collector '%s' post-startup state=%s health=%s",
+                    collector_name,
+                    health.state,
+                    "healthy" if health.is_healthy else "degraded/failed",
+                )
+            else:
+                self._logger.warning(
+                    "Collector '%s' post-startup state=%s error=%s",
+                    collector_name,
+                    health.state,
+                    health.error_message,
+                )
 
     def _collector_callback(self, event: NormalizedEvent) -> None:
-        """Callback for collectors to enqueue events for processing."""
+        """Callback for collectors to enqueue events for processing.
+
+        The buffer's ``put()`` may return ``False`` when the overflow policy
+        rejects the event (DROP_NEWEST) or blocks and times out.  Rejected
+        events are counted in the buffer's ``events_dropped`` /
+        ``rejected_count`` metrics and logged internally; callers do not need
+        to handle the return value.
+        """
         if not self._shutdown_event.is_set():
             self._event_queue.put(event)
 
@@ -781,12 +838,11 @@ class Application:
     def _processing_loop(self) -> None:
         """Continuous processing loop for the detection pipeline."""
         self._logger.info("Starting continuous processing loop")
-        while not self._shutdown_event.is_set():
+        while not self._shutdown_event.is_set() and not self._event_queue.closed:
             try:
                 event = self._event_queue.get(timeout=0.1)
-                self._process_event(event)
-            except queue.Empty:
-                continue
+                if event is not None:
+                    self._process_event(event)
             except Exception as exc:
                 self._logger.error("Error in processing loop: %s", exc, exc_info=True)
 

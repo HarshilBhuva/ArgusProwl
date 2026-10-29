@@ -679,7 +679,9 @@ async def health_check() -> HealthResponse:
             status = health_service.check_health()
             return _build_health_response(status)
         else:
-            # Service not registered (e.g., application not started)
+            # Service not registered (e.g., application not started).
+            # Health is a public endpoint — always return 200 so probes and
+            # public pages can observe the status without auth.
             return JSONResponse(
                 content={
                     "status": "unhealthy",
@@ -688,7 +690,7 @@ async def health_check() -> HealthResponse:
                     "checked_at": "",
                     "components": [],
                 },
-                status_code=503,
+                status_code=200,
             )
     except Exception as exc:
         logger.warning("Health check failed: %s", exc)
@@ -700,7 +702,7 @@ async def health_check() -> HealthResponse:
                 "checked_at": "",
                 "components": [],
             },
-            status_code=503,
+            status_code=200,
         )
 
 
@@ -734,7 +736,7 @@ async def operational_health_check() -> JSONResponse:
                     "checked_at": "",
                     "components": [],
                 },
-                status_code=503,
+                status_code=200,
             )
     except Exception as exc:
         logger.warning("Operational health check failed: %s", exc)
@@ -746,7 +748,7 @@ async def operational_health_check() -> JSONResponse:
                 "checked_at": "",
                 "components": [],
             },
-            status_code=503,
+            status_code=200,
         )
 
 

@@ -29,7 +29,12 @@ class CollectorManager:
 
     Args:
         registry: Shared :class:`~app.collectors.registry.CollectorRegistry`.
-        event_queue: Optional :class:`queue.Queue` for routing NormalizedEvents.
+        event_queue: Optional queue-like object for routing NormalizedEvents.
+            Accepts both :class:`queue.Queue` and
+            :class:`~argusprowl.reliability.buffer.BoundedIngestionBuffer`.
+            When a bounded buffer is used, ``put()`` may silently reject
+            events on overflow; the buffer meters these drops via its
+            ``events_dropped`` / ``rejected_count`` metrics.
         metrics_collector: Optional :class:`~app.metrics.collector.MetricsCollector`
             for aggregated manager metrics.
     """
@@ -37,10 +42,10 @@ class CollectorManager:
     def __init__(
         self,
         registry: CollectorRegistry | None = None,
-        event_queue: queue.Queue[NormalizedEvent] | None = None,
+        event_queue: Any = None,  # queue.Queue[NormalizedEvent] | BoundedIngestionBuffer[NormalizedEvent] | None
         metrics_collector: MetricsCollector | None = None,
     ) -> None:
-        self._registry = registry or CollectorRegistry()
+        self._registry = registry if registry is not None else CollectorRegistry()
         self._event_queue = event_queue
         self._metrics_collector = metrics_collector
         self._lock = threading.RLock()

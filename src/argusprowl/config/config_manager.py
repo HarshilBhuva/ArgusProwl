@@ -26,9 +26,11 @@ from argusprowl.models.configuration import (
     ReliabilityConfig,
     RetryConfig,
     StorageConfig,
+    SuricataConfig,
     SysmonConfig,
     TemporalConfig,
     WindowsEventLogConfig,
+    ZeekConfig,
 )
 
 
@@ -271,6 +273,23 @@ class ConfigManager:
             max_alert_limit=int(api_data.get("max_alert_limit", 100)),
         )
 
+        zeek_data = raw.get("zeek", {})
+        zeek_cfg = ZeekConfig(
+            enabled=zeek_data.get("enabled", False),
+            log_path=zeek_data.get("log_path", ingestion_cfg.zeek_log_path),
+            offset_file=zeek_data.get("offset_file", "data/zeek-offsets.json"),
+            poll_interval_sec=float(zeek_data.get("poll_interval_sec", ingestion_cfg.poll_interval)),
+            batch_size=int(zeek_data.get("batch_size", ingestion_cfg.batch_size)),
+        )
+        suricata_data = raw.get("suricata", {})
+        suricata_cfg = SuricataConfig(
+            enabled=suricata_data.get("enabled", False),
+            eve_path=suricata_data.get("eve_path", "/var/log/suricata/eve.json"),
+            bookmark_path=suricata_data.get("bookmark_path", "data/suricata-bookmark.json"),
+            batch_size=int(suricata_data.get("batch_size", 100)),
+            polling_interval=float(suricata_data.get("polling_interval", 1.0)),
+        )
+
         self._config = AppConfiguration(
             app_name=raw.get("app_name", "argusprowl"),
             debug=raw.get("debug", False),
@@ -287,6 +306,8 @@ class ConfigManager:
             behavior_persistence=persistence_cfg,
             analyst_annotations=annotation_cfg,
             alert_persistence=alert_persistence_cfg,
+            zeek=zeek_cfg,
+            suricata=suricata_cfg,
             sysmon=sysmon_cfg,
             windows_event_log=windows_cfg,
             linux_audit=audit_cfg,

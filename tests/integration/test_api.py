@@ -185,10 +185,14 @@ class TestHealthEndpoint:
         assert "argusprowl.db" not in data_str
         assert "config.yaml" not in data_str
 
-    def test_health_returns_503_when_service_unavailable(self, api_client: TestClient) -> None:
-        """Health endpoint returns 503 when service is not registered."""
+    def test_health_returns_200_unhealthy_when_service_unavailable(self, api_client: TestClient) -> None:
+        """Health endpoint returns 200 with unhealthy status when service is not registered.
+
+        Public health endpoints must always return 200 so probes and load balancers
+        can distinguish between \"service unavailable\" and \"endpoint not reachable\".
+        """
         response = api_client.get("/api/v1/health")
-        assert response.status_code == 503
+        assert response.status_code == 200
         data = response.json()
         assert data["status"] == "unhealthy"
 

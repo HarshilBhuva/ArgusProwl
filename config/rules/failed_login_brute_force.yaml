@@ -13,7 +13,7 @@ parameters:
     count: 5
     timespan: 5m
     filter:
-      event_type: authentication_failed
+      event_type: authentication_failure
 
 severity: HIGH
 confidence_threshold: 0.7
