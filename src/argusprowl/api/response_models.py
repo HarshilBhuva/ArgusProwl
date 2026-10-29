@@ -422,9 +422,13 @@ class EvidenceSearchResponse(BaseModel):
     events: dict[str, EvidenceEventResponse] = Field(
         default_factory=dict, description="Event details keyed by event_id."
     )
-    status: str = Field(..., description="Recovery-aware search status: AVAILABLE, DEGRADED, or UNAVAILABLE.")
+    status: str = Field(
+        ...,
+        description="Recovery-aware search status: AVAILABLE, DEGRADED, or UNAVAILABLE.",
+    )
     reason: str | None = Field(
-        default=None, description="Recovery status explanation when evidence recovery is partial or failed."
+        default=None,
+        description="Recovery status explanation when evidence recovery is partial or failed.",
     )
     truncated: bool = Field(..., description="Whether results were truncated by the limit.")
     total_count: int = Field(..., description="Total matching events in the store.")
@@ -435,7 +439,10 @@ class EvidenceDetailResponse(BaseModel):
     """Single evidence lookup, including an explicit evicted state."""
 
     event_id: str = Field(..., description="Requested event identifier.")
-    status: str = Field(..., description="Evidence status: AVAILABLE, DEGRADED, UNAVAILABLE, or EVICTED.")
+    status: str = Field(
+        ...,
+        description="Evidence status: AVAILABLE, DEGRADED, UNAVAILABLE, or EVICTED.",
+    )
     reason: str | None = Field(
         default=None, description="Explanation when retained telemetry is unavailable."
     )
