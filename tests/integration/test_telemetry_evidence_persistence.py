@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
 from argusprowl.constants.severity import Severity
 from argusprowl.exceptions.exceptions import StorageError
@@ -97,12 +98,19 @@ def test_evidence_write_failure_is_reported_and_not_cached(tmp_path, monkeypatch
         raise StorageError("synthetic write failure", {"collection": "telemetry_evidence"})
 
     monkeypatch.setattr(storage, "save", fail_save)
+    original_save = storage.save
     with pytest.raises(StorageError):
         service.record_event(event)
 
     assert service.get_event(event.event_id) is None
     assert metrics.get_counter("evidence_persistence_writes_failed").get_value() == 1
     assert metrics.get_counter("evidence_persistence_writes_succeeded").get_value() == 0
+
+    # Recovery is explicit: once storage is healthy, a new attempt succeeds.
+    monkeypatch.setattr(storage, "save", original_save)
+    service.record_event(event)
+    assert service.get_event(event.event_id) is not None
+    assert metrics.get_counter("evidence_persistence_writes_succeeded").get_value() == 1
     storage.close()
 
 
@@ -112,6 +120,12 @@ def test_duplicate_evidence_write_is_idempotent_and_conflicts_are_rejected(tmp_p
     event = _event()
 
     service.record_event(event)
+    service.record_provenance(
+        event.event_id,
+        PROVENANCE_DETECTION_SOURCE,
+        detection_result_id=uuid4(),
+        contributing_event_ids=(event.event_id,),
+    )
     service.record_event(event)
 
     rows = storage.list_records("telemetry_evidence", limit=10)
@@ -125,6 +139,8 @@ def test_duplicate_evidence_write_is_idempotent_and_conflicts_are_rejected(tmp_p
     persisted = storage.load("telemetry_evidence", event.event_id)
     assert persisted is not None
     assert persisted["event"]["event_type"] == event.event_type
+    assert persisted["provenance"] == PROVENANCE_DETECTION_SOURCE
+    assert persisted["contributing_event_ids"] == [str(event.event_id)]
     storage.close()
 
 
@@ -163,4 +179,21 @@ def test_duplicate_alert_save_does_not_evict_existing_alert(tmp_path) -> None:
     assert persistence.save_alert(alert) is True
     assert persistence.load_alert(alert.alert_id) is not None
     assert len(persistence.list_all().alerts) == 1
+    persistence.close()
+
+
+def test_alert_manager_reports_false_persistence_result(tmp_path) -> None:
+    persistence = AlertPersistence(tmp_path / "alerts.db")
+    persistence.initialize()
+    event = _event()
+    alert = _alert(event)
+    manager = AlertManager(alert_persistence=persistence)
+
+    # Force an explicit storage rejection without changing the public send API.
+    persistence._initialized = False
+    manager.send_alert(alert)
+
+    stats = manager.get_statistics()
+    assert stats["alert_persistence_writes_succeeded"] == 0
+    assert stats["alert_persistence_writes_failed"] == 1
     persistence.close()
