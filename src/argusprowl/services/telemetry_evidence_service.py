@@ -22,6 +22,9 @@ from threading import Lock
 from typing import Any
 from uuid import UUID
 
+from argusprowl.interfaces.storage import Storage
+from argusprowl.metrics.collector import MetricsCollector
+from argusprowl.metrics.metrics import Counter
 from argusprowl.models.normalized_event import NormalizedEvent
 
 logger = logging.getLogger(__name__)
@@ -95,14 +98,27 @@ class TelemetryEvidenceService:
     Thread-safe for concurrent read and write access.
     """
 
-    def __init__(self, max_retained_events: int = 100_000) -> None:
+    def __init__(
+        self,
+        max_retained_events: int = 100_000,
+        *,
+        storage: Storage | None = None,
+        metrics_collector: MetricsCollector | None = None,
+    ) -> None:
         if not isinstance(max_retained_events, int) or isinstance(max_retained_events, bool):
             raise ValueError("max_retained_events must be a positive integer.")
         if max_retained_events <= 0:
             raise ValueError("max_retained_events must be positive.")
 
         self._max_retained = max_retained_events
+        self._storage = storage
         self._lock = Lock()
+        self._persistence_writes_succeeded = self._counter(
+            metrics_collector, "evidence_persistence_writes_succeeded"
+        )
+        self._persistence_writes_failed = self._counter(
+            metrics_collector, "evidence_persistence_writes_failed"
+        )
         # OrderedDict preserves insertion order for deterministic eviction.
         self._events: OrderedDict[UUID, NormalizedEvent] = OrderedDict()
         self._records: dict[UUID, EvidenceRecord] = {}
@@ -110,6 +126,68 @@ class TelemetryEvidenceService:
         # This is bounded by the same configured capacity and never stores telemetry.
         self._evicted_contributing_records: OrderedDict[UUID, EvidenceRecord] = OrderedDict()
         self._eviction_count: int = 0
+        if self._storage is not None:
+            self._load_persisted_records()
+
+    @staticmethod
+    def _counter(metrics_collector: MetricsCollector | None, name: str) -> Counter:
+        if metrics_collector is None:
+            return Counter(name)
+        try:
+            return metrics_collector.get_counter(name)
+        except KeyError:
+            return metrics_collector.register_counter(name)
+
+    def _persist_event_record(self, event: NormalizedEvent, record: EvidenceRecord) -> None:
+        """Commit one event and its provenance as a single storage record."""
+        if self._storage is None:
+            return
+        payload: dict[str, object] = {
+            "event": event.to_dict(),
+            "provenance": record.provenance,
+            "detection_result_id": str(record.detection_result_id)
+            if record.detection_result_id
+            else None,
+            "contributing_event_ids": [str(value) for value in record.contributing_event_ids],
+        }
+        try:
+            self._storage.save("telemetry_evidence", event.event_id, payload)
+        except Exception:
+            self._persistence_writes_failed.increment()
+            logger.exception("Failed to persist telemetry evidence event_id=%s", event.event_id)
+            raise
+        self._persistence_writes_succeeded.increment()
+
+    def _load_persisted_records(self) -> None:
+        """Warm the bounded query cache from previously committed evidence."""
+        assert self._storage is not None
+        try:
+            rows = self._storage.list_records("telemetry_evidence", limit=self._max_retained)
+        except Exception:
+            self._persistence_writes_failed.increment()
+            logger.exception("Unable to load persisted telemetry evidence during startup")
+            return
+        for payload in reversed(rows):
+            try:
+                raw_event = payload["event"]
+                if not isinstance(raw_event, dict):
+                    raise ValueError("Persisted evidence event payload is not an object")
+                event = NormalizedEvent.from_dict(raw_event)
+                raw_result_id = payload.get("detection_result_id")
+                raw_contributors = payload.get("contributing_event_ids", [])
+                if not isinstance(raw_contributors, list):
+                    raise ValueError("Persisted contributing_event_ids is not a list")
+                record = EvidenceRecord(
+                    event_id=event.event_id,
+                    provenance=str(payload["provenance"]),
+                    detection_result_id=UUID(str(raw_result_id)) if raw_result_id else None,
+                    contributing_event_ids=tuple(UUID(str(value)) for value in raw_contributors),
+                )
+                self._events[event.event_id] = event
+                self._records[event.event_id] = record
+            except (KeyError, TypeError, ValueError) as exc:
+                self._persistence_writes_failed.increment()
+                logger.warning("Skipping malformed persisted telemetry evidence: %s", exc)
 
     # ------------------------------------------------------------------
     # Insertion
@@ -132,6 +210,18 @@ class TelemetryEvidenceService:
             )
 
         with self._lock:
+            existing_event = self._events.get(event.event_id)
+            if existing_event is not None and existing_event.to_dict() != event.to_dict():
+                raise ValueError(f"Conflicting telemetry payload for event_id={event.event_id}")
+            existing_record = self._records.get(event.event_id)
+            effective_provenance = (
+                PROVENANCE_DETECTION_SOURCE
+                if existing_record is not None
+                and existing_record.provenance == PROVENANCE_DETECTION_SOURCE
+                else provenance
+            )
+            record = EvidenceRecord(event_id=event.event_id, provenance=effective_provenance)
+            self._persist_event_record(event, record)
             self._insert_event_unlocked(event, provenance)
             return self._records[event.event_id]
 
@@ -168,6 +258,8 @@ class TelemetryEvidenceService:
                     detection_result_id=detection_result_id,
                     contributing_event_ids=contributing_event_ids,
                 )
+                self._persist_event_record(self._events[event_id], new_record)
+                self._persist_event_record(self._events[event_id], new_record)
                 self._records[event_id] = new_record
                 return new_record
 
@@ -390,6 +482,9 @@ class TelemetryEvidenceService:
                 "max_retained_events": self._max_retained,
                 "eviction_count": self._eviction_count,
                 "capacity_used_pct": round(len(self._events) / self._max_retained * 100, 2),
+                "persistence_enabled": self._storage is not None,
+                "persistence_writes_succeeded": self._persistence_writes_succeeded.get_value(),
+                "persistence_writes_failed": self._persistence_writes_failed.get_value(),
             }
 
     # ------------------------------------------------------------------
