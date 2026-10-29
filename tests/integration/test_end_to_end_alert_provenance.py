@@ -91,12 +91,8 @@ def _start_application(config_path: str):
     container = ServiceContainer()
     app = Application(config_path=config_path, container=container)
     app.startup(start_api=False)
-
-    # The production application currently registers telemetry evidence as an
-    # optional side channel. Register the existing service against the same
-    # configured durable Storage interface used by application processing.
-    evidence = TelemetryEvidenceService(storage=container.resolve(Storage))
-    container.register_singleton(TelemetryEvidenceService, evidence)
+    # Resolve the service registered by the production composition root.
+    evidence = container.resolve(TelemetryEvidenceService)
     return app, container, evidence
 
 
