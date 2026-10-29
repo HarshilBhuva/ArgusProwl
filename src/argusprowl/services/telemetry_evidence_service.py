@@ -548,9 +548,7 @@ class TelemetryEvidenceService:
 
         with self._lock:
             for eid in event_ids:
-                if eid in self._events:
-                    status[eid] = self._recovery_status
-                elif self._recovery_status != "AVAILABLE":
+                if eid in self._events or self._recovery_status != "AVAILABLE":
                     status[eid] = self._recovery_status
                 else:
                     status[eid] = "EVICTED"
