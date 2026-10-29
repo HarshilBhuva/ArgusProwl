@@ -218,7 +218,14 @@ class TelemetryEvidenceService:
                 raise ValueError(f"Conflicting telemetry payload for event_id={event.event_id}")
             existing_record = self._records.get(event.event_id)
             if existing_record is None and self._storage is not None:
-                persisted = self._storage.load("telemetry_evidence", event.event_id)
+                try:
+                    persisted = self._storage.load("telemetry_evidence", event.event_id)
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception(
+                        "Unable to check existing evidence event_id=%s", event.event_id
+                    )
+                    raise
                 if persisted is not None:
                     raw_event = persisted.get("event")
                     if not isinstance(raw_event, dict):
