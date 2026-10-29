@@ -456,6 +456,20 @@ class EvidenceStatsResponse(BaseModel):
     capacity_used_pct: float = Field(
         ..., description="Percentage of store capacity currently used."
     )
+    persistence_enabled: bool = Field(
+        default=False, description="Whether durable evidence storage is configured."
+    )
+    recovery_status: str = Field(
+        default="AVAILABLE", description="Evidence recovery completeness: AVAILABLE, DEGRADED, or UNAVAILABLE."
+    )
+    recovery_reason: str | None = Field(
+        default=None, description="Reason evidence recovery is degraded or unavailable."
+    )
+    persistence_writes_succeeded: int = Field(default=0, description="Committed evidence writes.")
+    persistence_writes_failed: int = Field(default=0, description="Failed evidence writes.")
+    persistence_operations_failed: int = Field(
+        default=0, description="Failed recovery, lookup, or retention operations."
+    )
 
 
 # ---------------------------------------------------------------------------
