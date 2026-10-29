@@ -37,7 +37,7 @@ def test_api_auth_settings_can_be_overridden_by_deployment_environment(
     tmp_path, monkeypatch
 ) -> None:
     config_file = tmp_path / "app.yaml"
-    config_file.write_text("app_name: TestApp\\napi:\\n  auth_enabled: false\\n", encoding="utf-8")
+    config_file.write_text("app_name: TestApp\napi:\n  auth_enabled: false\n", encoding="utf-8")
     monkeypatch.setenv("TH_API__HOST", "0.0.0.0")
     monkeypatch.setenv("TH_API__PORT", "8181")
     monkeypatch.setenv("TH_API__AUTH_ENABLED", "true")
