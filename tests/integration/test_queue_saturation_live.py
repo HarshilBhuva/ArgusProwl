@@ -10,14 +10,11 @@ Covers:
 
 from __future__ import annotations
 
-import queue
-from threading import Thread, Event as ThreadingEvent
+from threading import Event as ThreadingEvent
+from threading import Thread
 
-import pytest
-
-from argusprowl.core.application import Application
 from argusprowl.models.normalized_event import NormalizedEvent
-from argusprowl.reliability.buffer import BoundedIngestionBuffer, OverflowPolicy
+from argusprowl.reliability.buffer import BoundedIngestionBuffer
 
 
 def _make_event(seq: int) -> NormalizedEvent:

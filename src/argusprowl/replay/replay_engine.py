@@ -118,9 +118,9 @@ class ReplayEngine:
         self._logger = LoggerFactory.get_logger("replay")
         self._events_processed = 0
         # Distinct counters:
-        #   _detection_matches  – detector results with matched=True
-        #   _alerts_created     – actual Alert objects produced by the decision engine
-        #   _alerts_generated   – deprecated alias for _alerts_created (kept for
+        #   _detection_matches  - detector results with matched=True
+        #   _alerts_created     - actual Alert objects produced by the decision engine
+        #   _alerts_generated   - deprecated alias for _alerts_created (kept for
         #                         backward compatibility with callers and dashboards)
         self._detection_matches = 0
         self._alerts_created = 0

@@ -6,7 +6,6 @@ adapter directly.
 """
 
 import contextlib
-import queue
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Thread
@@ -21,10 +20,10 @@ from argusprowl.behavior.entity_behavior_persistence import EntityBehaviorPersis
 from argusprowl.behavior.entity_behavior_service import EntityBehaviorService
 from argusprowl.collectors.manager import CollectorManager
 from argusprowl.collectors.registry import CollectorRegistry
-from argusprowl.core.collector_factory import build_collectors
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.log_names import LogName
 from argusprowl.constants.paths import ProjectPath
+from argusprowl.core.collector_factory import build_collectors
 from argusprowl.correlation.correlator import EndpointCorrelator
 from argusprowl.correlation.entity_correlation_service import EntityCorrelationService
 from argusprowl.decision_engine.decision_engine import DecisionEngine

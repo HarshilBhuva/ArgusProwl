@@ -14,16 +14,12 @@ This test loads the real rule through RuleLoader and asserts two things:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-
-import pytest
 
 from argusprowl.constants.event_type import EventType
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.detection.detectors.event_count_correlation import EventCountCorrelationDetector
 from argusprowl.detection.rule_loader import RuleLoader
 from argusprowl.models.normalized_event import NormalizedEvent
-
 
 # ---------------------------------------------------------------------------
 # Helpers

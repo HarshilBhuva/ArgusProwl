@@ -23,7 +23,6 @@ from argusprowl.api.auth import ApiKeyAuthMiddleware
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.services.alert_search_service import AlertSearchService
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

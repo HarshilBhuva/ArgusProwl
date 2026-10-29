@@ -6,8 +6,6 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 # Ensure src/ is on sys.path so Application can be imported regardless of cwd.
 sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -17,7 +15,6 @@ from argusprowl.config.config_manager import ConfigManager
 from argusprowl.core.application import Application
 from argusprowl.core.collector_factory import build_collectors, is_source_enabled
 from argusprowl.dependency_injection.container import ServiceContainer
-from argusprowl.logging.logger_factory import LoggerFactory
 from argusprowl.models.configuration import AppConfiguration
 
 
@@ -133,7 +130,7 @@ def test_application_registers_zeek_and_receives_event(temp_dir: Path) -> None:
         cm = app.container.resolve(
             __import__("argusprowl.collectors.manager").collectors.manager.CollectorManager
         )
-        assert cm.collector_count >= 1, "Expected at least one collector; got %s" % cm.collector_count
+        assert cm.collector_count >= 1, f"Expected at least one collector; got {cm.collector_count}"
 
         # The collector's collect() generator drives the tailing loop.
         # Consume it in a background thread so new events are enqueued.
@@ -257,9 +254,9 @@ def test_application_no_enabled_collectors_starts_cleanly(temp_dir: Path) -> Non
 def test_no_crash_when_collector_init_fails(temp_dir: Path) -> None:
     """If a collector's _do_initialize raises, startup must continue."""
     cfg_content = (
-        f"app_name: TestApp\n"
-        f"api:\n  enabled: false\n"
-        f"sysmon:\n  enabled: true\n"
+        "app_name: TestApp\n"
+        "api:\n  enabled: false\n"
+        "sysmon:\n  enabled: true\n"
     )
     cfg_file = temp_dir / "app.yaml"
     cfg_file.write_text(cfg_content, encoding="utf-8")
@@ -276,7 +273,7 @@ def test_no_crash_when_collector_init_fails(temp_dir: Path) -> None:
             __import__("argusprowl.collectors.manager").collectors.manager.CollectorManager
         )
         # At minimum, sysmon should be FAILED (not crashed the app).
-        failed = [
+        [
             (name, h)
             for name, h in cm.health_all().items()
             if h.state == CollectorState.FAILED

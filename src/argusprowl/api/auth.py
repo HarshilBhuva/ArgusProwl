@@ -50,9 +50,7 @@ def _is_public_path(path: str) -> bool:
     for ext in _PUBLIC_FILE_EXTENSIONS:
         if lower.endswith(ext):
             return True
-    if "favicon" in lower:
-        return True
-    return False
+    return "favicon" in lower
 
 
 class ApiKeyAuthMiddleware(BaseHTTPMiddleware):

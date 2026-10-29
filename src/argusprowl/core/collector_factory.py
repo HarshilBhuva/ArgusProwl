@@ -9,7 +9,7 @@ configuration dataclass section.
 
 import logging
 import queue
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from argusprowl.collectors.base_collector import BaseCollector
@@ -183,7 +183,7 @@ def is_source_enabled(config: AppConfiguration, source: str) -> bool:
     implies enabled=True (matching YAML semantics where the user explicitly
     listed the section).
     """
-    builder, _cls, flag_section = _COLLECTOR_SOURCES[source]
+    _builder, _cls, flag_section = _COLLECTOR_SOURCES[source]
     section_obj = getattr(config, flag_section, None)
     if section_obj is None:
         return False
@@ -223,7 +223,7 @@ def build_collectors(
     """
     created: list[tuple[str, BaseCollector]] = []
 
-    for source_name, (builder, collector_cls, flag_section) in _COLLECTOR_SOURCES.items():
+    for source_name, (builder, collector_cls, _flag_section) in _COLLECTOR_SOURCES.items():
         if not is_source_enabled(config, source_name):
             logger.debug("Collector source '%s' is disabled; skipping", source_name)
             continue

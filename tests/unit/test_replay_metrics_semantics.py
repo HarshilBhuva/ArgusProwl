@@ -8,14 +8,10 @@ actual Alert objects produced by the decision engine, and verifies that the
 
 from pathlib import Path
 
-import pytest
-
 from argusprowl.detection.detection_manager import DetectionManager
 from argusprowl.detection.detector_registry import DetectorRegistry
 from argusprowl.detection.detectors.port_scan import PortScanDetector
 from argusprowl.feature_engineering.feature_extractor import FeatureExtractor
-from argusprowl.models.detection_result import DetectionResult
-from argusprowl.models.normalized_event import NormalizedEvent
 from argusprowl.replay.replay_engine import ReplayEngine
 
 

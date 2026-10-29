@@ -5,7 +5,6 @@ queries them en-masse.  Failure isolation is the key guarantee: one collector
 raising during a bulk operation never prevents the others from proceeding.
 """
 
-import queue
 import threading
 from typing import Any
 
@@ -16,7 +15,6 @@ from argusprowl.constants.log_names import LogName
 from argusprowl.logging.logger_factory import LoggerFactory
 from argusprowl.metrics.collector import MetricsCollector
 from argusprowl.models.collector_health import CollectorHealth
-from argusprowl.models.normalized_event import NormalizedEvent
 
 
 class CollectorManager:
