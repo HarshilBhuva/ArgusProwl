@@ -46,7 +46,9 @@ class BoundedIngestionBuffer[T]:
         self._logger = logging.getLogger("argusprowl.reliability.buffer")
         self.events_received = self._counter(metrics_collector, "events_received")
         self.events_buffered = self._counter(metrics_collector, "events_buffered")
+        # Successful processing is counted only after the consumer reports its outcome.
         self.events_processed = self._counter(metrics_collector, "events_processed")
+        self.events_processing_failed = self._counter(metrics_collector, "events_processing_failed")
         self.events_dropped = self._counter(metrics_collector, "events_dropped")
         self.enqueue_count = self._counter(metrics_collector, "enqueue_count")
         self.dequeue_count = self._counter(metrics_collector, "dequeue_count")
@@ -140,12 +142,25 @@ class BoundedIngestionBuffer[T]:
                 return None
             item = self._items.popleft()
             self.dequeue_count.increment()
-            self.events_processed.increment()
             self.queue_depth.set(len(self._items))
             self._condition.notify_all()
             return item
 
+    def record_processing_result(self, succeeded: bool, seconds: float) -> None:
+        """Record the outcome and duration after an item has been processed.
+
+        Dequeueing is not equivalent to successful processing. Keep queue
+        delivery metrics separate from consumer outcomes so failures cannot
+        inflate the successful-processing counter.
+        """
+        if succeeded:
+            self.events_processed.increment()
+        else:
+            self.events_processing_failed.increment()
+        self.consumer_processing_latency.observe(max(0.0, seconds))
+
     def record_processing_latency(self, seconds: float) -> None:
+        """Record processing duration when the outcome is tracked elsewhere."""
         self.consumer_processing_latency.observe(max(0.0, seconds))
 
     def close(self) -> None:
