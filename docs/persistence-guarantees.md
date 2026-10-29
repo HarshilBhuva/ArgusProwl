@@ -5,7 +5,7 @@
 - The ingestion consumer calls the core detection pipeline. A completed core path is counted by PR #14 independently of optional evidence persistence.
 - `AlertManager.send_alert()` enqueues the alert, attempts SQLite alert persistence when enabled, then dispatches it to configured providers. A failed persistence result does not suppress provider delivery or change the existing return contract; it is logged and counted in `get_statistics()`.
 - `TelemetryEvidenceService` stores each normalized event and its provenance in one `Storage` record in the `telemetry_evidence` collection. The default application storage adapter is SQLite. A successful `Storage.save()` returns only after the adapter's transaction context commits.
-- The evidence service keeps a bounded in-memory cache for queries and warms it from committed storage on startup. Its persistence success/failure counters are `evidence_persistence_writes_succeeded` and `evidence_persistence_writes_failed`.
+- The evidence service keeps a bounded in-memory cache for queries and warms it from committed storage on startup. Its committed-write counters are `evidence_persistence_writes_succeeded` and `evidence_persistence_writes_failed`; load, recovery, malformed-record, and retention-delete failures are tracked separately as `evidence_persistence_operations_failed`.
 - Application shutdown drains the processing worker before closing alert persistence and the shared storage adapter.
 
 ## Atomicity and partial failure
