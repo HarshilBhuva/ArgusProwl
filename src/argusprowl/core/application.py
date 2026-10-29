@@ -194,20 +194,6 @@ class Application:
                 )
                 return
 
-            # Persistence must outlive the processing worker: queued events can
-            # still produce alerts and behavior updates during the drain.
-            try:
-                behavior_service = self._container.resolve(EntityBehaviorService)
-                if hasattr(behavior_service, "persist_state"):
-                    behavior_service.persist_state()
-            except Exception:
-                self._logger.exception("Unable to persist behavior state during shutdown")
-
-            try:
-                alert_persistence = self._container.resolve(AlertPersistence)
-                alert_persistence.close()
-            except Exception:
-                pass  # Not registered or already closed
         finally:
             self._stop_api_server()
             if self._processing_thread is not None and self._processing_thread.is_alive():
@@ -217,6 +203,21 @@ class Application:
                     "Application teardown deferred because the processing worker is still active"
                 )
             else:
+                # Persistence must outlive the processing worker: queued events
+                # can still produce alerts and behavior updates during the drain.
+                try:
+                    behavior_service = self._container.resolve(EntityBehaviorService)
+                    if hasattr(behavior_service, "persist_state"):
+                        behavior_service.persist_state()
+                except Exception:
+                    self._logger.exception("Unable to persist behavior state during shutdown")
+
+                try:
+                    alert_persistence = self._container.resolve(AlertPersistence)
+                    alert_persistence.close()
+                except Exception:
+                    pass  # Not registered or already closed
+
                 self._running = False
                 self._safe_clear()
                 self._logger.info("Application shutdown complete")
