@@ -7,6 +7,7 @@ import pytest
 
 from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
+from argusprowl.constants.lifecycle import AlertLifecycleState
 from argusprowl.constants.severity import Severity
 from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.metrics.collector import MetricsCollector
@@ -182,8 +183,11 @@ def test_duplicate_alert_save_does_not_evict_existing_alert(tmp_path) -> None:
     alert = _alert(event)
 
     assert persistence.save_alert(alert) is True
+    assert persistence.update_lifecycle(alert.alert_id, AlertLifecycleState.ACKNOWLEDGED.value) is True
     assert persistence.save_alert(alert) is True
-    assert persistence.load_alert(alert.alert_id) is not None
+    loaded = persistence.load_alert(alert.alert_id)
+    assert loaded is not None
+    assert loaded.lifecycle_state == AlertLifecycleState.ACKNOWLEDGED
     assert len(persistence.list_all().alerts) == 1
     persistence.close()
 
