@@ -88,28 +88,34 @@ def test_evidence_and_alert_survive_storage_restart_and_remain_linked(tmp_path) 
     recovered_storage.close()
 
 
-def test_evidence_write_failure_is_reported_and_not_cached(tmp_path, monkeypatch) -> None:
+def test_evidence_write_failure_is_reported_and_not_cached(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
     metrics = MetricsCollector()
     service = TelemetryEvidenceService(storage=storage, metrics_collector=metrics)
     event = _event()
 
-    def fail_save(*args, **kwargs):
-        raise StorageError("synthetic write failure", {"collection": "telemetry_evidence"})
+    # Abort after SQLite has performed the INSERT, exercising transaction rollback.
+    storage._connection.execute(
+        """CREATE TRIGGER fail_evidence_insert AFTER INSERT ON records
+        WHEN NEW.collection = 'telemetry_evidence'
+        BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END"""
+    )
+    storage._connection.commit()
 
-    original_save = storage.save
-    monkeypatch.setattr(storage, "save", fail_save)
     with pytest.raises(StorageError):
         service.record_event(event)
 
     assert service.get_event(event.event_id) is None
+    assert storage.load("telemetry_evidence", event.event_id) is None
     assert metrics.get_counter("evidence_persistence_writes_failed").get_value() == 1
     assert metrics.get_counter("evidence_persistence_writes_succeeded").get_value() == 0
 
-    # Recovery is explicit: once storage is healthy, a new attempt succeeds.
-    monkeypatch.setattr(storage, "save", original_save)
+    # Recovery is explicit: remove the failing trigger and retry once.
+    storage._connection.execute("DROP TRIGGER fail_evidence_insert")
+    storage._connection.commit()
     service.record_event(event)
     assert service.get_event(event.event_id) is not None
+    assert storage.load("telemetry_evidence", event.event_id) is not None
     assert metrics.get_counter("evidence_persistence_writes_succeeded").get_value() == 1
     storage.close()
 
