@@ -225,3 +225,85 @@ def test_evidence_retention_evicts_durable_records_but_duplicate_does_not(tmp_pa
     assert service.get_event(second.event_id) is not None
     assert storage.load("telemetry_evidence", second.event_id) is not None
     storage.close()
+
+def test_startup_list_failure_marks_search_and_health_unavailable(tmp_path, monkeypatch) -> None:
+    storage = SQLiteAdapter(tmp_path / "evidence.db")
+
+    def fail_list_records(*args, **kwargs):
+        raise StorageError("synthetic startup read failure")
+
+    monkeypatch.setattr(storage, "list_records", fail_list_records)
+    service = TelemetryEvidenceService(storage=storage)
+
+    result = service.search()
+    assert result.status == "UNAVAILABLE"
+    assert result.reason and "could not be loaded" in result.reason
+    assert result.returned_count == 0
+    stats = service.get_stats()
+    assert stats["recovery_status"] == "UNAVAILABLE"
+    assert stats["recovery_reason"] == result.reason
+    storage.close()
+
+
+def test_malformed_persisted_record_marks_recovery_degraded(tmp_path) -> None:
+    storage = SQLiteAdapter(tmp_path / "evidence.db")
+    malformed_id = uuid4()
+    valid = _event()
+    storage.save(
+        "telemetry_evidence",
+        malformed_id,
+        {"event": {"not": "a normalized event"}, "provenance": "INVALID"},
+    )
+    storage.save(
+        "telemetry_evidence",
+        valid.event_id,
+        {
+            "event": valid.to_dict(),
+            "provenance": PROVENANCE_OBSERVED_CONTEXT,
+            "detection_result_id": None,
+            "contributing_event_ids": [],
+        },
+    )
+
+    service = TelemetryEvidenceService(storage=storage)
+    result = service.search()
+    assert result.status == "DEGRADED"
+    assert result.reason and "malformed persisted record" in result.reason
+    assert result.returned_count == 1
+    assert valid.event_id in result.events
+    detail = service.get_detail(valid.event_id)
+    assert detail is not None
+    assert detail.status == "DEGRADED"
+    assert service.get_stats()["recovery_status"] == "DEGRADED"
+    storage.close()
+
+
+def test_successful_recovery_with_no_matches_returns_available_empty_result(tmp_path) -> None:
+    storage = SQLiteAdapter(tmp_path / "evidence.db")
+    service = TelemetryEvidenceService(storage=storage)
+
+    result = service.search(event_type="not-present")
+    assert result.status == "AVAILABLE"
+    assert result.reason is None
+    assert result.returned_count == 0
+    assert service.get_stats()["recovery_status"] == "AVAILABLE"
+    storage.close()
+
+
+def test_successful_recovery_preserves_available_status_for_recovered_event(tmp_path) -> None:
+    db_path = tmp_path / "evidence.db"
+    event = _event()
+    first_storage = SQLiteAdapter(db_path)
+    first = TelemetryEvidenceService(storage=first_storage)
+    first.record_event(event)
+    first_storage.close()
+
+    recovered_storage = SQLiteAdapter(db_path)
+    recovered = TelemetryEvidenceService(storage=recovered_storage)
+    result = recovered.search(event_id=event.event_id)
+    detail = recovered.get_detail(event.event_id)
+
+    assert result.status == "AVAILABLE"
+    assert result.returned_count == 1
+    assert detail is not None and detail.status == "AVAILABLE"
+    recovered_storage.close()
