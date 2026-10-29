@@ -279,6 +279,11 @@ def test_malformed_persisted_record_marks_recovery_degraded(tmp_path) -> None:
     detail = service.get_detail(valid.event_id)
     assert detail is not None
     assert detail.status == "DEGRADED"
+    # An absent ID is not evidence of a healthy miss when recovery was partial.
+    missing_detail = service.get_detail(uuid4())
+    assert missing_detail is not None
+    assert missing_detail.status == "DEGRADED"
+    assert missing_detail.reason and "malformed persisted record" in missing_detail.reason
     assert service.get_stats()["recovery_status"] == "DEGRADED"
     storage.close()
 
