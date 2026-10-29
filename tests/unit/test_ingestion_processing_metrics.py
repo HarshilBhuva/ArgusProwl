@@ -2,8 +2,6 @@
 
 import logging
 
-import pytest
-
 from argusprowl.core.application import Application
 from argusprowl.reliability.buffer import BoundedIngestionBuffer
 
