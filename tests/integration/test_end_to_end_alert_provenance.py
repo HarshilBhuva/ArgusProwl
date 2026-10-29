@@ -1,10 +1,9 @@
-"""Pipeline-orchestration durability test from normalized event to persisted alert/evidence.
+"""End-to-end durability test using the existing first-seen production rule.
 
-This test deliberately does not validate a production detection analytic: existing
-network analytics consume aggregated feature vectors or multiple observations,
-whereas this test isolates the durable alert/evidence lifecycle with a deterministic
-rule. Source-specific raw-log parsing is outside this test; the input contract here
-is the already-normalized NormalizedEvent envelope.
+The test begins at the normalized-event ingestion boundary. It proves that the
+production rule registry detects a first-seen process on a host, then follows
+the alert and evidence through durable storage and a fresh application lifecycle.
+Source-specific raw-log parsing remains covered upstream of this boundary.
 """
 
 from __future__ import annotations
@@ -13,13 +12,10 @@ from threading import Event
 from uuid import UUID, uuid4
 
 from argusprowl.alerting.alert_persistence import AlertPersistence
-from argusprowl.constants.severity import Severity
 from argusprowl.core.application import Application
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.detection.detection_manager import DetectionManager
-from argusprowl.interfaces.detector import Detector
 from argusprowl.interfaces.storage import Storage
-from argusprowl.models.detection_result import DetectionResult
 from argusprowl.models.normalized_event import NormalizedEvent
 from argusprowl.services.telemetry_evidence_service import (
     PROVENANCE_DETECTION_SOURCE,
@@ -27,43 +23,7 @@ from argusprowl.services.telemetry_evidence_service import (
 )
 
 
-class _DeterministicEventDetector(Detector):
-    """Test-only orchestration rule, not a production detection analytic.
-
-    Matching a fixture UUID makes the test deterministic while leaving the
-    production DetectionManager, DecisionEngine, AlertManager, and persistence
-    paths under test. Existing analytics are intentionally not claimed as tested.
-    """
-
-    def __init__(self, event_id: UUID) -> None:
-        self._event_id = event_id
-
-    @property
-    def name(self) -> str:
-        return "integration.durable-provenance"
-
-    def is_enabled(self) -> bool:
-        return True
-
-    def observe(self, _event: NormalizedEvent) -> None:
-        """Mark this as an event-based detector for DetectionManager."""
-
-    def detect(self, event: NormalizedEvent) -> DetectionResult:
-        return DetectionResult(
-            rule_id=self.name,
-            event_id=event.event_id,
-            matched=event.event_id == self._event_id,
-            severity=Severity.HIGH,
-            confidence=0.99,
-            description="Deterministic end-to-end durability test detection.",
-            evidence=[
-                {
-                    "field": "process_name",
-                    "observed": event.process_name or "unknown",
-                    "condition": "event matches test rule",
-                }
-            ],
-        )
+PRODUCTION_RULE_ID = "first_seen_host_process"
 
 
 def _write_config(tmp_path) -> str:
@@ -103,7 +63,7 @@ def _start_application(config_path: str):
     container = ServiceContainer()
     app = Application(config_path=config_path, container=container)
     app.startup(start_api=False)
-    # Resolve the service registered by the production composition root.
+    # Resolve services from the production composition root.
     evidence = container.resolve(TelemetryEvidenceService)
     return app, container, evidence
 
@@ -111,9 +71,6 @@ def _start_application(config_path: str):
 def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> None:
     config_path = _write_config(tmp_path)
     event_id = uuid4()
-    # Source-specific raw-event parsing is intentionally upstream of this test.
-    # NormalizedEvent validation/serialization has separate model tests; this
-    # integration test starts at the normalized-event ingestion API.
     event = NormalizedEvent(
         source_type="integration-test",
         event_type="process_start",
@@ -128,13 +85,12 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
 
     app, container, evidence = _start_application(config_path)
     try:
-        # Isolate orchestration from analytic correctness: do not treat this
-        # UUID-matching test detector as validation of a production detection rule.
-        # The event still traverses the real queue consumer, DetectionManager,
-        # DecisionEngine, and AlertManager.
+        # Keep the production registry intact and verify that the configured
+        # YAML-backed rule is present before submitting the event.
         manager = container.resolve(DetectionManager)
-        manager.get_registry().clear()
-        manager.register_detector(_DeterministicEventDetector(event_id))
+        detector = manager.get_detector(PRODUCTION_RULE_ID)
+        assert detector is not None
+        assert detector.is_enabled()
 
         original_record_provenance = evidence.record_provenance
 
@@ -144,42 +100,67 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
             return result
 
         evidence.record_provenance = signal_after_provenance  # type: ignore[method-assign]
+        # Submit through the same queue callback used by production collectors.
         app._collector_callback(event)
-        assert pipeline_completed.wait(timeout=5), "Queued event did not complete detection/evidence"
+        assert pipeline_completed.wait(timeout=5), (
+            "Queued event did not complete production detection and evidence recording"
+        )
 
         alert_persistence = container.resolve(AlertPersistence)
         before_alerts = alert_persistence.list_all()
-        assert len(before_alerts.alerts) == 1
-        alert = before_alerts.alerts[0]
-        assert alert.source == "integration.durable-provenance"
+        matching_alerts = [
+            item for item in before_alerts.alerts
+            if item.detection_source_event_id == event_id
+        ]
+        assert len(matching_alerts) == 1
+        alert = matching_alerts[0]
+
+        # The alert must name the actual configured production rule, not a
+        # test-only detector or a manually synthesized alert.
+        assert alert.source == PRODUCTION_RULE_ID
+        assert alert.metadata["rule_id"] == PRODUCTION_RULE_ID
         assert alert.detection_source_event_id == event_id
         assert alert.metadata["event_id"] == str(event_id)
+        assert alert.metadata["result_id"]
 
         evidence_result = evidence.search(event_id=event_id)
         assert evidence_result.status == "AVAILABLE"
+        assert evidence_result.reason is None
         assert evidence_result.returned_count == 1
         recovered_pair = evidence.get_event(event_id)
         assert recovered_pair is not None
         stored_event, evidence_record = recovered_pair
         assert stored_event.to_dict() == event.to_dict()
+        assert stored_event.timestamp == event.timestamp
+        assert evidence_record.event_id == event_id
         assert evidence_record.provenance == PROVENANCE_DETECTION_SOURCE
         assert evidence_record.detection_result_id == UUID(alert.metadata["result_id"])
         assert evidence_record.contributing_event_ids == alert.contributing_event_ids
+        assert alert.contributing_event_ids == (event_id,)
         assert len(container.resolve(Storage).list_records("telemetry_evidence", limit=10)) == 1
     finally:
         app.shutdown()
 
-    # A new Application, container, SQLite connection, and evidence service
-    # simulate process restart; only the persistent database files are reused.
+    # A new Application, container, SQLite connection, alert persistence object,
+    # and evidence service are created against the same on-disk stores.
     recovered_app, recovered_container, recovered_evidence = _start_application(config_path)
     try:
         recovered_alerts = recovered_container.resolve(AlertPersistence)
         after_alerts = recovered_alerts.list_all()
-        assert len(after_alerts.alerts) == 1
+        matching_alerts = [
+            item for item in after_alerts.alerts
+            if item.detection_source_event_id == event_id
+        ]
+        assert len(matching_alerts) == 1
         persisted_alert = recovered_alerts.load_alert(alert.alert_id)
         assert persisted_alert is not None
         assert persisted_alert.to_dict() == alert.to_dict()
+        assert persisted_alert.source == PRODUCTION_RULE_ID
+        assert persisted_alert.metadata["rule_id"] == PRODUCTION_RULE_ID
+        assert persisted_alert.detection_source_event_id == event_id
+        assert persisted_alert.metadata["event_id"] == str(event_id)
 
+        # Healthy startup recovery must explicitly report complete availability.
         result = recovered_evidence.search(event_id=event_id)
         assert result.status == "AVAILABLE"
         assert result.reason is None
@@ -187,12 +168,20 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
         detail = recovered_evidence.get_detail(event_id)
         assert detail is not None
         assert detail.status == "AVAILABLE"
+        assert detail.reason is None
         assert detail.event is not None
         assert detail.event.to_dict() == event.to_dict()
         assert detail.record is not None
+        assert detail.record.event_id == event_id
         assert detail.record.provenance == PROVENANCE_DETECTION_SOURCE
         assert detail.record.detection_result_id == UUID(persisted_alert.metadata["result_id"])
         assert detail.record.contributing_event_ids == persisted_alert.contributing_event_ids
+        assert detail.record.contributing_event_ids == (event_id,)
+
+        # Repeated normal-interface reads must not create duplicate durable rows.
+        assert recovered_alerts.load_alert(alert.alert_id).to_dict() == persisted_alert.to_dict()
+        assert recovered_evidence.get_detail(event_id).record == detail.record
+        assert len(after_alerts.alerts) == 1
         assert len(
             recovered_container.resolve(Storage).list_records("telemetry_evidence", limit=10)
         ) == 1
