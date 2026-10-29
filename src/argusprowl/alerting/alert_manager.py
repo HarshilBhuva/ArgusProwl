@@ -47,6 +47,8 @@ class AlertManager:
         self._alert_search_service = alert_search_service
         self._attck_enrichment_service = attck_enrichment_service
         self._queue_dropped = 0
+        self._total_persistence_successes = 0
+        self._total_persistence_failures = 0
         self._last_queue_full_log_time = 0.0
         self._logger = LoggerFactory.get_logger(LogName.ALERT)
 
@@ -86,9 +88,20 @@ class AlertManager:
                     self._last_queue_full_log_time = now
         if self._alert_persistence is not None:
             try:
-                self._alert_persistence.save_alert(alert)
-            except Exception as exc:
-                self._logger.warning("Failed to persist alert %s: %s", alert.alert_id, exc)
+                persisted = self._alert_persistence.save_alert(alert)
+                if persisted:
+                    self._total_persistence_successes += 1
+                else:
+                    self._total_persistence_failures += 1
+                    self._logger.error(
+                        "Alert persistence did not commit alert_id=%s status=%s reason=%s",
+                        alert.alert_id,
+                        self._alert_persistence.get_status(),
+                        self._alert_persistence.get_status_reason(),
+                    )
+            except Exception:
+                self._total_persistence_failures += 1
+                self._logger.exception("Unexpected alert persistence error alert_id=%s", alert.alert_id)
         results: dict[str, bool] = {}
         for provider_name, provider in self._providers.items():
             try:
@@ -145,6 +158,8 @@ class AlertManager:
             "total_delivery_failures": self._total_delivery_failures,
             "success_rate": success_rate,
             "queue_dropped": self._queue_dropped,
+            "alert_persistence_writes_succeeded": self._total_persistence_successes,
+            "alert_persistence_writes_failed": self._total_persistence_failures,
         }
         if self._alert_queue is not None:
             stats.update(
