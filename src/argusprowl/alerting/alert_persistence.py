@@ -226,6 +226,9 @@ class AlertPersistence:
                         self._status = AlertPersistenceStatus.DEGRADED
                         self._status_reason = "integrity_conflict"
                         return False
+                    # The committed payload already matches. Do not replace it:
+                    # lifecycle_state may have advanced independently since save.
+                    return True
 
                 # A repeat save for the same immutable alert is idempotent and
                 # must not evict an unrelated alert when retention is full.
