@@ -3,6 +3,7 @@
 Centralized thread-safe access point for application configuration.
 """
 
+import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -265,14 +266,22 @@ class ConfigManager:
 
         # API configuration (Phase 7.0)
         api_data = raw.get("api", {})
+        env_auth_enabled = os.environ.get("TH_API__AUTH_ENABLED")
+        configured_auth_enabled = api_data.get("auth_enabled", False)
+        if env_auth_enabled is not None:
+            configured_auth_enabled = env_auth_enabled.strip().lower() in {"1", "true", "yes", "on"}
+
         api_cfg = ApiConfig(
             enabled=api_data.get("enabled", True),
-            host=api_data.get("host", "127.0.0.1"),
-            port=int(api_data.get("port", 8080)),
+            host=os.environ.get("TH_API__HOST", api_data.get("host", "127.0.0.1")),
+            port=int(os.environ.get("TH_API__PORT", api_data.get("port", 8080))),
             cors_origins=api_data.get("cors_origins", []),
             max_alert_limit=int(api_data.get("max_alert_limit", 100)),
-            auth_enabled=api_data.get("auth_enabled", False),
-            auth_header_name=api_data.get("auth_header_name", "X-ArgusProwl-Key"),
+            auth_enabled=configured_auth_enabled,
+            auth_header_name=os.environ.get(
+                "TH_API__AUTH_HEADER_NAME",
+                api_data.get("auth_header_name", "X-ArgusProwl-Key"),
+            ),
             # Prefer the environment variable for secrets. The middleware also
             # resolves ARGUSPROWL_API_KEY lazily when this value is empty.
             api_key=api_data.get("api_key", ""),
