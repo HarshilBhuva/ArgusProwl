@@ -19,6 +19,7 @@ from argusprowl.behavior.analyst_annotation_service import AnalystAnnotationServ
 from argusprowl.behavior.entity_behavior_persistence import EntityBehaviorPersistence
 from argusprowl.behavior.entity_behavior_service import EntityBehaviorService
 from argusprowl.collectors.manager import CollectorManager
+from argusprowl.collectors.state import CollectorState
 from argusprowl.collectors.registry import CollectorRegistry
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.log_names import LogName
@@ -67,6 +68,7 @@ class Application:
         self._config_manager = ConfigManager()
         self._logger = LoggerFactory.get_logger(LogName.CORE)
         self._processing_thread: Thread | None = None
+        self._collector_threads: list[Thread] = []
         self._shutdown_event = Event()
         # Bounded ingestion buffer — registered after config is loaded below.
         self._event_queue: BoundedIngestionBuffer[NormalizedEvent] | None = None
@@ -130,6 +132,14 @@ class Application:
                 collector_manager.stop_all()
             except Exception:
                 pass  # Manager not registered yet or already down - proceed.
+            # Source shutdown should release each collector generator. Join the
+            # collection workers before closing the shared ingestion buffer.
+            for thread in self._collector_threads:
+                if thread.is_alive():
+                    thread.join(timeout=5.0)
+                    if thread.is_alive():
+                        self._logger.warning("Collector worker %s did not stop cleanly", thread.name)
+            self._collector_threads.clear()
             # Persist behavior state before shutdown
             try:
                 behavior_service = self._container.resolve(EntityBehaviorService)
@@ -694,6 +704,23 @@ class Application:
         for collector_name, exc in results.items():
             if exc is not None:
                 self._logger.error("Collector %s failed to start: %s", collector_name, exc)
+
+        # Collectors publish to the shared ingestion buffer from their
+        # collect() generators. Starting the source alone does not consume
+        # those generators, so run one managed worker per successfully started
+        # collector as part of the application lifecycle.
+        for collector_name, collector in collector_manager.registry.get_all().items():
+            if collector.state is not CollectorState.RUNNING:
+                continue
+            thread = Thread(
+                target=self._consume_collector,
+                args=(collector,),
+                name=f"collector-{collector_name}",
+                daemon=True,
+            )
+            self._collector_threads.append(thread)
+            thread.start()
+
         # Log post-startup health state for every collector so the
         # ingestion topology is observable from the startup log.
         for collector_name, health in collector_manager.health_all().items():
@@ -710,6 +737,21 @@ class Application:
                     collector_name,
                     health.state,
                     health.error_message,
+                )
+
+    def _consume_collector(self, collector: Any) -> None:
+        """Consume one collector's generator until source shutdown."""
+        try:
+            for _event in collector.collect():
+                if self._shutdown_event.is_set():
+                    break
+        except Exception as exc:
+            if not self._shutdown_event.is_set():
+                self._logger.error(
+                    "Collector %s collection worker failed: %s",
+                    collector.name,
+                    exc,
+                    exc_info=True,
                 )
 
     def _collector_callback(self, event: NormalizedEvent) -> None:
