@@ -271,6 +271,11 @@ class ConfigManager:
             port=int(api_data.get("port", 8080)),
             cors_origins=api_data.get("cors_origins", []),
             max_alert_limit=int(api_data.get("max_alert_limit", 100)),
+            auth_enabled=api_data.get("auth_enabled", False),
+            auth_header_name=api_data.get("auth_header_name", "X-ArgusProwl-Key"),
+            # Prefer the environment variable for secrets. The middleware also
+            # resolves ARGUSPROWL_API_KEY lazily when this value is empty.
+            api_key=api_data.get("api_key", ""),
         )
 
         zeek_data = raw.get("zeek", {})
