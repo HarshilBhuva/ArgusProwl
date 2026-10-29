@@ -227,8 +227,9 @@ class AlertPersistence:
                         self._status_reason = "integrity_conflict"
                         return False
 
-                # Evict oldest if at capacity
-                if self._get_count(conn) >= self._max_alerts:
+                # A repeat save for the same immutable alert is idempotent and
+                # must not evict an unrelated alert when retention is full.
+                if existing is None and self._get_count(conn) >= self._max_alerts:
                     self._evict_oldest(conn)
 
                 conn.execute(
@@ -255,6 +256,12 @@ class AlertPersistence:
 
                 return True
         except sqlite3.Error as exc:
+            # Roll back any eviction or partial write before returning a failed
+            # persistence outcome; otherwise a later operation could commit it.
+            with self._lock:
+                if self._connection is not None:
+                    with contextlib.suppress(sqlite3.Error):
+                        self._connection.rollback()
             logger.warning("Failed to save alert %s: %s", alert.alert_id, exc)
             self._mark_degraded("write_failure")
             return False
