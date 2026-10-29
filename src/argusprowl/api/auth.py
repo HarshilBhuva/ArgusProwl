@@ -50,7 +50,7 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
         return False
 
     normalized = path.rstrip("/") or "/"
-    if normalized.startswith("/api/"):
+    if normalized == "/api" or normalized.startswith("/api/"):
         return normalized == "/api/v1/health"
 
     if normalized in _PUBLIC_EXACT_PATHS:
