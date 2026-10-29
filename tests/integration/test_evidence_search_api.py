@@ -110,12 +110,20 @@ class TestEvidenceStats:
             "max_retained_events": 10000,
             "eviction_count": 0,
             "capacity_used_pct": 0.0,
+            "persistence_enabled": True,
+            "recovery_status": "UNAVAILABLE",
+            "recovery_reason": "Persisted evidence could not be loaded during startup.",
+            "persistence_operations_failed": 1,
         }
         response = api_client.get("/api/v1/evidence/stats")
         assert response.status_code == 200
         data = response.json()
         assert "retained_events" in data
         assert "max_retained_events" in data
+        assert data["recovery_status"] == "UNAVAILABLE"
+        assert data["recovery_reason"] == "Persisted evidence could not be loaded during startup."
+        assert data["persistence_enabled"] is True
+        assert data["persistence_operations_failed"] == 1
 
     def test_service_missing_returns_503(self) -> None:
         app = create_api_app()
