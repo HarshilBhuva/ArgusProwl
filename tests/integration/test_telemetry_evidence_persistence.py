@@ -97,8 +97,8 @@ def test_evidence_write_failure_is_reported_and_not_cached(tmp_path, monkeypatch
     def fail_save(*args, **kwargs):
         raise StorageError("synthetic write failure", {"collection": "telemetry_evidence"})
 
-    monkeypatch.setattr(storage, "save", fail_save)
     original_save = storage.save
+    monkeypatch.setattr(storage, "save", fail_save)
     with pytest.raises(StorageError):
         service.record_event(event)
 
