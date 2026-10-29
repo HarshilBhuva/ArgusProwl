@@ -6,8 +6,6 @@ the alert and evidence through durable storage and a fresh application lifecycle
 Source-specific raw-log parsing remains covered upstream of this boundary.
 """
 
-from __future__ import annotations
-
 from threading import Event
 from uuid import UUID, uuid4
 
