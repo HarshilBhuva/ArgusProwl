@@ -1995,6 +1995,12 @@ async def get_evidence_stats() -> dict[str, Any]:
         max_retained_events=stats["max_retained_events"],
         eviction_count=stats["eviction_count"],
         capacity_used_pct=stats["capacity_used_pct"],
+        persistence_enabled=stats.get("persistence_enabled", False),
+        recovery_status=stats.get("recovery_status", "AVAILABLE"),
+        recovery_reason=stats.get("recovery_reason"),
+        persistence_writes_succeeded=stats.get("persistence_writes_succeeded", 0),
+        persistence_writes_failed=stats.get("persistence_writes_failed", 0),
+        persistence_operations_failed=stats.get("persistence_operations_failed", 0),
     ).model_dump()
 
 
