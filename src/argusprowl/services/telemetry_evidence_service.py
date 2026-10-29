@@ -1,6 +1,6 @@
 """Telemetry evidence service for analyst investigation.
 
-Bounded, thread-safe, process-local in-memory evidence store.
+Bounded, thread-safe evidence store with a bounded in-memory query cache and optional durable storage.
 Provides provenance-aware insertion and read-only query capabilities
 for NormalizedEvent telemetry.
 
@@ -8,8 +8,8 @@ DETECTION_SOURCE: The primary event that triggered a detection rule.
 CONTRIBUTING_EVENT: Related events in multi-event/correlation detections.
 OBSERVED_CONTEXT: Events observed but not directly evidencing a detection.
 
-This service is completely isolated from detection, correlation,
-incidents, persistence, and lifecycle. It never mutates any other state.
+Evidence persistence is independent of alert persistence. When a Storage adapter is
+provided, each event and its provenance are committed as one storage record.
 """
 
 from __future__ import annotations
@@ -259,7 +259,6 @@ class TelemetryEvidenceService:
                     contributing_event_ids=contributing_event_ids,
                 )
                 self._persist_event_record(self._events[event_id], new_record)
-                self._persist_event_record(self._events[event_id], new_record)
                 self._records[event_id] = new_record
                 return new_record
 
@@ -276,6 +275,7 @@ class TelemetryEvidenceService:
                     detection_result_id=detection_result_id,
                     contributing_event_ids=contributing_event_ids,
                 )
+                self._persist_event_record(self._events[event_id], new_record)
                 self._records[event_id] = new_record
                 return new_record
 
