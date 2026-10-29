@@ -214,15 +214,35 @@ class TelemetryEvidenceService:
             if existing_event is not None and existing_event.to_dict() != event.to_dict():
                 raise ValueError(f"Conflicting telemetry payload for event_id={event.event_id}")
             existing_record = self._records.get(event.event_id)
-            effective_provenance = (
-                PROVENANCE_DETECTION_SOURCE
-                if existing_record is not None
-                and existing_record.provenance == PROVENANCE_DETECTION_SOURCE
-                else provenance
-            )
-            record = EvidenceRecord(event_id=event.event_id, provenance=effective_provenance)
+            if existing_record is None and self._storage is not None:
+                persisted = self._storage.load("telemetry_evidence", event.event_id)
+                if persisted is not None:
+                    raw_event = persisted.get("event")
+                    if not isinstance(raw_event, dict):
+                        raise ValueError("Persisted evidence event payload is not an object")
+                    persisted_event = NormalizedEvent.from_dict(raw_event)
+                    if persisted_event.to_dict() != event.to_dict():
+                        raise ValueError(
+                            f"Conflicting telemetry payload for event_id={event.event_id}"
+                        )
+                    raw_result_id = persisted.get("detection_result_id")
+                    raw_contributors = persisted.get("contributing_event_ids", [])
+                    if not isinstance(raw_contributors, list):
+                        raise ValueError("Persisted contributing_event_ids is not a list")
+                    existing_record = EvidenceRecord(
+                        event_id=event.event_id,
+                        provenance=str(persisted["provenance"]),
+                        detection_result_id=UUID(str(raw_result_id)) if raw_result_id else None,
+                        contributing_event_ids=tuple(
+                            UUID(str(value)) for value in raw_contributors
+                        ),
+                    )
+            if existing_record is not None and existing_record.provenance == PROVENANCE_DETECTION_SOURCE:
+                record = existing_record
+            else:
+                record = EvidenceRecord(event_id=event.event_id, provenance=provenance)
             self._persist_event_record(event, record)
-            self._insert_event_unlocked(event, provenance)
+            self._insert_event_unlocked(event, record.provenance)
             return self._records[event.event_id]
 
     def record_provenance(
@@ -283,10 +303,21 @@ class TelemetryEvidenceService:
 
     def _insert_event_unlocked(self, event: NormalizedEvent, provenance: str) -> None:
         """Insert an event, evicting oldest if necessary. Caller must hold lock."""
-        # Evict if at capacity before inserting.
-        while len(self._events) >= self._max_retained and self._events:
+        # Repeated delivery updates the existing record without evicting an
+        # unrelated event. Only a genuinely new ID consumes another slot.
+        while (
+            event.event_id not in self._events
+            and len(self._events) >= self._max_retained
+            and self._events
+        ):
             oldest_id, _ = self._events.popitem(last=False)
             oldest_record = self._records.pop(oldest_id, None)
+            if self._storage is not None:
+                try:
+                    self._storage.delete("telemetry_evidence", oldest_id)
+                except Exception:
+                    self._persistence_writes_failed.increment()
+                    logger.exception("Failed to delete evicted evidence event_id=%s", oldest_id)
             if oldest_record is not None and oldest_record.provenance in (
                 PROVENANCE_CONTRIBUTING_EVENT,
                 PROVENANCE_DETECTION_SOURCE,
