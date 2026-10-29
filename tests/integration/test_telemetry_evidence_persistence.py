@@ -226,6 +226,7 @@ def test_evidence_retention_evicts_durable_records_but_duplicate_does_not(tmp_pa
     assert storage.load("telemetry_evidence", second.event_id) is not None
     storage.close()
 
+
 def test_startup_list_failure_marks_search_and_health_unavailable(tmp_path, monkeypatch) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
 
@@ -242,6 +243,10 @@ def test_startup_list_failure_marks_search_and_health_unavailable(tmp_path, monk
     stats = service.get_stats()
     assert stats["recovery_status"] == "UNAVAILABLE"
     assert stats["recovery_reason"] == result.reason
+    missing_detail = service.get_detail(uuid4())
+    assert missing_detail is not None
+    assert missing_detail.status == "UNAVAILABLE"
+    assert missing_detail.event is None
     storage.close()
 
 
