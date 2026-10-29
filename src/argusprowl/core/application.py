@@ -81,6 +81,10 @@ class Application:
     def startup(self, *, start_api: bool = True) -> None:
         if self._running:
             return
+        # Application instances may be restarted after shutdown; reset the
+        # lifecycle signal before creating new workers and buffers.
+        self._shutdown_event.clear()
+        self._collector_threads.clear()
         try:
             self._config = self._config_manager.load(self._config_path)
             LoggerFactory.setup_logging(self._config.logging)
