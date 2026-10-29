@@ -6,6 +6,7 @@ adapter directly.
 """
 
 import contextlib
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Thread
@@ -821,8 +822,8 @@ class Application:
         if not self._shutdown_event.is_set():
             self._event_queue.put(event)
 
-    def _process_event(self, event: NormalizedEvent) -> None:
-        """Process a single event through the detection pipeline."""
+    def _process_event(self, event: NormalizedEvent) -> bool:
+        """Process one event; return True only when the core pipeline completes."""
         try:
             self._logger.debug(
                 "Processing event: %s, process_name=%s, pid=%s, dst_ip=%s",
@@ -930,6 +931,8 @@ class Application:
 
         except Exception as exc:
             self._logger.error("Error processing event: %s", exc, exc_info=True)
+            return False
+        return True
 
     def _processing_loop(self) -> None:
         """Process queued events until producers are stopped and the buffer drains."""
@@ -938,7 +941,19 @@ class Application:
             try:
                 event = self._event_queue.get(timeout=0.1)
                 if event is not None:
-                    self._process_event(event)
+                    started_at = time.monotonic()
+                    succeeded = False
+                    try:
+                        succeeded = self._process_event(event)
+                    except Exception as exc:
+                        # Keep the consumer alive even if an unexpected error
+                        # escapes the event processor.
+                        self._logger.error("Unhandled event processing error: %s", exc, exc_info=True)
+                    finally:
+                        self._event_queue.record_processing_result(
+                            succeeded,
+                            time.monotonic() - started_at,
+                        )
                     continue
 
                 # Shutdown is complete only when the buffer is closed and
