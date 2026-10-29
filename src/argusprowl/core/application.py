@@ -219,6 +219,14 @@ class Application:
                 except Exception:
                     pass  # Not registered or already closed
 
+                try:
+                    storage = self._container.resolve(Storage)
+                    close_storage = getattr(storage, "close", None)
+                    if callable(close_storage):
+                        close_storage()
+                except Exception:
+                    self._logger.exception("Unable to close shared storage adapter")
+
                 self._running = False
                 self._safe_clear()
                 self._logger.info("Application shutdown complete")
@@ -623,6 +631,8 @@ class Application:
                 TelemetryEvidenceService,
                 lambda: TelemetryEvidenceService(
                     max_retained_events=evidence_cfg.max_retained_events,
+                    storage=self._container.resolve(Storage),
+                    metrics_collector=self._container.resolve(MetricsCollector),
                 ),
             )
 
@@ -926,8 +936,11 @@ class Application:
                                         detection_result_id=result.result_id,
                                     )
             except Exception:
-                # Evidence store must never affect detection pipeline
-                pass
+                # Evidence persistence is a separate outcome: surface degradation
+                # without reclassifying a completed core processing path as failed.
+                self._logger.exception(
+                    "Telemetry evidence persistence failed for event_id=%s", event.event_id
+                )
 
         except Exception as exc:
             self._logger.error("Error processing event: %s", exc, exc_info=True)
