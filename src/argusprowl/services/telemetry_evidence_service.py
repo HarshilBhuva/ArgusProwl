@@ -91,11 +91,11 @@ class EvidenceDetailResult:
 
 
 class TelemetryEvidenceService:
-    """Bounded in-memory telemetry evidence store.
+    """Evidence service with a bounded cache and optional durable storage.
 
-    Stores NormalizedEvent objects with provenance metadata.
-    Deterministic FIFO eviction when the store is full.
-    Thread-safe for concurrent read and write access.
+    Stores NormalizedEvent objects with provenance metadata. Deterministic FIFO
+    eviction applies when the configured retention capacity is reached. The
+    service is thread-safe for concurrent read and write access.
     """
 
     def __init__(
