@@ -30,6 +30,7 @@ _PUBLIC_EXACT_PATHS = frozenset(
         "/redoc",
         "/openapi.json",
         "/favicon.ico",
+        "/favicon.svg",
         "/robots.txt",
         "/manifest.webmanifest",
     }
