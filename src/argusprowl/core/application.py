@@ -19,8 +19,8 @@ from argusprowl.behavior.analyst_annotation_service import AnalystAnnotationServ
 from argusprowl.behavior.entity_behavior_persistence import EntityBehaviorPersistence
 from argusprowl.behavior.entity_behavior_service import EntityBehaviorService
 from argusprowl.collectors.manager import CollectorManager
-from argusprowl.collectors.state import CollectorState
 from argusprowl.collectors.registry import CollectorRegistry
+from argusprowl.collectors.state import CollectorState
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.log_names import LogName
 from argusprowl.constants.paths import ProjectPath
