@@ -121,55 +121,106 @@ class Application:
                         api_key=self._config.api.api_key,
                     )
         except Exception as exc:
-            self._safe_clear()
+            # Startup may fail after the consumer or collector workers have
+            # started (for example, if the API cannot bind its port). Roll
+            # those workers back before clearing the dependency container.
+            if self._running:
+                try:
+                    self.shutdown()
+                except Exception:
+                    self._logger.exception("Application startup rollback failed")
+            else:
+                self._shutdown_event.set()
+                if self._event_queue is not None:
+                    self._event_queue.close()
+                processing_thread = self._processing_thread
+                timeout = (
+                    self._config.events.shutdown_timeout_seconds
+                    if self._config is not None
+                    else 5.0
+                )
+                if processing_thread is not None and processing_thread.is_alive():
+                    processing_thread.join(timeout=timeout)
+                if processing_thread is None or not processing_thread.is_alive():
+                    self._safe_clear()
+                else:
+                    self._logger.error(
+                        "Startup rollback left the processing worker active; "
+                        "retaining its dependencies"
+                    )
             raise LifecycleError("Application startup failed", {"reason": str(exc)}) from exc
 
     def shutdown(self) -> None:
         if not self._running:
             return
         try:
-            # Signal the processing loop to exit before tearing down dependencies.
+            # Stop accepting new source events, then let collector workers exit.
             self._shutdown_event.set()
-            # Gracefully stop all collectors.
             try:
                 collector_manager = self._container.resolve(CollectorManager)
                 collector_manager.stop_all()
             except Exception:
                 pass  # Manager not registered yet or already down - proceed.
-            # Source shutdown should release each collector generator. Join the
-            # collection workers before closing the shared ingestion buffer.
+
             for thread in self._collector_threads:
                 if thread.is_alive():
                     thread.join(timeout=5.0)
                     if thread.is_alive():
                         self._logger.warning("Collector worker %s did not stop cleanly", thread.name)
             self._collector_threads.clear()
-            # Persist behavior state before shutdown
-            try:
-                behavior_service = self._container.resolve(EntityBehaviorService)
-                if hasattr(behavior_service, "persist_state"):
-                    behavior_service.persist_state()
-            except Exception:
-                pass  # Persistence not available or already down - proceed.
-            # Close alert persistence if enabled
-            try:
-                alert_persistence = self._container.resolve(AlertPersistence)
-                alert_persistence.close()
-            except Exception:
-                pass  # Not registered or already closed
-            # Close the ingestion buffer so blocked producers and the consumer
-            # loop wake up and drain any remaining items.
+
+            # Close producers before draining the consumer. Closing the buffer
+            # wakes the consumer, but get() continues returning queued items
+            # until the buffer is empty.
             if self._event_queue is not None:
                 self._event_queue.close()
+
+            processing_thread = self._processing_thread
+            timeout = (
+                self._config.events.shutdown_timeout_seconds
+                if self._config is not None
+                else 5.0
+            )
+            if processing_thread is not None and processing_thread.is_alive():
+                processing_thread.join(timeout=timeout)
+
+            # Never tear down services that an active processing worker may
+            # still use. Keep the container intact so shutdown can be retried.
+            if processing_thread is not None and processing_thread.is_alive():
+                self._logger.error(
+                    "Processing worker did not drain within %.1f seconds; "
+                    "retaining services and persistence for a safe retry",
+                    timeout,
+                )
+                return
+
         finally:
-            # Wait for the processing thread to drain and exit.
-            if self._processing_thread is not None and self._processing_thread.is_alive():
-                self._processing_thread.join(timeout=5.0)
-            # Stop the API server if running
             self._stop_api_server()
-            self._running = False
-            self._safe_clear()
-            self._logger.info("Application shutdown complete")
+            if self._processing_thread is not None and self._processing_thread.is_alive():
+                # Preserve the container and running state. A later shutdown()
+                # call can finish teardown after the worker exits.
+                self._logger.error(
+                    "Application teardown deferred because the processing worker is still active"
+                )
+            else:
+                # Persistence must outlive the processing worker: queued events
+                # can still produce alerts and behavior updates during the drain.
+                try:
+                    behavior_service = self._container.resolve(EntityBehaviorService)
+                    if hasattr(behavior_service, "persist_state"):
+                        behavior_service.persist_state()
+                except Exception:
+                    self._logger.exception("Unable to persist behavior state during shutdown")
+
+                try:
+                    alert_persistence = self._container.resolve(AlertPersistence)
+                    alert_persistence.close()
+                except Exception:
+                    pass  # Not registered or already closed
+
+                self._running = False
+                self._safe_clear()
+                self._logger.info("Application shutdown complete")
 
     def _start_api_server(self) -> None:
         """Start the HTTP API server if enabled in configuration."""
@@ -881,13 +932,20 @@ class Application:
             self._logger.error("Error processing event: %s", exc, exc_info=True)
 
     def _processing_loop(self) -> None:
-        """Continuous processing loop for the detection pipeline."""
+        """Process queued events until producers are stopped and the buffer drains."""
         self._logger.info("Starting continuous processing loop")
-        while not self._shutdown_event.is_set() and not self._event_queue.closed:
+        while True:
             try:
                 event = self._event_queue.get(timeout=0.1)
                 if event is not None:
                     self._process_event(event)
+                    continue
+
+                # Shutdown is complete only when the buffer is closed and
+                # empty. The shutdown signal alone must not abandon queued
+                # events while collectors are still stopping.
+                if self._event_queue.closed and self._event_queue.empty():
+                    break
             except Exception as exc:
                 self._logger.error("Error in processing loop: %s", exc, exc_info=True)
 
