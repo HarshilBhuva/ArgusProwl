@@ -514,6 +514,14 @@ class TelemetryEvidenceService:
 
             record = self._evicted_contributing_records.get(event_id)
             if record is None:
+                if self._recovery_status != "AVAILABLE":
+                    return EvidenceDetailResult(
+                        event_id=event_id,
+                        status=self._recovery_status,
+                        reason=self._recovery_reason,
+                        event=None,
+                        record=None,
+                    )
                 return None
             return EvidenceDetailResult(
                 event_id=event_id,
@@ -541,7 +549,9 @@ class TelemetryEvidenceService:
         with self._lock:
             for eid in event_ids:
                 if eid in self._events:
-                    status[eid] = "AVAILABLE"
+                    status[eid] = self._recovery_status
+                elif self._recovery_status != "AVAILABLE":
+                    status[eid] = self._recovery_status
                 else:
                     status[eid] = "EVICTED"
         return status
