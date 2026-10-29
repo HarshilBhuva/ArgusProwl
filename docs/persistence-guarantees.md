@@ -10,7 +10,7 @@
 
 ## Atomicity and partial failure
 
-An event and its provenance metadata are serialized into one storage payload, so the SQLite adapter writes them in one record-level transaction. Provenance updates replace that record only after the write commits; a failed write is raised and does not update the in-memory cache.
+An event and its current provenance metadata are serialized into one storage payload, so the SQLite adapter writes them in one record-level transaction. Later provenance enrichment replaces that record only after its write commits; a failed write is raised and does not update the in-memory cache. A sequence that updates multiple event records is not atomic as a group, so a failure can leave some events with their previously committed provenance.
 
 Alert persistence and telemetry evidence persistence are separate stores and are **not one cross-database transaction**. Therefore:
 - If an alert is persisted but evidence persistence fails, the alert remains committed and retains its source/contributing event IDs, but the referenced event may be unavailable in evidence search. The evidence failure is logged and counted separately; core processing success remains independent.
