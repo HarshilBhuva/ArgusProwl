@@ -28,6 +28,7 @@ def test_docs_paths_are_exact_not_prefix_matches() -> None:
 
 def test_only_dedicated_asset_mount_is_public() -> None:
     assert _is_public_path("/assets/app-123.js")
+    assert _is_public_path("/favicon.svg")
     assert not _is_public_path("/api/v1/export.js")
     assert not _is_public_path("/private/app.js")
 
