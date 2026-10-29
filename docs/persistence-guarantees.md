@@ -3,7 +3,7 @@
 ## Current persistence flow
 
 - The ingestion consumer calls the core detection pipeline. A completed core path is counted by PR #14 independently of optional evidence persistence.
-- `AlertManager.send_alert()` enqueues the alert, attempts SQLite alert persistence when enabled, then dispatches it to configured providers. A failed persistence result does not suppress provider delivery or change the existing return contract; it is logged and counted in `get_statistics()`.
+- `AlertManager.send_alert()` enqueues the alert, attempts SQLite alert persistence when `alert_persistence.enabled` is true, then dispatches it to configured providers. Alert persistence remains opt-in for compatibility. A failed persistence result does not suppress provider delivery or change the existing return contract; it is logged and counted in `get_statistics()`.
 - `TelemetryEvidenceService` stores each normalized event and its provenance in one `Storage` record in the `telemetry_evidence` collection. The default application storage adapter is SQLite. A successful `Storage.save()` returns only after the adapter's transaction context commits.
 - The evidence service keeps a bounded in-memory cache for queries and warms it from committed storage on startup. Its committed-write counters are `evidence_persistence_writes_succeeded` and `evidence_persistence_writes_failed`; load, recovery, malformed-record, and retention-delete failures are tracked separately as `evidence_persistence_operations_failed`.
 - Application shutdown drains the processing worker before closing alert persistence and the shared storage adapter.
@@ -26,6 +26,6 @@ Alert persistence and telemetry evidence persistence are separate stores and are
 
 ## Recovery and remaining limitations
 
-Committed evidence is reloaded from the configured SQLite database on service initialization. Recovery requires the same database path and a healthy readable database. SQLite WAL and the adapter's commit boundary provide local transactional durability; this does not protect against disk loss, manual database deletion, or corruption.
+Committed evidence is reloaded from the configured SQLite database on service initialization. Recovery requires the same `storage.database_path` and a healthy readable database. Durable alert recovery additionally requires `alert_persistence.enabled` and the same `alert_persistence.db_path` across restarts. SQLite WAL and the adapter's commit boundary provide local transactional durability; this does not protect against disk loss, manual database deletion, or corruption.
 
 The evidence and alert stores remain independently committed. A future transactional outbox or unified transaction boundary could reduce orphaned alert/evidence references, but that would be a separate architectural change. The current design deliberately avoids retry loops, a new backend, and exactly-once claims.
