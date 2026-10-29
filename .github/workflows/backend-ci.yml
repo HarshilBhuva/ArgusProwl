@@ -85,7 +85,6 @@ jobs:
         run: uvx --from bandit==1.9.4 bandit -r src/ -ll
 
   integration:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

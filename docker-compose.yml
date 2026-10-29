@@ -6,6 +6,10 @@
 # Usage:
 #   docker compose up --build
 #   -> product UI + API at http://localhost:8080
+#
+# Security: bind to loopback by default. If you intentionally expose the
+# service through a reverse proxy or public interface, enable API-key auth
+# (api.auth_enabled: true) and set ARGUSPROWL_API_KEY in the service environment.
 
 services:
   argusprowl:
@@ -15,12 +19,14 @@ services:
       context: .
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       # Product API host/port (config/default.yaml uses 127.0.0.1:8080;
       # bind all interfaces inside the container so the port mapping works).
       - TH_API__HOST=0.0.0.0
       - TH_API__PORT=8080
+      - TH_API__AUTH_ENABLED=${TH_API__AUTH_ENABLED:-false}
+      - ARGUSPROWL_API_KEY=${ARGUSPROWL_API_KEY:-}
     # The image bakes ownership into its build: /app/data, /app/logs and the
     # virtualenv are pre-owned by `user` at image-build time, and the image
     # declares `USER user`. Docker's first attach of a named volume populates

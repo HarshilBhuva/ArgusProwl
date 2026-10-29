@@ -101,21 +101,52 @@ class EventCountState:
             True if added, False if duplicate.
         """
         with self._lock:
-            # Remove expired events
-            cutoff = event.timestamp - self._window_duration
-            while self._observations and self._observations[0].timestamp < cutoff:
-                self._observations.popleft()
+            # Event timestamps may arrive out of order. Anchor the sliding
+            # window to the newest event time observed, not the incoming event.
+            newest_time = max(
+                (obs.timestamp for obs in self._observations),
+                default=event.timestamp,
+            )
+            reference_time = max(newest_time, event.timestamp)
+            cutoff = reference_time - self._window_duration
+            self._observations = deque(
+                (obs for obs in self._observations if obs.timestamp >= cutoff),
+                maxlen=self._max_observations,
+            )
 
-            # Check for duplicate by source_record_id (when present) or event_id
+            # Ignore events that are already outside the active event-time
+            # window; inserting them would make an old event look current.
+            if event.timestamp < cutoff:
+                return False
+
+            # A source record ID is only unique inside its source scope
+            # (e.g. host + channel/stream), not globally.
             for obs in self._observations:
-                if obs.event_id == event.event_id or (
-                    obs.source_record_id is not None
+                if obs.event_id == event.event_id:
+                    return False
+                if (
+                    event.source_record_id is not None
                     and obs.source_record_id == event.source_record_id
+                    and self._source_scope(obs) == self._source_scope(event)
                 ):
                     return False
 
-            self._observations.append(event)
+            ordered = sorted((*self._observations, event), key=lambda item: item.timestamp)
+            self._observations = deque(ordered, maxlen=self._max_observations)
             return True
+
+    @staticmethod
+    def _source_scope(event: NormalizedEvent) -> tuple[str | None, ...]:
+        """Return fields that scope a source-local record identifier."""
+        metadata = event.metadata or {}
+        return (
+            event.source_type,
+            event.hostname,
+            event.sensor,
+            str(metadata.get("channel")) if metadata.get("channel") is not None else None,
+            str(metadata.get("stream")) if metadata.get("stream") is not None else None,
+            str(metadata.get("log_path")) if metadata.get("log_path") is not None else None,
+        )
 
     def check_threshold(
         self, threshold: int, event: NormalizedEvent | None = None
@@ -131,18 +162,19 @@ class EventCountState:
             If triggered, trigger_event_id is the event that crossed threshold.
         """
         with self._lock:
-            # Use the provided event's timestamp or the last observation's timestamp
-            reference_time = (
-                event.timestamp
-                if event is not None
-                else (self._observations[-1].timestamp if self._observations else None)
+            # Keep window evaluation monotonic even when a late event is
+            # passed to detect() after newer observations have arrived.
+            newest_time = max(
+                (obs.timestamp for obs in self._observations),
+                default=event.timestamp if event is not None else None,
             )
-
-            # Remove expired events
+            reference_time = newest_time
             if reference_time is not None:
                 cutoff = reference_time - self._window_duration
-                while self._observations and self._observations[0].timestamp < cutoff:
-                    self._observations.popleft()
+                self._observations = deque(
+                    (obs for obs in self._observations if obs.timestamp >= cutoff),
+                    maxlen=self._max_observations,
+                )
 
             current_count = len(self._observations)
 

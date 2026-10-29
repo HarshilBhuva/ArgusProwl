@@ -1,13 +1,9 @@
 """API authentication middleware.
 
-Shared-secret API key mechanism appropriate for a single-node alpha deployment.
-Implemented as a FastAPI/Starlette middleware so it applies uniformly to all
-sensitive routes — including ones registered by included routers whose
-dependencies FastAPI does not propagate from ``router.dependencies``.
-
-No JWT, no OAuth — a single middleware covers the entire API surface.
-
-The secret value is never written to log messages.
+A shared-secret API key is suitable for a single-node deployment. The
+allowlist is deliberately narrow: API paths are never made public by a file
+extension or a similar-looking path. Browser navigation to non-API SPA routes
+may remain public; sensitive endpoints must live under /api/.
 """
 
 from __future__ import annotations
@@ -23,47 +19,65 @@ from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
-# Public paths that never require authentication, regardless of auth settings.
-PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
-    "/health",
-    "/api/v1/health",
-    "/",
-    "/assets/",
-    "/docs",
-    "/redoc",
-    "/openapi.json",
+# Exact public endpoints. Keep API exemptions exact to avoid prefix bypasses.
+_PUBLIC_EXACT_PATHS = frozenset(
+    {
+        "/",
+        "/health",
+        "/api/v1/health",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/redoc",
+        "/openapi.json",
+        "/favicon.ico",
+        "/favicon.svg",
+        "/robots.txt",
+        "/manifest.webmanifest",
+    }
 )
+_PUBLIC_PREFIXES = ("/assets/",)
 
-_PUBLIC_FILE_EXTENSIONS: tuple[str, ...] = (".js", ".css", ".html", ".svg", ".ico")
 
+def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool:
+    """Return whether a request path may bypass API-key authentication.
 
-def _is_public_path(path: str) -> bool:
-    """Return True when *path* is exempt from authentication."""
-    if path in PUBLIC_PATH_PREFIXES:
+    API routes are checked first and only the exact health route is exempt.
+    Static asset exemptions are restricted to the dedicated assets mount.
+    Non-API HTML navigation is allowed for client-side SPA routes so refreshing
+    a frontend page works without weakening API protection.
+    """
+    method = method.upper()
+    if method not in {"GET", "HEAD"}:
+        return False
+
+    normalized = path.rstrip("/") or "/"
+    if normalized == "/api" or normalized.startswith("/api/"):
+        return normalized == "/api/v1/health"
+
+    if normalized in _PUBLIC_EXACT_PATHS:
         return True
-    lower = path.lower()
-    for prefix in PUBLIC_PATH_PREFIXES:
-        if len(prefix) <= 1:
-            continue
-        if lower.startswith(prefix):
-            return True
-    for ext in _PUBLIC_FILE_EXTENSIONS:
-        if lower.endswith(ext):
-            return True
-    return "favicon" in lower
+    if any(normalized.startswith(prefix) for prefix in _PUBLIC_PREFIXES):
+        return True
+
+    # Do not let near-miss operational/docs paths fall through as SPA routes.
+    reserved_prefixes = ("/health/", "/docs/", "/redoc/", "/openapi", "/metrics", "/internal/")
+    if normalized.startswith(reserved_prefixes):
+        return False
+
+    # The frontend's history fallback serves client-side routes as HTML. Only
+    # browser navigation is public; API-like paths and static extensions above
+    # do not become public merely because of their suffix.
+    return "text/html" in accept.lower() and "." not in normalized.rsplit("/", 1)[-1]
 
 
 class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
-    """FastAPI middleware that enforces a shared-secret API key on protected routes.
+    """Enforce a shared-secret API key on non-public routes.
 
-    Args:
-        app: The next ASGI application in the stack.
-        auth_enabled: When False, all requests are passed through without check.
-        api_key: The expected secret. Resolved in this order:
-            1. The *api_key* value passed to this middleware instance.
-            2. The ``ARGUSPROWL_API_KEY`` environment variable.
-        auth_header_name: The HTTP header name carrying the key (default
-            ``X-ArgusProwl-Key``).
+    The effective key is resolved in this order:
+      1. Explicit value supplied by application configuration.
+      2. ARGUSPROWL_API_KEY environment variable.
+
+    The secret is never written to log messages.
     """
 
     def __init__(
@@ -76,7 +90,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         self._auth_enabled = auth_enabled
-        self._config_key = api_key  # explicit key from config (may be empty)
+        self._config_key = api_key
         self._header_name = auth_header_name
         if auth_enabled and not api_key:
             logger.warning(
@@ -86,32 +100,28 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
             )
 
     def _resolve_key(self) -> str:
-        """Resolve the effective API key at request time.
-
-        Explicit config value wins; otherwise falls back to the
-        ``ARGUSPROWL_API_KEY`` environment variable.
-        """
+        """Resolve the effective API key at request time."""
         if self._config_key:
             return self._config_key
         return os.environ.get("ARGUSPROWL_API_KEY", "")
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable]) -> JSONResponse:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable]
+    ) -> JSONResponse:
         """Enforce the shared secret on non-public routes."""
-        if not self._auth_enabled or _is_public_path(request.url.path):
-            response = await call_next(request)
-            return response  # type: ignore[return-value]
+        if not self._auth_enabled or _is_public_path(
+            request.url.path,
+            method=request.method,
+            accept=request.headers.get("accept", ""),
+        ):
+            return await call_next(request)  # type: ignore[return-value]
 
         effective_key = self._resolve_key()
         if not effective_key:
-            # Fail-closed: no key available anywhere means deny non-public routes.
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
-        key = request.headers.get(self._header_name)
-        if key is None:
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
-
-        # Constant-time comparison to prevent timing attacks.
-        if not hmac.compare_digest(key, effective_key):
+        supplied_key = request.headers.get(self._header_name)
+        if supplied_key is None or not hmac.compare_digest(supplied_key, effective_key):
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
         return await call_next(request)  # type: ignore[return-value]

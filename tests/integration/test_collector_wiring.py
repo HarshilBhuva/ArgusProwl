@@ -2,7 +2,6 @@
 
 import queue
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -132,41 +131,26 @@ def test_application_registers_zeek_and_receives_event(temp_dir: Path) -> None:
         )
         assert cm.collector_count >= 1, f"Expected at least one collector; got {cm.collector_count}"
 
-        # The collector's collect() generator drives the tailing loop.
-        # Consume it in a background thread so new events are enqueued.
-        buf = app._event_queue
-        collector = cm.get_collector("zeek_conn_collector")
+        # The Application lifecycle must consume the collector generator,
+        # route the event through the shared buffer, and process it into
+        # evidence. Do not call collector.collect() manually here: doing so
+        # would hide a missing production worker.
+        from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 
-        consumed_events: list[object] = []
-        consumed_done = threading.Event()
-
-        def consume_events() -> None:
-            try:
-                for event in collector.collect():
-                    consumed_events.append(event)
-                    # Pull from the buffer as we go (keeps buffer drained)
-                    with contextlib.suppress(Exception):
-                        while not buf.empty():
-                            buf.get_nowait()
-            except StopIteration:
-                pass
-            finally:
-                consumed_done.set()
-
-        import contextlib
-
-        t = threading.Thread(target=consume_events, daemon=True)
-        t.start()
-
-        # Drain any events that were produced by the initial log content.
-        for _ in range(3):
-            time.sleep(0.2)
-            if consumed_events:
+        evidence_service = app.container.resolve(TelemetryEvidenceService)
+        deadline = time.monotonic() + 5.0
+        found = False
+        while time.monotonic() < deadline:
+            result = evidence_service.search(limit=100)
+            if any(
+                event.attributes.get("uid") == "testUid123"
+                for event in result.events.values()
+            ):
+                found = True
                 break
+            time.sleep(0.05)
 
-        assert consumed_events, "Expected events from the initial log content"
-        uid = consumed_events[0].attributes.get("uid")
-        assert uid == "testUid123", f"Expected uid=testUid123, got {uid}"
+        assert found, "Expected the application's normal collector pipeline to retain the Zeek event"
     finally:
         app.shutdown()
         assert not app.is_running

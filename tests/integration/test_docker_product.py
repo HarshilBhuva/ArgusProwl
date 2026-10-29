@@ -131,10 +131,11 @@ def test_compose_has_exactly_one_service():
     assert set(services) == {"argusprowl"}
 
 
-def test_compose_exposes_8080_to_host():
+def test_compose_exposes_8080_on_loopback_only():
+    """The default product deployment must not publish the API on all interfaces."""
     services = _compose()["services"]
     ports = services["argusprowl"]["ports"]
-    assert "8080:8080" in ports
+    assert "127.0.0.1:8080:8080" in ports
 
 
 def test_compose_no_research_infrastructure():
