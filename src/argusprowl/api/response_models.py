@@ -105,9 +105,9 @@ class AlertSearchResponse(BaseModel):
     alerts: list[AlertResponse] = Field(
         default_factory=list, description="List of matching alerts."
     )
-    status: str = Field(..., description="Recovery-aware search status: AVAILABLE, DEGRADED, or UNAVAILABLE.")
+    status: str = Field(..., description="Search status: 'AVAILABLE' or 'DEGRADED'.")
     reason: str | None = Field(
-        default=None, description="Recovery status explanation when evidence recovery is partial or failed."
+        default=None, description="Optional explanation for DEGRADED status."
     )
     total_count: int = Field(..., description="Total number of alerts returned.")
 
@@ -422,9 +422,9 @@ class EvidenceSearchResponse(BaseModel):
     events: dict[str, EvidenceEventResponse] = Field(
         default_factory=dict, description="Event details keyed by event_id."
     )
-    status: str = Field(..., description="Search status: 'AVAILABLE' or 'DEGRADED'.")
+    status: str = Field(..., description="Recovery-aware search status: AVAILABLE, DEGRADED, or UNAVAILABLE.")
     reason: str | None = Field(
-        default=None, description="Optional explanation for DEGRADED status."
+        default=None, description="Recovery status explanation when evidence recovery is partial or failed."
     )
     truncated: bool = Field(..., description="Whether results were truncated by the limit.")
     total_count: int = Field(..., description="Total matching events in the store.")
