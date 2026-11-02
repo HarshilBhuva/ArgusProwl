@@ -313,6 +313,8 @@ class HuntService:
                 return deserialize_hunt(serialize_hunt(hunt))
             if status not in allowed[hunt.status]:
                 raise HuntConflictError(f"Invalid hunt status transition: {hunt.status.value} -> {status.value}.")
+            if status == HuntStatus.COMPLETED and hunt.conclusion is None:
+                raise HuntConflictError("A hunt conclusion is required before completion.")
             return self._update(
                 hunt,
                 actor,
