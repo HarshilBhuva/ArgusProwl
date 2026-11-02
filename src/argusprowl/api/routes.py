@@ -2215,6 +2215,21 @@ def _hunt_actor(request) -> str:
     return getattr(principal, "subject", "anonymous")
 
 
+def _hunt_role(request) -> str:
+    principal = getattr(request.state, "principal", None)
+    return getattr(principal, "role", "anonymous")
+
+
+def _owned_hunt_service(hunt_id: UUID, request):
+    """Resolve a hunt only when the caller owns it or has the admin role."""
+    service = _hunt_dependencies()
+    hunt = service.get_hunt(hunt_id)
+    if hunt is None or (_hunt_role(request) != "admin" and hunt.created_by != _hunt_actor(request)):
+        # Use 404 to avoid disclosing another analyst's hunt identifiers.
+        raise HTTPException(status_code=404, detail="Hunt not found")
+    return service
+
+
 def _hunt_payload(hunt) -> dict[str, object]:
     from argusprowl.hunting.hunt_service_serialization import serialize_hunt
 
@@ -2246,14 +2261,15 @@ async def create_hunt(payload: HuntCreateRequest, request: Request) -> dict[str,
 
 @router.get("/hunts", summary="List persistent hunts")
 async def list_hunts(
+    request: Request,
     status: str | None = Query(None, description="Optional hunt status filter."),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of hunts to return."),
 ) -> dict[str, object]:
-    """List persistent hunts newest-updated first with explicit truncation."""
-    from argusprowl.hunting.hunt_service import HuntService
+    """List bounded hunts visible to the current owner or administrator."""
     from argusprowl.models.hunt import HuntStatus
 
     service = _hunt_dependencies()
+    owner = None if _hunt_role(request) == "admin" else _hunt_actor(request)
     parsed_status = None
     if status is not None:
         try:
@@ -2263,8 +2279,8 @@ async def list_hunts(
                 status_code=422,
                 detail=f"Invalid status. Valid values: {', '.join(item.value for item in HuntStatus)}",
             ) from exc
-    hunts = service.list_hunts(status=parsed_status, limit=limit)
-    total = service.count_hunts(status=parsed_status)
+    hunts = service.list_hunts(status=parsed_status, created_by=owner, limit=limit)
+    total = service.count_hunts(status=parsed_status, created_by=owner)
     return {
         "hunts": [_hunt_payload(hunt) for hunt in hunts],
         "total_count": total,
@@ -2274,7 +2290,7 @@ async def list_hunts(
 
 
 @router.get("/hunts/{hunt_id}", summary="Get hunt detail")
-async def get_hunt(hunt_id: str) -> dict[str, object]:
+async def get_hunt(hunt_id: str, request: Request) -> dict[str, object]:
     """Retrieve one hunt including scope, query versions, evidence and audit history."""
     from uuid import UUID
 
@@ -2282,7 +2298,7 @@ async def get_hunt(hunt_id: str) -> dict[str, object]:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    hunt = _hunt_dependencies().get_hunt(parsed_id)
+    hunt = _owned_hunt_service(parsed_id, request).get_hunt(parsed_id)
     if hunt is None:
         raise HTTPException(status_code=404, detail="Hunt not found")
     return _hunt_payload(hunt)
@@ -2308,7 +2324,7 @@ async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Reque
         sources=tuple(payload.sources),
     )
     try:
-        hunt = _hunt_dependencies().update_scope(parsed_id, scope, _hunt_actor(request))
+        hunt = _owned_hunt_service(parsed_id, request).update_scope(parsed_id, scope, _hunt_actor(request))
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
@@ -2330,7 +2346,7 @@ async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Requ
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     try:
-        hunt = _hunt_dependencies().save_query(
+        hunt = _owned_hunt_service(parsed_id, request).save_query(
             parsed_id, name=payload.name, definition=payload.definition, actor=_hunt_actor(request)
         )
     except HuntNotFoundError as exc:
@@ -2364,7 +2380,7 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         evidence_event_ids=tuple(payload.evidence_event_ids),
     )
     try:
-        hunt = _hunt_dependencies().record_execution(parsed_id, execution, _hunt_actor(request))
+        hunt = _owned_hunt_service(parsed_id, request).record_execution(parsed_id, execution, _hunt_actor(request))
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except (HuntConflictError, ValueError) as exc:
@@ -2393,7 +2409,7 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         note=payload.note,
     )
     try:
-        hunt = _hunt_dependencies().attach_evidence(parsed_id, reference)
+        hunt = _owned_hunt_service(parsed_id, request).attach_evidence(parsed_id, reference)
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
@@ -2423,7 +2439,7 @@ async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: R
         evidence_event_ids=tuple(payload.evidence_event_ids),
     )
     try:
-        hunt = _hunt_dependencies().add_finding(parsed_id, finding)
+        hunt = _owned_hunt_service(parsed_id, request).add_finding(parsed_id, finding)
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
@@ -2452,7 +2468,7 @@ async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, requ
         author=_hunt_actor(request),
     )
     try:
-        hunt = _hunt_dependencies().set_conclusion(parsed_id, conclusion)
+        hunt = _owned_hunt_service(parsed_id, request).set_conclusion(parsed_id, conclusion)
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
@@ -2474,7 +2490,7 @@ async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, reque
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     try:
-        hunt = _hunt_dependencies().transition_status(
+        hunt = _owned_hunt_service(parsed_id, request).transition_status(
             parsed_id, payload.status, _hunt_actor(request)
         )
     except HuntNotFoundError as exc:
