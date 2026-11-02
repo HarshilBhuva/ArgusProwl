@@ -2182,3 +2182,310 @@ async def get_attck_investigation(
         alert_count=len(alerts),
         techniques=technique_responses,
     )
+
+
+# ---------------------------------------------------------------------------
+# Persistent hypothesis-driven hunts
+# ---------------------------------------------------------------------------
+
+
+def _hunt_dependencies():
+    """Resolve the hunt application service without coupling routes to storage."""
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.hunting.hunt_service import HuntService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(HuntService):
+        raise HTTPException(status_code=503, detail="Hunt service not available")
+    return container.resolve(HuntService)
+
+
+def _hunt_actor(request) -> str:
+    principal = getattr(request.state, "principal", None)
+    return getattr(principal, "subject", "anonymous")
+
+
+def _hunt_payload(hunt) -> dict[str, object]:
+    from argusprowl.hunting.hunt_service_serialization import serialize_hunt
+
+    return serialize_hunt(hunt)
+
+
+@router.post("/hunts", summary="Create a persistent hunt")
+async def create_hunt(payload, request) -> dict[str, object]:
+    """Create a hunt hypothesis owned by the authenticated analyst."""
+    from argusprowl.api.hunt_models import HuntCreateRequest
+
+    if not isinstance(payload, HuntCreateRequest):
+        raise HTTPException(status_code=422, detail="Invalid hunt request")
+    service = _hunt_dependencies()
+    try:
+        hunt = service.create_hunt(
+            title=payload.title,
+            hypothesis=payload.hypothesis,
+            actor=_hunt_actor(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        from argusprowl.hunting.hunt_service import HuntConflictError, HuntServiceError
+
+        if isinstance(exc, HuntConflictError):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if isinstance(exc, HuntServiceError):
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise
+    return _hunt_payload(hunt)
+
+
+@router.get("/hunts", summary="List persistent hunts")
+async def list_hunts(
+    status: str | None = Query(None, description="Optional hunt status filter."),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of hunts to return."),
+) -> dict[str, object]:
+    """List persistent hunts newest-updated first with explicit truncation."""
+    from argusprowl.hunting.hunt_service import HuntService
+    from argusprowl.models.hunt import HuntStatus
+
+    service = _hunt_dependencies()
+    parsed_status = None
+    if status is not None:
+        try:
+            parsed_status = HuntStatus(status)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid status. Valid values: {', '.join(item.value for item in HuntStatus)}",
+            ) from exc
+    hunts = service.list_hunts(status=parsed_status, limit=limit)
+    total = service.count_hunts(status=parsed_status)
+    return {
+        "hunts": [_hunt_payload(hunt) for hunt in hunts],
+        "total_count": total,
+        "returned_count": len(hunts),
+        "truncated": total > len(hunts),
+    }
+
+
+@router.get("/hunts/{hunt_id}", summary="Get hunt detail")
+async def get_hunt(hunt_id: str) -> dict[str, object]:
+    """Retrieve one hunt including scope, query versions, evidence and audit history."""
+    from uuid import UUID
+
+    from argusprowl.hunting.hunt_service import HuntNotFoundError
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    hunt = _hunt_dependencies().get_hunt(parsed_id)
+    if hunt is None:
+        raise HTTPException(status_code=404, detail="Hunt not found")
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/scope", summary="Set hunt scope")
+async def set_hunt_scope(hunt_id: str, payload, request) -> dict[str, object]:
+    """Replace explicit host/user/source and time boundaries for a hunt."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntScopeRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.models.hunt import HuntScope
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntScopeRequest):
+        raise HTTPException(status_code=422, detail="Invalid hunt scope")
+    scope = HuntScope(
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        hosts=tuple(payload.hosts),
+        users=tuple(payload.users),
+        sources=tuple(payload.sources),
+    )
+    try:
+        hunt = _hunt_dependencies().update_scope(parsed_id, scope, _hunt_actor(request))
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/queries", summary="Save or version a hunt query")
+async def save_hunt_query(hunt_id: str, payload, request) -> dict[str, object]:
+    """Save a structured query definition; saving the same name creates a new version."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntQueryRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntQueryRequest):
+        raise HTTPException(status_code=422, detail="Invalid query definition")
+    try:
+        hunt = _hunt_dependencies().save_query(
+            parsed_id, name=payload.name, definition=payload.definition, actor=_hunt_actor(request)
+        )
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, HuntServiceError) as exc:
+        raise HTTPException(status_code=422 if isinstance(exc, ValueError) else 503, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/executions", summary="Record a hunt query execution")
+async def record_hunt_execution(hunt_id: str, payload, request) -> dict[str, object]:
+    """Persist an execution receipt and the exact query version it references."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntExecutionRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.models.hunt import HuntExecution
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntExecutionRequest):
+        raise HTTPException(status_code=422, detail="Invalid execution receipt")
+    execution = HuntExecution(
+        query_id=payload.query_id,
+        query_version=payload.query_version,
+        started_at=payload.started_at,
+        completed_at=payload.completed_at,
+        result_count=payload.result_count,
+        data_sources=tuple(payload.data_sources),
+        evidence_event_ids=tuple(payload.evidence_event_ids),
+    )
+    try:
+        hunt = _hunt_dependencies().record_execution(parsed_id, execution, _hunt_actor(request))
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except (HuntConflictError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/evidence", summary="Attach telemetry evidence to a hunt")
+async def attach_hunt_evidence(hunt_id: str, payload, request) -> dict[str, object]:
+    """Attach a reference to an existing event without copying or altering telemetry."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntEvidenceRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.models.hunt import HuntEvidenceReference
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntEvidenceRequest):
+        raise HTTPException(status_code=422, detail="Invalid evidence reference")
+    reference = HuntEvidenceReference(
+        event_id=payload.event_id,
+        role=payload.role,
+        added_by=_hunt_actor(request),
+        note=payload.note,
+    )
+    try:
+        hunt = _hunt_dependencies().attach_evidence(parsed_id, reference)
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/findings", summary="Record an analyst finding")
+async def add_hunt_finding(hunt_id: str, payload, request) -> dict[str, object]:
+    """Record a finding whose event references must already belong to this hunt."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntFindingRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.models.hunt import HuntFinding
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntFindingRequest):
+        raise HTTPException(status_code=422, detail="Invalid hunt finding")
+    finding = HuntFinding(
+        title=payload.title,
+        description=payload.description,
+        disposition=payload.disposition,
+        author=_hunt_actor(request),
+        evidence_event_ids=tuple(payload.evidence_event_ids),
+    )
+    try:
+        hunt = _hunt_dependencies().add_finding(parsed_id, finding)
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/conclusion", summary="Record or revise analyst conclusion")
+async def set_hunt_conclusion(hunt_id: str, payload, request) -> dict[str, object]:
+    """Record an explicit analyst conclusion and bounded confidence value."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntConclusionRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.models.hunt import HuntConclusion
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntConclusionRequest):
+        raise HTTPException(status_code=422, detail="Invalid hunt conclusion")
+    conclusion = HuntConclusion(
+        summary=payload.summary,
+        disposition=payload.disposition,
+        confidence=payload.confidence,
+        author=_hunt_actor(request),
+    )
+    try:
+        hunt = _hunt_dependencies().set_conclusion(parsed_id, conclusion)
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/status", summary="Transition hunt lifecycle status")
+async def transition_hunt_status(hunt_id: str, payload, request) -> dict[str, object]:
+    """Apply a validated draft/active/completed/archived lifecycle transition."""
+    from uuid import UUID
+
+    from argusprowl.api.hunt_models import HuntStatusRequest
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    if not isinstance(payload, HuntStatusRequest):
+        raise HTTPException(status_code=422, detail="Invalid hunt status")
+    try:
+        hunt = _hunt_dependencies().transition_status(
+            parsed_id, payload.status, _hunt_actor(request)
+        )
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _hunt_payload(hunt)
