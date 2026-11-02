@@ -19,6 +19,7 @@ from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
 from argusprowl.api.hunt_models import (
     HuntConclusionRequest,
+    HuntHypothesisRequest,
     HuntCreateRequest,
     HuntEvidenceRequest,
     HuntExecutionRequest,
@@ -2301,6 +2302,37 @@ async def get_hunt(hunt_id: str, request: Request) -> dict[str, object]:
     hunt = _owned_hunt_service(parsed_id, request).get_hunt(parsed_id)
     if hunt is None:
         raise HTTPException(status_code=404, detail="Hunt not found")
+    return _hunt_payload(hunt)
+
+
+@router.post("/hunts/{hunt_id}/hypothesis", summary="Revise hunt title or hypothesis")
+async def update_hunt_hypothesis(
+    hunt_id: str, payload: HuntHypothesisRequest, request: Request
+) -> dict[str, object]:
+    """Update analyst intent with a durable domain audit entry."""
+    from uuid import UUID
+
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
+
+    try:
+        parsed_id = UUID(hunt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    try:
+        hunt = _owned_hunt_service(parsed_id, request).update_hypothesis(
+            parsed_id,
+            _hunt_actor(request),
+            title=payload.title,
+            hypothesis=payload.hypothesis,
+        )
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, HuntServiceError) as exc:
+        raise HTTPException(
+            status_code=422 if isinstance(exc, ValueError) else 503, detail=str(exc)
+        ) from exc
     return _hunt_payload(hunt)
 
 
