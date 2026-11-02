@@ -130,3 +130,23 @@ def test_hunt_is_durable_across_service_recreation(tmp_path) -> None:
     assert recovered.title == "Persistence"
     ServiceContainer.reset_instance()
     storage.close()
+
+
+
+def test_analyst_cannot_read_or_mutate_another_analysts_hunt(tmp_path) -> None:
+    client, headers, service, storage = _client(tmp_path, "analyst")
+    foreign = service.create_hunt(
+        title="Private hunt",
+        hypothesis="Owned by a different analyst.",
+        actor="other-analyst",
+    )
+    assert client.get(f"/api/v1/hunts/{foreign.hunt_id}", headers=headers).status_code == 404
+    denied = client.post(
+        f"/api/v1/hunts/{foreign.hunt_id}/scope",
+        json={"hosts": ["host-01"]},
+        headers=headers,
+    )
+    assert denied.status_code == 404
+    assert client.get("/api/v1/hunts", headers=headers).json()["total_count"] == 0
+    ServiceContainer.reset_instance()
+    storage.close()
