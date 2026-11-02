@@ -106,6 +106,11 @@ class HuntService:
             hunts.sort(key=lambda item: (item.updated_at, str(item.hunt_id)), reverse=True)
             return tuple(hunts[:limit])
 
+    def count_hunts(self, *, status: HuntStatus | None = None) -> int:
+        """Return the number of persisted in-memory hunt aggregates matching status."""
+        with self._lock:
+            return sum(1 for hunt in self._hunts.values() if status is None or hunt.status == status)
+
     def _require(self, hunt_id: UUID) -> Hunt:
         hunt = self._hunts.get(hunt_id)
         if hunt is None:
