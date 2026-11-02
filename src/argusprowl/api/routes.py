@@ -19,8 +19,8 @@ from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
 from argusprowl.api.hunt_models import (
     HuntConclusionRequest,
-    HuntHypothesisRequest,
     HuntCreateRequest,
+    HuntHypothesisRequest,
     HuntEvidenceRequest,
     HuntExecutionRequest,
     HuntFindingRequest,
@@ -71,6 +71,7 @@ from argusprowl.hunting.hunt_service import (
     HuntServiceError,
 )
 from argusprowl.hunting.hunt_service_serialization import serialize_hunt
+from argusprowl.lifecycle.queue import AlertQueue
 from argusprowl.models.hunt import (
     HuntConclusion,
     HuntEvidenceReference,
@@ -79,7 +80,6 @@ from argusprowl.models.hunt import (
     HuntScope,
     HuntStatus,
 )
-from argusprowl.lifecycle.queue import AlertQueue
 
 logger = logging.getLogger(__name__)
 
@@ -2313,8 +2313,6 @@ async def update_hunt_hypothesis(
     hunt_id: str, payload: HuntHypothesisRequest, request: Request
 ) -> dict[str, object]:
     """Update analyst intent with a durable domain audit entry."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2340,8 +2338,6 @@ async def update_hunt_hypothesis(
 @router.post("/hunts/{hunt_id}/scope", summary="Set hunt scope")
 async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Request) -> dict[str, object]:
     """Replace explicit host/user/source and time boundaries for a hunt."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2367,8 +2363,6 @@ async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Reque
 @router.post("/hunts/{hunt_id}/queries", summary="Save or version a hunt query")
 async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Request) -> dict[str, object]:
     """Save a structured query definition; saving the same name creates a new version."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2389,8 +2383,6 @@ async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Requ
 @router.post("/hunts/{hunt_id}/executions", summary="Record a hunt query execution")
 async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, request: Request) -> dict[str, object]:
     """Persist an execution receipt and the exact query version it references."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2418,8 +2410,6 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
 @router.post("/hunts/{hunt_id}/evidence", summary="Attach telemetry evidence to a hunt")
 async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, request: Request) -> dict[str, object]:
     """Attach a reference to an existing event without copying or altering telemetry."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2444,8 +2434,6 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
 @router.post("/hunts/{hunt_id}/findings", summary="Record an analyst finding")
 async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: Request) -> dict[str, object]:
     """Record a finding whose event references must already belong to this hunt."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2471,8 +2459,6 @@ async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: R
 @router.post("/hunts/{hunt_id}/conclusion", summary="Record or revise analyst conclusion")
 async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, request: Request) -> dict[str, object]:
     """Record an explicit analyst conclusion and bounded confidence value."""
-    from uuid import UUID
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2497,10 +2483,6 @@ async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, requ
 @router.post("/hunts/{hunt_id}/status", summary="Transition hunt lifecycle status")
 async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, request: Request) -> dict[str, object]:
     """Apply a validated draft/active/completed/archived lifecycle transition."""
-    from uuid import UUID
-
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
