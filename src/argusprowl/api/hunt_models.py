@@ -45,7 +45,7 @@ class HuntScopeRequest(StrictRequest):
             raise ValueError("start_time must not be after end_time")
         for values in (self.hosts, self.users, self.sources):
             if any(not value.strip() or len(value) > 256 for value in values):
-                raise ValueError("Scope values must contain 1–256 characters")
+                raise ValueError("Scope values must contain 1-256 characters")
         return self
 
 
@@ -70,7 +70,7 @@ class HuntExecutionRequest(StrictRequest):
         if self.completed_at < self.started_at:
             raise ValueError("completed_at must not precede started_at")
         if any(not value.strip() or len(value) > 128 for value in self.data_sources):
-            raise ValueError("Data source names must contain 1–128 characters")
+            raise ValueError("Data source names must contain 1-128 characters")
         return self
 
 
