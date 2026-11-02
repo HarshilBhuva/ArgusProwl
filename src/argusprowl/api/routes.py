@@ -2278,8 +2278,6 @@ async def get_hunt(hunt_id: str) -> dict[str, object]:
     """Retrieve one hunt including scope, query versions, evidence and audit history."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntNotFoundError
-
     try:
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
@@ -2302,8 +2300,6 @@ async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Reque
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntScopeRequest):
-        raise HTTPException(status_code=422, detail="Invalid hunt scope")
     scope = HuntScope(
         start_time=payload.start_time,
         end_time=payload.end_time,
@@ -2331,8 +2327,6 @@ async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Requ
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntQueryRequest):
-        raise HTTPException(status_code=422, detail="Invalid query definition")
     try:
         hunt = _hunt_dependencies().save_query(
             parsed_id, name=payload.name, definition=payload.definition, actor=_hunt_actor(request)
@@ -2358,8 +2352,6 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntExecutionRequest):
-        raise HTTPException(status_code=422, detail="Invalid execution receipt")
     execution = HuntExecution(
         query_id=payload.query_id,
         query_version=payload.query_version,
@@ -2390,8 +2382,6 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntEvidenceRequest):
-        raise HTTPException(status_code=422, detail="Invalid evidence reference")
     reference = HuntEvidenceReference(
         event_id=payload.event_id,
         role=payload.role,
@@ -2419,8 +2409,6 @@ async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: R
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntFindingRequest):
-        raise HTTPException(status_code=422, detail="Invalid hunt finding")
     finding = HuntFinding(
         title=payload.title,
         description=payload.description,
@@ -2449,8 +2437,6 @@ async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, requ
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntConclusionRequest):
-        raise HTTPException(status_code=422, detail="Invalid hunt conclusion")
     conclusion = HuntConclusion(
         summary=payload.summary,
         disposition=payload.disposition,
@@ -2477,8 +2463,6 @@ async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, reque
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
-    if not isinstance(payload, HuntStatusRequest):
-        raise HTTPException(status_code=422, detail="Invalid hunt status")
     try:
         hunt = _hunt_dependencies().transition_status(
             parsed_id, payload.status, _hunt_actor(request)
