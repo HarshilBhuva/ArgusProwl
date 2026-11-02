@@ -158,6 +158,35 @@ class HuntService:
         )
         return self._commit(updated)
 
+    def update_hypothesis(
+        self,
+        hunt_id: UUID,
+        actor: str,
+        *,
+        title: str | None = None,
+        hypothesis: str | None = None,
+    ) -> Hunt:
+        """Revise hunt intent while preserving the previous revision in history."""
+        if title is None and hypothesis is None:
+            raise ValueError("At least one of title or hypothesis must be provided.")
+        with self._lock:
+            hunt = self._require(hunt_id)
+            changes: dict[str, object] = {}
+            if title is not None:
+                changes["title"] = title
+            if hypothesis is not None:
+                changes["hypothesis"] = hypothesis
+            return self._update(
+                hunt,
+                actor,
+                "HUNT_HYPOTHESIS_UPDATED",
+                audit_details={
+                    "title_changed": title is not None,
+                    "hypothesis_changed": hypothesis is not None,
+                },
+                **changes,
+            )
+
     def update_scope(self, hunt_id: UUID, scope: HuntScope, actor: str) -> Hunt:
         with self._lock:
             hunt = self._require(hunt_id)
