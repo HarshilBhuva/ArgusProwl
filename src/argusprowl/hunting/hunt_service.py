@@ -69,8 +69,10 @@ class HuntService:
             self._storage.save(self.COLLECTION, hunt.hunt_id, serialize_hunt(hunt))
         except Exception as exc:
             raise HuntServiceError("Hunt mutation could not be persisted.") from exc
-        self._hunts[hunt.hunt_id] = hunt
-        return hunt
+        stored = deserialize_hunt(serialize_hunt(hunt))
+        self._hunts[hunt.hunt_id] = stored
+        # Never expose nested mutable dictionaries owned by the service cache.
+        return deserialize_hunt(serialize_hunt(stored))
 
     @staticmethod
     def _audit(hunt: Hunt, action: str, actor: str, **details: object) -> tuple[HuntAuditEntry, ...]:
@@ -94,7 +96,8 @@ class HuntService:
 
     def get_hunt(self, hunt_id: UUID) -> Hunt | None:
         with self._lock:
-            return self._hunts.get(hunt_id)
+            hunt = self._hunts.get(hunt_id)
+            return deserialize_hunt(serialize_hunt(hunt)) if hunt is not None else None
 
     def list_hunts(
         self,
@@ -113,7 +116,7 @@ class HuntService:
                 and (created_by is None or hunt.created_by == created_by)
             ]
             hunts.sort(key=lambda item: (item.updated_at, str(item.hunt_id)), reverse=True)
-            return tuple(hunts[:limit])
+            return tuple(deserialize_hunt(serialize_hunt(hunt)) for hunt in hunts[:limit])
 
     def count_hunts(
         self, *, status: HuntStatus | None = None, created_by: str | None = None
