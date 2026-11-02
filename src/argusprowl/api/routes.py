@@ -2221,7 +2221,10 @@ def _hunt_dependencies():
     container = ServiceContainer.get_instance()
     if not container.is_registered(HuntService):
         raise HTTPException(status_code=503, detail="Hunt service not available")
-    return container.resolve(HuntService)
+    try:
+        return container.resolve(HuntService)
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail="Persisted hunt state is unavailable") from exc
 
 
 def _hunt_actor(request) -> str:
