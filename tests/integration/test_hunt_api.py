@@ -135,7 +135,7 @@ def test_invalid_hunt_scope_and_status_transitions_are_rejected(tmp_path) -> Non
 
 
 def test_hunt_is_durable_across_service_recreation(tmp_path) -> None:
-    client, headers, service, storage = _client(tmp_path)
+    client, headers, _service, storage = _client(tmp_path)
     created = client.post(
         "/api/v1/hunts",
         json={"title": "Persistence", "hypothesis": "Survive process restart."},
