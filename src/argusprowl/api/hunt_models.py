@@ -18,6 +18,17 @@ class HuntCreateRequest(StrictRequest):
     hypothesis: str = Field(min_length=1, max_length=4000)
 
 
+class HuntHypothesisRequest(StrictRequest):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    hypothesis: str | None = Field(default=None, min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def require_update(self) -> "HuntHypothesisRequest":
+        if self.title is None and self.hypothesis is None:
+            raise ValueError("At least one of title or hypothesis must be provided")
+        return self
+
+
 class HuntScopeRequest(StrictRequest):
     start_time: datetime | None = None
     end_time: datetime | None = None
