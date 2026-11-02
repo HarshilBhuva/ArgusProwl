@@ -16,7 +16,6 @@ from argusprowl.hunting.hunt_service_serialization import deserialize_hunt, seri
 from argusprowl.interfaces.storage import Storage
 from argusprowl.models.hunt import (
     EvidenceRole,
-    FindingDisposition,
     Hunt,
     HuntAuditEntry,
     HuntConclusion,
@@ -129,6 +128,8 @@ class HuntService:
         **changes: object,
     ) -> Hunt:
         now = datetime.now(UTC)
+        if len(hunt.audit_history) >= 20000:
+            raise HuntConflictError("Hunt audit history capacity reached.")
         updated = replace(
             hunt,
             **changes,
@@ -151,6 +152,9 @@ class HuntService:
         with self._lock:
             hunt = self._require(hunt_id)
             existing = next((query for query in hunt.queries if query.name == name), None)
+            if existing is None and len(hunt.queries) >= 100:
+                raise HuntConflictError("A hunt may contain at most 100 saved query names.")
+            definition = json.loads(json.dumps(definition, separators=(",", ":")))
             query = HuntQuery(
                 name=name,
                 definition=definition,
@@ -172,6 +176,8 @@ class HuntService:
             query = next((item for item in hunt.queries if item.query_id == execution.query_id), None)
             if query is None or query.version != execution.query_version:
                 raise HuntConflictError("Execution must reference the current saved query ID and version.")
+            if len(hunt.executions) >= 10000:
+                raise HuntConflictError("Hunt execution history capacity reached.")
             return self._update(
                 hunt,
                 actor,
@@ -189,6 +195,8 @@ class HuntService:
             hunt = self._require(hunt_id)
             if any(item.event_id == reference.event_id for item in hunt.evidence_references):
                 raise HuntConflictError("Evidence event is already attached to this hunt.")
+            if len(hunt.evidence_references) >= 10000:
+                raise HuntConflictError("Hunt evidence reference capacity reached.")
             return self._update(
                 hunt,
                 reference.added_by,
@@ -204,6 +212,8 @@ class HuntService:
         with self._lock:
             hunt = self._require(hunt_id)
             known = {item.event_id for item in hunt.evidence_references}
+            if len(hunt.findings) >= 2000:
+                raise HuntConflictError("Hunt finding capacity reached.")
             if not set(finding.evidence_event_ids).issubset(known):
                 raise HuntConflictError("Finding evidence must reference events already attached to the hunt.")
             return self._update(
