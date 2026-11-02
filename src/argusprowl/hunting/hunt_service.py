@@ -195,8 +195,12 @@ class HuntService:
             return self._update(hunt, actor, "HUNT_SCOPE_UPDATED", scope=scope)
 
     def save_query(self, hunt_id: UUID, *, name: str, definition: dict[str, object], actor: str) -> Hunt:
-        if len(json.dumps(definition, separators=(",", ":"))) > 32768:
+        serialized_definition = json.dumps(
+            definition, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+        if len(serialized_definition) > 32768:
             raise ValueError("Query definition must not exceed 32768 serialized characters.")
+        normalized_definition = json.loads(serialized_definition)
         with self._lock:
             hunt = self._require(hunt_id)
             existing = next((query for query in hunt.queries if query.name == name), None)
@@ -204,10 +208,9 @@ class HuntService:
                 raise HuntConflictError("A hunt may contain at most 100 saved query names.")
             if len(hunt.queries) >= 1000:
                 raise HuntConflictError("Hunt query version history capacity reached.")
-            definition = json.loads(json.dumps(definition, separators=(",", ":")))
             query = HuntQuery(
                 name=name,
-                definition=definition,
+                definition=normalized_definition,
                 version=(existing.version + 1) if existing else 1,
                 query_id=existing.query_id if existing else uuid4(),
             )
