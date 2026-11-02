@@ -127,7 +127,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
             if hmac.compare_digest(supplied_key, secret):
                 return self._api_keys[key_id]
         legacy_key = self._config_key or os.environ.get("ARGUSPROWL_API_KEY", "")
-        if legacy_key and hmac.compare_digest(supplied_key, legacy_key):
+        if legacy_key and legacy_key.isascii() and hmac.compare_digest(supplied_key, legacy_key):
             return AuthPrincipal(subject="legacy-admin", role="admin", key_id="legacy-admin")
         return None
 
