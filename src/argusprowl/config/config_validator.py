@@ -466,7 +466,7 @@ class ConfigValidator:
             secret = definition.get("secret")
             subject = definition.get("subject")
             role = definition.get("role")
-            if not isinstance(secret, str) or len(secret) < 32:
+            if not isinstance(secret, str) or len(secret) < 32 or not secret.isascii():
                 raise ValidationError(f"api.api_keys.{key_id}.secret must contain at least 32 characters.")
             if not isinstance(subject, str) or not subject.strip() or len(subject) > 256:
                 raise ValidationError(f"api.api_keys.{key_id}.subject must be a non-empty string.")
