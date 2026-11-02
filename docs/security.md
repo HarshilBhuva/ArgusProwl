@@ -3,15 +3,15 @@
 ## Authentication model
 
 API-key authentication is opt-in for backward compatibility. Set
-\`TH_API__AUTH_ENABLED=true\` (or \`api.auth_enabled: true\`) before exposing the
+`TH_API__AUTH_ENABLED=true` (or `api.auth_enabled: true`) before exposing the
 service beyond a trusted local environment.
 
-The existing \`ARGUSPROWL_API_KEY\` remains supported and is treated as an
+The existing `ARGUSPROWL_API_KEY` remains supported and is treated as an
 administrator credential. For least-privilege access, configure multiple named
-credentials through the \`ARGUSPROWL_API_KEYS\` environment variable. Its value
+credentials through the `ARGUSPROWL_API_KEYS` environment variable. Its value
 must be a JSON object keyed by a non-secret key ID:
 
-\`\`\`json
+```json
 {
   "soc-viewer-01": {
     "secret": "replace-with-a-random-secret-of-at-least-32-characters",
@@ -29,7 +29,7 @@ must be a JSON object keyed by a non-secret key ID:
     "role": "admin"
   }
 }
-\`\`\`
+```
 
 Pass the same value into the container environment; do not commit real secrets
 to YAML, source control, CI logs, or issue reports. Secrets are compared using
@@ -39,13 +39,13 @@ constant-time comparison and are never included in audit events or responses.
 
 | Role | Access |
 | --- | --- |
-| \`viewer\` | Read API resources; no write operations |
-| \`analyst\` | Viewer access plus alert acknowledge/close, incident transitions/close/annotations, and entity annotations |
-| \`admin\` | All API operations, including audit-log reads |
+| `viewer` | Read API resources; no write operations |
+| `analyst` | Viewer access plus alert acknowledge/close, incident transitions/close/annotations, and entity annotations |
+| `admin` | All API operations, including audit-log reads |
 
 Authorization is deny-by-default for write operations. Newly introduced write
 routes must be explicitly added to the analyst policy or remain administrator
-only. The audit reader at \`GET /api/v1/audit\` is administrator-only.
+only. The audit reader at `GET /api/v1/audit` is administrator-only.
 
 The legacy single API key is administrator-level for compatibility. Rotate it
 and migrate to named role-bearing keys when multiple operators need different
@@ -54,8 +54,8 @@ permissions.
 ## Audit trail
 
 Non-public API requests produce durable SQLite audit records in
-\`data/audit.db\` by default. Override the path with
-\`ARGUSPROWL_AUDIT_DB_PATH\` or \`api.audit_db_path\`.
+`data/audit.db` by default. Override the path with
+`ARGUSPROWL_AUDIT_DB_PATH` or `api.audit_db_path`.
 
 The log records UTC timestamp, event type, authenticated subject, role, HTTP
 method, URL path (without query string), response status, request ID, and direct
