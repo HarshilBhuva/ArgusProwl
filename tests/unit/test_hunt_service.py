@@ -38,6 +38,10 @@ def test_hunt_survives_service_restart_with_history_and_separate_evidence(storag
         actor="analyst-a",
     )
     query = query_hunt.queries[0]
+    query.definition["event_type"] = "mutated-outside-service"
+    retained = service.get_hunt(hunt.hunt_id)
+    assert retained is not None
+    assert retained.queries[0].definition["event_type"] == "authentication_failure"
 
     updated = service.save_query(
         hunt.hunt_id,
