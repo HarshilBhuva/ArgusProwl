@@ -12,12 +12,12 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
-from argusprowl.api.response_models import (
+from argusprowl.api.hunt_models import (\n    HuntConclusionRequest,\n    HuntCreateRequest,\n    HuntEvidenceRequest,\n    HuntExecutionRequest,\n    HuntFindingRequest,\n    HuntQueryRequest,\n    HuntScopeRequest,\n    HuntStatusRequest,\n)\nfrom argusprowl.api.response_models import (
     AlertResponse,
     AlertSearchResponse,
     AnnotationCreateRequest,
@@ -2212,7 +2212,7 @@ def _hunt_payload(hunt) -> dict[str, object]:
 
 
 @router.post("/hunts", summary="Create a persistent hunt")
-async def create_hunt(payload, request) -> dict[str, object]:
+async def create_hunt(payload: HuntCreateRequest, request: Request) -> dict[str, object]:
     """Create a hunt hypothesis owned by the authenticated analyst."""
     from argusprowl.api.hunt_models import HuntCreateRequest
 
@@ -2285,7 +2285,7 @@ async def get_hunt(hunt_id: str) -> dict[str, object]:
 
 
 @router.post("/hunts/{hunt_id}/scope", summary="Set hunt scope")
-async def set_hunt_scope(hunt_id: str, payload, request) -> dict[str, object]:
+async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Request) -> dict[str, object]:
     """Replace explicit host/user/source and time boundaries for a hunt."""
     from uuid import UUID
 
@@ -2316,7 +2316,7 @@ async def set_hunt_scope(hunt_id: str, payload, request) -> dict[str, object]:
 
 
 @router.post("/hunts/{hunt_id}/queries", summary="Save or version a hunt query")
-async def save_hunt_query(hunt_id: str, payload, request) -> dict[str, object]:
+async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Request) -> dict[str, object]:
     """Save a structured query definition; saving the same name creates a new version."""
     from uuid import UUID
 
@@ -2343,7 +2343,7 @@ async def save_hunt_query(hunt_id: str, payload, request) -> dict[str, object]:
 
 
 @router.post("/hunts/{hunt_id}/executions", summary="Record a hunt query execution")
-async def record_hunt_execution(hunt_id: str, payload, request) -> dict[str, object]:
+async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, request: Request) -> dict[str, object]:
     """Persist an execution receipt and the exact query version it references."""
     from uuid import UUID
 
@@ -2376,7 +2376,7 @@ async def record_hunt_execution(hunt_id: str, payload, request) -> dict[str, obj
 
 
 @router.post("/hunts/{hunt_id}/evidence", summary="Attach telemetry evidence to a hunt")
-async def attach_hunt_evidence(hunt_id: str, payload, request) -> dict[str, object]:
+async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, request: Request) -> dict[str, object]:
     """Attach a reference to an existing event without copying or altering telemetry."""
     from uuid import UUID
 
@@ -2406,7 +2406,7 @@ async def attach_hunt_evidence(hunt_id: str, payload, request) -> dict[str, obje
 
 
 @router.post("/hunts/{hunt_id}/findings", summary="Record an analyst finding")
-async def add_hunt_finding(hunt_id: str, payload, request) -> dict[str, object]:
+async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: Request) -> dict[str, object]:
     """Record a finding whose event references must already belong to this hunt."""
     from uuid import UUID
 
@@ -2437,7 +2437,7 @@ async def add_hunt_finding(hunt_id: str, payload, request) -> dict[str, object]:
 
 
 @router.post("/hunts/{hunt_id}/conclusion", summary="Record or revise analyst conclusion")
-async def set_hunt_conclusion(hunt_id: str, payload, request) -> dict[str, object]:
+async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, request: Request) -> dict[str, object]:
     """Record an explicit analyst conclusion and bounded confidence value."""
     from uuid import UUID
 
@@ -2467,7 +2467,7 @@ async def set_hunt_conclusion(hunt_id: str, payload, request) -> dict[str, objec
 
 
 @router.post("/hunts/{hunt_id}/status", summary="Transition hunt lifecycle status")
-async def transition_hunt_status(hunt_id: str, payload, request) -> dict[str, object]:
+async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, request: Request) -> dict[str, object]:
     """Apply a validated draft/active/completed/archived lifecycle transition."""
     from uuid import UUID
 
