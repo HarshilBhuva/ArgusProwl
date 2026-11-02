@@ -27,14 +27,14 @@ class HuntScopeRequest(StrictRequest):
 
     @model_validator(mode="after")
     def validate_scope(self) -> "HuntScopeRequest":
+        for value in (self.start_time, self.end_time):
+            if value is not None and value.utcoffset() is None:
+                raise ValueError("Scope timestamps must include a timezone offset")
         if self.start_time and self.end_time and self.start_time > self.end_time:
             raise ValueError("start_time must not be after end_time")
         for values in (self.hosts, self.users, self.sources):
             if any(not value.strip() or len(value) > 256 for value in values):
                 raise ValueError("Scope values must contain 1–256 characters")
-        for value in (self.start_time, self.end_time):
-            if value is not None and value.utcoffset() is None:
-                raise ValueError("Scope timestamps must include a timezone offset")
         return self
 
 
