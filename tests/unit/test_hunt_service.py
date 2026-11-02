@@ -45,8 +45,8 @@ def test_hunt_survives_service_restart_with_history_and_separate_evidence(storag
         definition={"source_type": "windows", "event_type": "authentication_failure", "limit": 500},
         actor="analyst-a",
     )
-    assert updated.queries[0].query_id == query.query_id
-    assert updated.queries[0].version == 2
+    assert [item.version for item in updated.queries] == [1, 2]
+    assert all(item.query_id == query.query_id for item in updated.queries)
 
     now = datetime.now(UTC)
     event_id = uuid4()
@@ -94,7 +94,7 @@ def test_hunt_survives_service_restart_with_history_and_separate_evidence(storag
     recovered = HuntService(storage).get_hunt(hunt.hunt_id)
     assert recovered is not None
     assert recovered.status is HuntStatus.COMPLETED
-    assert recovered.queries[0].version == 2
+    assert [item.version for item in recovered.queries] == [1, 2]
     assert recovered.executions[0].query_version == 2
     assert recovered.evidence_references[0].event_id == event_id
     assert recovered.findings[0].evidence_event_ids == (event_id,)
@@ -121,7 +121,7 @@ def test_execution_must_reference_exact_saved_query_version(storage) -> None:
         hunt.hunt_id, name="q", definition={"event_type": "login"}, actor="analyst"
     ).queries[0]
     now = datetime.now(UTC)
-    with pytest.raises(HuntConflictError, match="current saved query"):
+    with pytest.raises(HuntConflictError, match="saved query ID and version"):
         service.record_execution(
             hunt.hunt_id,
             HuntExecution(
