@@ -307,7 +307,7 @@ class HuntService:
             if hunt is None:
                 raise HuntNotFoundError(f"Hunt {hunt_id} not found.")
             if status == hunt.status:
-                return hunt
+                return deserialize_hunt(serialize_hunt(hunt))
             if status not in allowed[hunt.status]:
                 raise HuntConflictError(f"Invalid hunt status transition: {hunt.status.value} -> {status.value}.")
             return self._update(
