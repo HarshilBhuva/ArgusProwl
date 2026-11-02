@@ -51,6 +51,12 @@ The legacy single API key is administrator-level for compatibility. Rotate it
 and migrate to named role-bearing keys when multiple operators need different
 permissions.
 
+The current React client does not yet provide an API-key login or credential
+entry flow. Enabling API authentication protects the API, but browser-side
+requests from the existing UI will not include these keys; use an authenticated
+API client or a trusted authentication-aware reverse proxy until frontend
+authentication is implemented.
+
 ## Audit trail
 
 Non-public API requests produce durable SQLite audit records in
@@ -65,7 +71,9 @@ handler executes; if the audit store cannot accept that record, the request is
 rejected with HTTP 503. Completion-record failures leave the durable start
 record as evidence of an incomplete audit lifecycle.
 
-Audit records are append-only through the application API. This is not a
+Audit records are append-only through the application API. Automatic retention,
+rotation, and external archival are not implemented in this PR; monitor database
+growth and define an operator-managed retention/backup policy. This is not a
 cryptographically tamper-evident log: operators must protect the SQLite file,
 backups, and host filesystem permissions. External log shipping and signed
 integrity chains are outside this PR.
