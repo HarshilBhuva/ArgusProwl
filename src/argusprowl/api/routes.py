@@ -17,7 +17,17 @@ from fastapi.responses import JSONResponse
 
 from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
-from argusprowl.api.hunt_models import (\n    HuntConclusionRequest,\n    HuntCreateRequest,\n    HuntEvidenceRequest,\n    HuntExecutionRequest,\n    HuntFindingRequest,\n    HuntQueryRequest,\n    HuntScopeRequest,\n    HuntStatusRequest,\n)\nfrom argusprowl.api.response_models import (
+from argusprowl.api.hunt_models import (
+    HuntConclusionRequest,
+    HuntCreateRequest,
+    HuntEvidenceRequest,
+    HuntExecutionRequest,
+    HuntFindingRequest,
+    HuntQueryRequest,
+    HuntScopeRequest,
+    HuntStatusRequest,
+)
+from argusprowl.api.response_models import (
     AlertResponse,
     AlertSearchResponse,
     AnnotationCreateRequest,
@@ -2214,10 +2224,6 @@ def _hunt_payload(hunt) -> dict[str, object]:
 @router.post("/hunts", summary="Create a persistent hunt")
 async def create_hunt(payload: HuntCreateRequest, request: Request) -> dict[str, object]:
     """Create a hunt hypothesis owned by the authenticated analyst."""
-    from argusprowl.api.hunt_models import HuntCreateRequest
-
-    if not isinstance(payload, HuntCreateRequest):
-        raise HTTPException(status_code=422, detail="Invalid hunt request")
     service = _hunt_dependencies()
     try:
         hunt = service.create_hunt(
@@ -2289,7 +2295,6 @@ async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Reque
     """Replace explicit host/user/source and time boundaries for a hunt."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntScopeRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
     from argusprowl.models.hunt import HuntScope
 
@@ -2320,7 +2325,6 @@ async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Requ
     """Save a structured query definition; saving the same name creates a new version."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntQueryRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
 
     try:
@@ -2347,7 +2351,6 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
     """Persist an execution receipt and the exact query version it references."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntExecutionRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
     from argusprowl.models.hunt import HuntExecution
 
@@ -2380,7 +2383,6 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
     """Attach a reference to an existing event without copying or altering telemetry."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntEvidenceRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
     from argusprowl.models.hunt import HuntEvidenceReference
 
@@ -2410,7 +2412,6 @@ async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: R
     """Record a finding whose event references must already belong to this hunt."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntFindingRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
     from argusprowl.models.hunt import HuntFinding
 
@@ -2441,7 +2442,6 @@ async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, requ
     """Record an explicit analyst conclusion and bounded confidence value."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntConclusionRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
     from argusprowl.models.hunt import HuntConclusion
 
@@ -2471,7 +2471,6 @@ async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, reque
     """Apply a validated draft/active/completed/archived lifecycle transition."""
     from uuid import UUID
 
-    from argusprowl.api.hunt_models import HuntStatusRequest
     from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
 
     try:
