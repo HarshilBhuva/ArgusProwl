@@ -64,7 +64,7 @@ class HuntQuery:
 
     def __post_init__(self) -> None:
         if not self.name.strip() or len(self.name) > 128:
-            raise ValueError("Query name must contain 1–128 characters.")
+            raise ValueError("Query name must contain 1-128 characters.")
         if not isinstance(self.definition, dict):
             raise ValueError("Query definition must be an object.")
         if self.version < 1:
@@ -109,7 +109,7 @@ class HuntEvidenceReference:
 
     def __post_init__(self) -> None:
         if not self.added_by.strip() or len(self.added_by) > 256:
-            raise ValueError("Evidence added_by must contain 1–256 characters.")
+            raise ValueError("Evidence added_by must contain 1-256 characters.")
         if len(self.note) > 2000:
             raise ValueError("Evidence note must not exceed 2000 characters.")
 
@@ -128,11 +128,11 @@ class HuntFinding:
 
     def __post_init__(self) -> None:
         if not self.title.strip() or len(self.title) > 200:
-            raise ValueError("Finding title must contain 1–200 characters.")
+            raise ValueError("Finding title must contain 1-200 characters.")
         if not self.description.strip() or len(self.description) > 4000:
-            raise ValueError("Finding description must contain 1–4000 characters.")
+            raise ValueError("Finding description must contain 1-4000 characters.")
         if not self.author.strip() or len(self.author) > 256:
-            raise ValueError("Finding author must contain 1–256 characters.")
+            raise ValueError("Finding author must contain 1-256 characters.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,11 +147,11 @@ class HuntConclusion:
 
     def __post_init__(self) -> None:
         if not self.summary.strip() or len(self.summary) > 4000:
-            raise ValueError("Conclusion summary must contain 1–4000 characters.")
+            raise ValueError("Conclusion summary must contain 1-4000 characters.")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("Conclusion confidence must be between 0 and 1.")
         if not self.author.strip() or len(self.author) > 256:
-            raise ValueError("Conclusion author must contain 1–256 characters.")
+            raise ValueError("Conclusion author must contain 1-256 characters.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,10 +191,10 @@ class Hunt:
 
     def __post_init__(self) -> None:
         if not self.title.strip() or len(self.title) > 200:
-            raise ValueError("Hunt title must contain 1–200 characters.")
+            raise ValueError("Hunt title must contain 1-200 characters.")
         if not self.hypothesis.strip() or len(self.hypothesis) > 4000:
-            raise ValueError("Hunt hypothesis must contain 1–4000 characters.")
+            raise ValueError("Hunt hypothesis must contain 1-4000 characters.")
         if not self.created_by.strip() or len(self.created_by) > 256:
-            raise ValueError("Hunt created_by must contain 1–256 characters.")
+            raise ValueError("Hunt created_by must contain 1-256 characters.")
         if self.revision < 1:
             raise ValueError("Hunt revision must be positive.")
