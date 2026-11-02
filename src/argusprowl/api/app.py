@@ -71,6 +71,8 @@ def create_api_app(
     auth_enabled: bool = False,
     auth_header_name: str = "X-ArgusProwl-Key",
     api_key: str = "",
+    api_keys: dict[str, dict[str, str]] | None = None,
+    audit_db_path: str = "data/audit.db",
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -112,19 +114,25 @@ def create_api_app(
 
     # Attach shared-secret auth middleware before routes are resolved so
     # every handler (including those on included routers) is protected.
+    from argusprowl.api.audit import AuditLog
+    from argusprowl.api.audit import router as audit_router
     from argusprowl.api.auth import ApiKeyAuthMiddleware
     from argusprowl.api.routes import operational_router, router
 
-    if auth_enabled:
-        app.add_middleware(
-            ApiKeyAuthMiddleware,
-            auth_enabled=True,
-            api_key=api_key,
-            auth_header_name=auth_header_name,
-        )
+    audit_log = AuditLog(audit_db_path)
+    app.state.audit_log = audit_log
+    app.add_middleware(
+        ApiKeyAuthMiddleware,
+        auth_enabled=auth_enabled,
+        api_key=api_key,
+        api_keys=api_keys,
+        auth_header_name=auth_header_name,
+        audit_log=audit_log,
+    )
 
     app.include_router(router)
     app.include_router(operational_router)
+    app.include_router(audit_router)
 
     # ------------------------------------------------------------------
     # Frontend static-file & SPA routes (unified Docker image mode).

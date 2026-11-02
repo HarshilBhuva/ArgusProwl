@@ -180,7 +180,9 @@ The repository's CI workflows are the authoritative source for which checks run 
 ## Security and operational notes
 
 - **Alpha software:** evaluate the platform against your requirements and test it with representative data before operational use.
-- **Network exposure:** Compose publishes the UI and API on host port `8080`. Run it only on a trusted network unless you have separately configured appropriate access controls and network restrictions. Do not assume authentication or authorization is provided without verifying the deployed configuration and routes.
+- **Network exposure:** Compose binds the UI and API to host loopback by default. If you expose the service beyond the local host, enable `api.auth_enabled`, configure named role-bearing API keys, and use network restrictions/TLS at the deployment boundary. Authentication remains opt-in for compatibility; the default configuration is not an authenticated multi-user deployment.
+- **API authorization:** when authentication is enabled, named credentials support `viewer`, `analyst`, and `admin` roles. The legacy single `ARGUSPROWL_API_KEY` credential is treated as an administrator key. See [Security and API access](docs/security.md) for configuration and permission boundaries.
+- **Audit trail:** non-public API requests are written to the SQLite audit database (default `data/audit.db`). Request bodies, query strings, and credential values are not recorded. The audit reader is restricted to administrator credentials.
 - **Sensitive telemetry:** logs and investigation data can contain hostnames, usernames, IP addresses, process details, and other sensitive information. Restrict access to the service, volumes, configuration, and backups.
 - **Least privilege:** the Docker runtime runs as a non-root user. Host-based collectors may require platform-specific privileges; assess the need before granting them.
 - **Evidence and retention:** some processing and evidence paths use bounded in-memory state. Do not assume all raw telemetry or evidence is durably retained. Confirm persistence and retention behavior for the data you need.
@@ -206,6 +208,7 @@ Further implementation details:
 - [Architecture](docs/architecture.md)
 - [Replay](docs/replay.md)
 - [Testing](docs/testing.md)
+- [Security and API access](docs/security.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Contributing

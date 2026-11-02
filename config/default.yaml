@@ -1,6 +1,14 @@
 app_name: ArgusProwl
 debug: false
 environment: production
+api:
+  enabled: true
+  host: 127.0.0.1
+  port: 8080
+  auth_enabled: false
+  auth_header_name: X-ArgusProwl-Key
+  audit_db_path: data/audit.db
+  api_keys: {}
 logging:
   level: INFO
   console_enabled: true

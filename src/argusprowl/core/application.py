@@ -120,6 +120,8 @@ class Application:
                         auth_enabled=self._config.api.auth_enabled,
                         auth_header_name=self._config.api.auth_header_name,
                         api_key=self._config.api.api_key,
+                        api_keys=self._config.api.api_keys,
+                        audit_db_path=self._config.api.audit_db_path,
                     )
         except Exception as exc:
             # Startup may fail after the consumer or collector workers have
@@ -237,6 +239,8 @@ class Application:
                 auth_enabled=api_cfg.auth_enabled,
                 auth_header_name=api_cfg.auth_header_name,
                 api_key=api_cfg.api_key,
+                api_keys=api_cfg.api_keys,
+                audit_db_path=api_cfg.audit_db_path,
             )
             self._api_startup_event = Event()
             self._api_startup_error = None
