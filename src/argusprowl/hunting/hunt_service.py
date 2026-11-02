@@ -15,7 +15,6 @@ from uuid import UUID, uuid4
 from argusprowl.hunting.hunt_service_serialization import deserialize_hunt, serialize_hunt
 from argusprowl.interfaces.storage import Storage
 from argusprowl.models.hunt import (
-    EvidenceRole,
     Hunt,
     HuntAuditEntry,
     HuntConclusion,
