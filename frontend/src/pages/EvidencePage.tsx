@@ -1,11 +1,43 @@
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Card } from '../components/ui';
 import { EmptyState, ErrorState, LoadingSkeleton } from '../components/StateIndicators';
 import { useEvidence } from '../hooks/useQueries';
 import { ApiClientError } from '../lib/api';
-import type { EvidenceRecord, EvidenceEvent } from '../types/api';
+import type { EvidenceRecord, EvidenceEvent, EvidenceSearchParams } from '../types/api';
 import { formatTimestamp } from '../lib/utils';
+
+type FilterDraft = {
+  event_id: string;
+  start_time: string;
+  end_time: string;
+  source_type: string;
+  event_type: string;
+  entity_type: string;
+  entity_id: string;
+  src_ip: string;
+  dst_ip: string;
+  domain: string;
+};
+
+const EMPTY_FILTERS: FilterDraft = {
+  event_id: '',
+  start_time: '',
+  end_time: '',
+  source_type: '',
+  event_type: '',
+  entity_type: '',
+  entity_id: '',
+  src_ip: '',
+  dst_ip: '',
+  domain: '',
+};
+
+function toIsoTimestamp(value: string): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
 
 function provenanceBadgeClass(provenance: string): string {
   if (provenance === 'DETECTION_SOURCE') return 'bg-primary/10 text-primary border-primary/20';
@@ -15,8 +47,39 @@ function provenanceBadgeClass(provenance: string): string {
 }
 
 export function EvidencePage() {
-  const [limit, setLimit] = useState(20);
-  const evidenceQuery = useEvidence({ limit });
+  const [limit, setLimit] = useState(50);
+  const [draft, setDraft] = useState<FilterDraft>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<EvidenceSearchParams>({});
+  const evidenceQuery = useEvidence({ limit, ...filters });
+
+  const updateDraft = (field: keyof FilterDraft, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const applyFilters = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const startTime = toIsoTimestamp(draft.start_time);
+    const endTime = toIsoTimestamp(draft.end_time);
+    setFilters({
+      event_id: draft.event_id.trim() || undefined,
+      start_time: startTime,
+      end_time: endTime,
+      source_type: draft.source_type.trim() || undefined,
+      event_type: draft.event_type.trim() || undefined,
+      entity_type: draft.entity_type || undefined,
+      entity_id: draft.entity_id.trim() || undefined,
+      src_ip: draft.src_ip.trim() || undefined,
+      dst_ip: draft.dst_ip.trim() || undefined,
+      domain: draft.domain.trim() || undefined,
+    });
+  };
+
+  const clearFilters = () => {
+    setDraft(EMPTY_FILTERS);
+    setFilters({});
+  };
+
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   let body;
   if (evidenceQuery.isLoading) {
@@ -35,7 +98,7 @@ export function EvidencePage() {
       />
     );
   } else if (!evidenceQuery.data || evidenceQuery.data.records.length === 0) {
-    body = <EmptyState message="No evidence records found." />;
+    body = <EmptyState message="No evidence records found for the selected filters." />;
   } else {
     const records: EvidenceRecord[] = evidenceQuery.data.records;
     const events: Record<string, EvidenceEvent> = evidenceQuery.data.events;
@@ -63,12 +126,13 @@ export function EvidencePage() {
                         <span className="text-muted-foreground">·</span>
                         <span className="font-mono text-muted-foreground">{evt.event_type}</span>
                       </div>
-                      {evt.hostname && (
-                        <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
-                          {evt.hostname}
-                          {evt.src_ip && <span className="ml-2 font-mono">→ {evt.src_ip}</span>}
-                        </p>
-                      )}
+                      <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
+                        {evt.hostname || 'Unknown host'}
+                        {evt.username && <span className="ml-2">{evt.username}</span>}
+                        {evt.process_name && <span className="ml-2 font-mono">{evt.process_name}</span>}
+                        {evt.src_ip && <span className="ml-2 font-mono">{evt.src_ip}</span>}
+                        {evt.dst_ip && <span className="ml-2 font-mono">→ {evt.dst_ip}</span>}
+                      </p>
                     </>
                   ) : (
                     <p className="text-xs text-muted-foreground italic">No telemetry retained</p>
@@ -94,32 +158,105 @@ export function EvidencePage() {
         </ul>
         {evidenceQuery.data.truncated && (
           <div className="border-t border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Results truncated. {evidenceQuery.data.total_count} total matching events.
+            Showing {evidenceQuery.data.returned_count} of {evidenceQuery.data.total_count} matching events. Increase the result limit or narrow the time range; this result is incomplete.
           </div>
         )}
       </div>
     );
   }
 
+  const status = evidenceQuery.data?.status;
+  const degraded = status && status !== 'AVAILABLE' && status !== 'OK';
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-foreground uppercase tracking-tight">Evidence</h1>
-          <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">{evidenceQuery.data?.total_count ?? 0} events indexed</p>
+          <h1 className="text-lg font-bold text-foreground uppercase tracking-tight">Event Explorer</h1>
+          <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">
+            {evidenceQuery.data?.total_count ?? 0} matching retained events · {activeFilterCount} active filters
+          </p>
         </div>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
-          className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <option value={10}>10 per page</option>
-          <option value={20}>20 per page</option>
-          <option value={50}>50 per page</option>
-          <option value={100}>100 per page</option>
-        </select>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          Result limit
+          <select
+            aria-label="Result limit"
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={250}>250</option>
+            <option value={500}>500</option>
+          </select>
+        </label>
       </div>
-      <Card title="Evidence Registry" description="Telemetry events retained from detections">
+
+      <Card title="Search telemetry" description="Filters are combined with AND. Time boundaries are inclusive; results are bounded by the selected limit.">
+        <form onSubmit={applyFilters} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Event ID
+            <input value={draft.event_id} onChange={(e) => updateDraft('event_id', e.target.value)} maxLength={36} placeholder="Exact UUID" className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Source type
+            <input value={draft.source_type} onChange={(e) => updateDraft('source_type', e.target.value)} maxLength={128} placeholder="zeek, sysmon..." className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Event type
+            <input value={draft.event_type} onChange={(e) => updateDraft('event_type', e.target.value)} maxLength={128} placeholder="network_connection..." className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Entity type
+            <select value={draft.entity_type} onChange={(e) => updateDraft('entity_type', e.target.value)} className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground">
+              <option value="">Any entity</option>
+              <option value="hostname">Host</option>
+              <option value="user">User</option>
+              <option value="process">Process</option>
+              <option value="src_ip">IP address</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Entity ID
+            <input value={draft.entity_id} onChange={(e) => updateDraft('entity_id', e.target.value)} maxLength={256} placeholder="Host, user, process or IP" className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Source IP
+            <input value={draft.src_ip} onChange={(e) => updateDraft('src_ip', e.target.value)} maxLength={64} placeholder="192.0.2.10" className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Destination IP
+            <input value={draft.dst_ip} onChange={(e) => updateDraft('dst_ip', e.target.value)} maxLength={64} placeholder="198.51.100.20" className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Domain / hostname
+            <input value={draft.domain} onChange={(e) => updateDraft('domain', e.target.value)} maxLength={256} placeholder="example.internal" className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Start time (local)
+            <input type="datetime-local" value={draft.start_time} onChange={(e) => updateDraft('start_time', e.target.value)} className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            End time (local)
+            <input type="datetime-local" value={draft.end_time} onChange={(e) => updateDraft('end_time', e.target.value)} className="w-full rounded-md border border-border bg-background px-2 py-2 text-xs text-foreground" />
+          </label>
+          <div className="flex items-end gap-2 md:col-span-2 xl:col-span-4">
+            <button type="submit" className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90">Search events</button>
+            <button type="button" onClick={clearFilters} className="rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted">Clear filters</button>
+          </div>
+        </form>
+      </Card>
+
+      {degraded && (
+        <div role="status" className="border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+          Evidence availability: {status}. {evidenceQuery.data?.reason || 'The returned data may be incomplete.'}
+        </div>
+      )}
+
+      <Card title="Event results" description="Normalized telemetry with evidence provenance">
         {body}
       </Card>
     </div>
