@@ -6,10 +6,11 @@ existing Storage abstraction; it does not claim multi-process concurrency.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from threading import RLock
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from argusprowl.hunting.hunt_service_serialization import deserialize_hunt, serialize_hunt
 from argusprowl.interfaces.storage import Storage
@@ -113,14 +114,24 @@ class HuntService:
             raise HuntConflictError("Archived hunts are read-only.")
         return hunt
 
-    def _update(self, hunt: Hunt, actor: str, action: str, **changes: object) -> Hunt:
+    def _update(
+        self,
+        hunt: Hunt,
+        actor: str,
+        action: str,
+        *,
+        audit_details: dict[str, object] | None = None,
+        **changes: object,
+    ) -> Hunt:
         now = datetime.now(UTC)
         updated = replace(
             hunt,
             **changes,
             updated_at=now,
             revision=hunt.revision + 1,
-            audit_history=self._audit(hunt, action, actor, revision=hunt.revision + 1),
+            audit_history=self._audit(
+                hunt, action, actor, revision=hunt.revision + 1, **(audit_details or {})
+            ),
         )
         return self._commit(updated)
 
@@ -130,6 +141,8 @@ class HuntService:
             return self._update(hunt, actor, "HUNT_SCOPE_UPDATED", scope=scope)
 
     def save_query(self, hunt_id: UUID, *, name: str, definition: dict[str, object], actor: str) -> Hunt:
+        if len(json.dumps(definition, separators=(",", ":"))) > 32768:
+            raise ValueError("Query definition must not exceed 32768 serialized characters.")
         with self._lock:
             hunt = self._require(hunt_id)
             existing = next((query for query in hunt.queries if query.name == name), None)
@@ -137,7 +150,7 @@ class HuntService:
                 name=name,
                 definition=definition,
                 version=(existing.version + 1) if existing else 1,
-                query_id=existing.query_id if existing else __import__("uuid").uuid4(),
+                query_id=existing.query_id if existing else uuid4(),
             )
             queries = tuple(item for item in hunt.queries if item.name != name) + (query,)
             return self._update(hunt, actor, "HUNT_QUERY_SAVED", queries=queries, query_name=name, query_version=query.version)
@@ -206,4 +219,10 @@ class HuntService:
                 return hunt
             if status not in allowed[hunt.status]:
                 raise HuntConflictError(f"Invalid hunt status transition: {hunt.status.value} -> {status.value}.")
-            return self._update(hunt, actor, "HUNT_STATUS_CHANGED", status=status, previous_status=hunt.status.value, new_status=status.value)
+            return self._update(
+                hunt,
+                actor,
+                "HUNT_STATUS_CHANGED",
+                status=status,
+                audit_details={"previous_status": hunt.status.value, "new_status": status.value},
+            )
