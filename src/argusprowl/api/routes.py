@@ -2293,7 +2293,7 @@ async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Reque
     """Replace explicit host/user/source and time boundaries for a hunt."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
     from argusprowl.models.hunt import HuntScope
 
     try:
@@ -2313,6 +2313,8 @@ async def set_hunt_scope(hunt_id: str, payload: HuntScopeRequest, request: Reque
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
 
 
@@ -2345,7 +2347,7 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
     """Persist an execution receipt and the exact query version it references."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
     from argusprowl.models.hunt import HuntExecution
 
     try:
@@ -2367,6 +2369,8 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except (HuntConflictError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
 
 
@@ -2375,7 +2379,7 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
     """Attach a reference to an existing event without copying or altering telemetry."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
     from argusprowl.models.hunt import HuntEvidenceReference
 
     try:
@@ -2394,6 +2398,8 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
 
 
@@ -2402,7 +2408,7 @@ async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: R
     """Record a finding whose event references must already belong to this hunt."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
     from argusprowl.models.hunt import HuntFinding
 
     try:
@@ -2422,6 +2428,8 @@ async def add_hunt_finding(hunt_id: str, payload: HuntFindingRequest, request: R
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
 
 
@@ -2430,7 +2438,7 @@ async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, requ
     """Record an explicit analyst conclusion and bounded confidence value."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
     from argusprowl.models.hunt import HuntConclusion
 
     try:
@@ -2449,6 +2457,8 @@ async def set_hunt_conclusion(hunt_id: str, payload: HuntConclusionRequest, requ
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
 
 
@@ -2457,7 +2467,7 @@ async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, reque
     """Apply a validated draft/active/completed/archived lifecycle transition."""
     from uuid import UUID
 
-    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError
+    from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntServiceError
 
     try:
         parsed_id = UUID(hunt_id)
@@ -2471,4 +2481,6 @@ async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, reque
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HuntServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
