@@ -160,6 +160,9 @@ def test_invalid_lifecycle_transition_is_rejected_and_archive_is_read_only(stora
     hunt = service.create_hunt(title="Test", hypothesis="Test hypothesis", actor="analyst")
     with pytest.raises(HuntConflictError, match="Invalid hunt status transition"):
         service.transition_status(hunt.hunt_id, HuntStatus.COMPLETED, "analyst")
+    service.transition_status(hunt.hunt_id, HuntStatus.ACTIVE, "analyst")
+    with pytest.raises(HuntConflictError, match="conclusion is required"):
+        service.transition_status(hunt.hunt_id, HuntStatus.COMPLETED, "analyst")
     service.transition_status(hunt.hunt_id, HuntStatus.ARCHIVED, "analyst")
     with pytest.raises(HuntConflictError, match="read-only"):
         service.save_query(hunt.hunt_id, name="q", definition={}, actor="analyst")
