@@ -32,9 +32,8 @@ class AuditLog:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        with closing(self._connect()) as connection:
-            with connection:
-                yield connection
+        with closing(self._connect()) as connection, connection:
+            yield connection
 
     def _initialize(self) -> None:
         with self._lock, self._connection() as connection:
