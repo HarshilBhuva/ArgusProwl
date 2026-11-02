@@ -97,18 +97,35 @@ class HuntService:
         with self._lock:
             return self._hunts.get(hunt_id)
 
-    def list_hunts(self, *, status: HuntStatus | None = None, limit: int = 100) -> tuple[Hunt, ...]:
+    def list_hunts(
+        self,
+        *,
+        status: HuntStatus | None = None,
+        created_by: str | None = None,
+        limit: int = 100,
+    ) -> tuple[Hunt, ...]:
+        """List bounded hunts, optionally restricted to their creator."""
         if not 1 <= limit <= 500:
             raise ValueError("limit must be between 1 and 500.")
         with self._lock:
-            hunts = [hunt for hunt in self._hunts.values() if status is None or hunt.status == status]
+            hunts = [
+                hunt for hunt in self._hunts.values()
+                if (status is None or hunt.status == status)
+                and (created_by is None or hunt.created_by == created_by)
+            ]
             hunts.sort(key=lambda item: (item.updated_at, str(item.hunt_id)), reverse=True)
             return tuple(hunts[:limit])
 
-    def count_hunts(self, *, status: HuntStatus | None = None) -> int:
-        """Return the number of persisted in-memory hunt aggregates matching status."""
+    def count_hunts(
+        self, *, status: HuntStatus | None = None, created_by: str | None = None
+    ) -> int:
+        """Return the number of hunts matching the optional status and owner."""
         with self._lock:
-            return sum(1 for hunt in self._hunts.values() if status is None or hunt.status == status)
+            return sum(
+                1 for hunt in self._hunts.values()
+                if (status is None or hunt.status == status)
+                and (created_by is None or hunt.created_by == created_by)
+            )
 
     def _require(self, hunt_id: UUID) -> Hunt:
         hunt = self._hunts.get(hunt_id)
