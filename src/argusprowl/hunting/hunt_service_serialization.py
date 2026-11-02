@@ -1,6 +1,7 @@
 """Versioned JSON serialization for persisted hunt aggregates."""
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from uuid import UUID
 
@@ -41,7 +42,7 @@ def serialize_hunt(hunt: Hunt) -> dict[str, object]:
             "sources": list(hunt.scope.sources),
         },
         "queries": [{
-            "query_id": str(q.query_id), "name": q.name, "definition": q.definition,
+            "query_id": str(q.query_id), "name": q.name, "definition": copy.deepcopy(q.definition),
             "version": q.version, "created_at": _dt(q.created_at),
         } for q in hunt.queries],
         "executions": [{
@@ -68,7 +69,7 @@ def serialize_hunt(hunt: Hunt) -> dict[str, object]:
         },
         "audit_history": [{
             "entry_id": str(a.entry_id), "action": a.action, "actor": a.actor,
-            "timestamp": _dt(a.timestamp), "details": a.details,
+            "timestamp": _dt(a.timestamp), "details": copy.deepcopy(a.details),
         } for a in hunt.audit_history],
         "created_at": _dt(hunt.created_at),
         "updated_at": _dt(hunt.updated_at),
