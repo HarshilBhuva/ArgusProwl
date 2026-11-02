@@ -96,3 +96,13 @@ def test_failed_authentication_is_audited_without_recording_credentials(tmp_path
     assert failure["actor_id"] == "anonymous"
     assert "incorrect-secret-value" not in str(failure)
     ServiceContainer.reset_instance()
+
+
+def test_non_ascii_api_key_header_is_rejected_without_server_error(tmp_path) -> None:
+    client, _ = _build_client(tmp_path, "viewer")
+    response = client.get(
+        "/api/v1/alerts",
+        headers={"X-ArgusProwl-Key": "é" * 40},
+    )
+    assert response.status_code == 401
+    ServiceContainer.reset_instance()
