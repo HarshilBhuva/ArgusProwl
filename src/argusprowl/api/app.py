@@ -195,11 +195,19 @@ def create_api_app(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         """Handle validation errors with structured response."""
-        logger.debug("Validation error: %s", exc.errors())
+        errors = [
+            {
+                "loc": list(error.get("loc", ())),
+                "msg": str(error.get("msg", "Invalid request")),
+                "type": str(error.get("type", "value_error")),
+            }
+            for error in exc.errors()
+        ]
+        logger.debug("Validation error: %s", errors)
         return JSONResponse(
             status_code=422,
             content={
-                "detail": exc.errors(),
+                "detail": errors,
                 "status_code": 422,
             },
         )
