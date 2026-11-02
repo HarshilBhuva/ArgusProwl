@@ -2,6 +2,7 @@
 from fastapi.testclient import TestClient
 
 from argusprowl.api.app import create_api_app
+from argusprowl.api.audit import AuditLog
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.hunting.hunt_service import HuntService
 from argusprowl.storage.sqlite_storage import SQLiteAdapter
@@ -79,6 +80,13 @@ def test_analyst_can_create_and_update_hunt_and_request_is_audited(tmp_path) -> 
     assert listed.json()["total_count"] == 1
 
     assert service.get_hunt(__import__("uuid").UUID(hunt_id)) is not None
+    request_events = AuditLog(str(tmp_path / "analyst-audit.db")).list_events(limit=100)
+    assert any(
+        event["actor_id"] == "analyst-operator"
+        and event["path"] == "/api/v1/hunts"
+        and event["event_type"] == "REQUEST_COMPLETED"
+        for event in request_events
+    )
     ServiceContainer.reset_instance()
     storage.close()
 
