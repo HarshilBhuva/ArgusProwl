@@ -20,10 +20,10 @@ from argusprowl.alerting.alert_persistence import AlertPersistence
 from argusprowl.api.hunt_models import (
     HuntConclusionRequest,
     HuntCreateRequest,
-    HuntHypothesisRequest,
     HuntEvidenceRequest,
     HuntExecutionRequest,
     HuntFindingRequest,
+    HuntHypothesisRequest,
     HuntQueryRequest,
     HuntScopeRequest,
     HuntStatusRequest,
