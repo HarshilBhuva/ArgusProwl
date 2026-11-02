@@ -41,6 +41,10 @@ class HuntScope:
     sources: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.start_time and self.start_time.utcoffset() is None:
+            raise ValueError("Hunt scope start_time must be timezone-aware.")
+        if self.end_time and self.end_time.utcoffset() is None:
+            raise ValueError("Hunt scope end_time must be timezone-aware.")
         if self.start_time and self.end_time and self.start_time > self.end_time:
             raise ValueError("Hunt scope start_time must not be after end_time.")
         for values, label in ((self.hosts, "hosts"), (self.users, "users"), (self.sources, "sources")):
@@ -81,6 +85,10 @@ class HuntExecution:
     evidence_event_ids: tuple[UUID, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.started_at.utcoffset() is None or self.completed_at.utcoffset() is None:
+            raise ValueError("Execution timestamps must be timezone-aware.")
+        if self.query_version < 1:
+            raise ValueError("Execution query_version must be positive.")
         if self.completed_at < self.started_at:
             raise ValueError("Execution completed_at must not precede started_at.")
         if self.result_count < 0:
@@ -99,6 +107,12 @@ class HuntEvidenceReference:
     note: str = ""
     added_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
+    def __post_init__(self) -> None:
+        if not self.added_by.strip() or len(self.added_by) > 256:
+            raise ValueError("Evidence added_by must contain 1–256 characters.")
+        if len(self.note) > 2000:
+            raise ValueError("Evidence note must not exceed 2000 characters.")
+
 
 @dataclass(frozen=True, slots=True)
 class HuntFinding:
@@ -112,6 +126,14 @@ class HuntFinding:
     finding_id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
+    def __post_init__(self) -> None:
+        if not self.title.strip() or len(self.title) > 200:
+            raise ValueError("Finding title must contain 1–200 characters.")
+        if not self.description.strip() or len(self.description) > 4000:
+            raise ValueError("Finding description must contain 1–4000 characters.")
+        if not self.author.strip() or len(self.author) > 256:
+            raise ValueError("Finding author must contain 1–256 characters.")
+
 
 @dataclass(frozen=True, slots=True)
 class HuntConclusion:
@@ -123,6 +145,14 @@ class HuntConclusion:
     author: str
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
+    def __post_init__(self) -> None:
+        if not self.summary.strip() or len(self.summary) > 4000:
+            raise ValueError("Conclusion summary must contain 1–4000 characters.")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("Conclusion confidence must be between 0 and 1.")
+        if not self.author.strip() or len(self.author) > 256:
+            raise ValueError("Conclusion author must contain 1–256 characters.")
+
 
 @dataclass(frozen=True, slots=True)
 class HuntAuditEntry:
@@ -133,6 +163,10 @@ class HuntAuditEntry:
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     details: dict[str, object] = field(default_factory=dict)
     entry_id: UUID = field(default_factory=uuid4)
+
+    def __post_init__(self) -> None:
+        if not self.action.strip() or not self.actor.strip():
+            raise ValueError("Hunt audit action and actor must not be empty.")
 
 
 @dataclass(frozen=True, slots=True)
