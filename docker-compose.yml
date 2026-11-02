@@ -27,6 +27,8 @@ services:
       - TH_API__PORT=8080
       - TH_API__AUTH_ENABLED=${TH_API__AUTH_ENABLED:-false}
       - ARGUSPROWL_API_KEY=${ARGUSPROWL_API_KEY:-}
+      - ARGUSPROWL_API_KEYS=${ARGUSPROWL_API_KEYS:-}
+      - ARGUSPROWL_AUDIT_DB_PATH=${ARGUSPROWL_AUDIT_DB_PATH:-data/audit.db}
     # The image bakes ownership into its build: /app/data, /app/logs and the
     # virtualenv are pre-owned by `user` at image-build time, and the image
     # declares `USER user`. Docker's first attach of a named volume populates

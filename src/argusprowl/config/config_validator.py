@@ -443,6 +443,39 @@ class ConfigValidator:
             if not isinstance(origin, str) or not origin:
                 raise ValidationError("api.cors_origins must contain non-empty strings.")
 
+        if not isinstance(api.get("auth_enabled", False), bool):
+            raise ValidationError("api.auth_enabled must be a boolean.")
+        header_name = api.get("auth_header_name", "X-ArgusProwl-Key")
+        if not isinstance(header_name, str) or not re.fullmatch(r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]+", header_name):
+            raise ValidationError("api.auth_header_name must be a valid HTTP header name.")
+        if not isinstance(api.get("api_key", ""), str):
+            raise ValidationError("api.api_key must be a string.")
+        if not is_non_empty_string(api.get("audit_db_path", "data/audit.db")):
+            raise ValidationError("api.audit_db_path must be a non-empty string.")
+
+        api_keys = api.get("api_keys", {})
+        if not isinstance(api_keys, dict):
+            raise ValidationError("api.api_keys must be a mapping of key IDs to credentials.")
+        allowed_roles = {"viewer", "analyst", "admin"}
+        seen_secrets: set[str] = set()
+        for key_id, definition in api_keys.items():
+            if not isinstance(key_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", key_id):
+                raise ValidationError("api.api_keys contains an invalid key ID.")
+            if not isinstance(definition, dict):
+                raise ValidationError(f"api.api_keys.{key_id} must be a mapping.")
+            secret = definition.get("secret")
+            subject = definition.get("subject")
+            role = definition.get("role")
+            if not isinstance(secret, str) or len(secret) < 32:
+                raise ValidationError(f"api.api_keys.{key_id}.secret must contain at least 32 characters.")
+            if not isinstance(subject, str) or not subject.strip() or len(subject) > 256:
+                raise ValidationError(f"api.api_keys.{key_id}.subject must be a non-empty string.")
+            if not isinstance(role, str) or role not in allowed_roles:
+                raise ValidationError(f"api.api_keys.{key_id}.role must be one of {sorted(allowed_roles)}.")
+            if secret in seen_secrets:
+                raise ValidationError("api.api_keys must not contain duplicate secrets.")
+            seen_secrets.add(secret)
+
     def _validate_event_count_correlation_section(self, event_count_corr: Any) -> None:
         if not isinstance(event_count_corr, dict):
             raise ValidationError("event_count_correlation section must be a dictionary.")

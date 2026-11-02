@@ -18,7 +18,9 @@ class ApiConfig:
         max_alert_limit: Hard server-side maximum for alert search limit.
         auth_enabled: Whether API-key authentication is required.
         auth_header_name: Name of the header carrying the shared secret.
-        api_key: Expected API key value (loaded from config/env, never hardcoded).
+        api_key: Legacy administrator API key (loaded from config/env, never hardcoded).
+        api_keys: Named API credentials with explicit subject and role.
+        audit_db_path: SQLite path for the append-only API audit log.
     """
 
     enabled: bool = True
@@ -29,3 +31,5 @@ class ApiConfig:
     auth_enabled: bool = False
     auth_header_name: str = "X-ArgusProwl-Key"
     api_key: str = ""
+    api_keys: dict[str, dict[str, str]] = field(default_factory=dict)
+    audit_db_path: str = "data/audit.db"

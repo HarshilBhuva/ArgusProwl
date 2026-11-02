@@ -3,6 +3,7 @@
 Centralized thread-safe access point for application configuration.
 """
 
+import json
 import os
 import threading
 from collections.abc import Callable
@@ -89,6 +90,18 @@ class ConfigManager:
             Populated :class:`AppConfiguration` dataclass.
         """
         raw = self._loader.load_config(yaml_path)
+        api_data = raw.get("api", {})
+        if not isinstance(api_data, dict):
+            self._validator.validate(raw)
+        raw["api"] = api_data
+        api_keys_env = os.environ.get("ARGUSPROWL_API_KEYS")
+        if api_keys_env:
+            try:
+                api_data["api_keys"] = json.loads(api_keys_env)
+            except json.JSONDecodeError as exc:
+                from argusprowl.exceptions.exceptions import ValidationError
+
+                raise ValidationError("ARGUSPROWL_API_KEYS must contain valid JSON.") from exc
         self._validator.validate(raw)
         self._raw_config = raw
 
@@ -285,6 +298,10 @@ class ConfigManager:
             # Prefer the environment variable for secrets. The middleware also
             # resolves ARGUSPROWL_API_KEY lazily when this value is empty.
             api_key=api_data.get("api_key", ""),
+            api_keys=api_data.get("api_keys", {}),
+            audit_db_path=os.environ.get(
+                "ARGUSPROWL_AUDIT_DB_PATH", api_data.get("audit_db_path", "data/audit.db")
+            ),
         )
 
         zeek_data = raw.get("zeek", {})

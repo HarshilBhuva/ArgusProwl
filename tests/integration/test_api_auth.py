@@ -19,7 +19,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from argusprowl.api.app import create_api_app
-from argusprowl.api.auth import ApiKeyAuthMiddleware
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.services.alert_search_service import AlertSearchService
 
@@ -65,15 +64,6 @@ def _make_auth_app(
         api_key=api_key,
         auth_header_name=header_name,
     )
-    # Apply middleware only when auth is enabled (create_api_app doesn't auto-add it
-    # since the factory signature hasn't changed yet — we add it here in tests).
-    if auth_enabled:
-        app.add_middleware(
-            ApiKeyAuthMiddleware,
-            auth_enabled=True,
-            api_key=api_key,
-            auth_header_name=header_name,
-        )
     return TestClient(app)
 
 
@@ -103,12 +93,6 @@ def fail_closed_app() -> TestClient:
     env_before = os.environ.pop("ARGUSPROWL_API_KEY", None)
     try:
         app = create_api_app(auth_enabled=True, api_key="", auth_header_name="X-ArgusProwl-Key")
-        app.add_middleware(
-            ApiKeyAuthMiddleware,
-            auth_enabled=True,
-            api_key="",
-            auth_header_name="X-ArgusProwl-Key",
-        )
         return TestClient(app)
     finally:
         if env_before is not None:
@@ -123,10 +107,8 @@ def env_var_fallback_app(mock_alert_search_service: MagicMock) -> TestClient:
     try:
         container = ServiceContainer.get_instance()
         container.register_singleton(AlertSearchService, lambda: mock_alert_search_service)
-        # create_api_app() adds ApiKeyAuthMiddleware internally when
-        # auth_enabled=True; the middleware resolves the key lazily at
-        # dispatch time via _resolve_key(), so the env var must remain
-        # set for the duration of the test.
+        # The app factory installs the middleware; it resolves the legacy
+        # environment key at request time, so the variable remains set during the test.
         app = create_api_app(
             auth_enabled=True,
             api_key="",  # config has no key — env var provides it
