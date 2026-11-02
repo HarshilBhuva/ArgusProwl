@@ -45,6 +45,14 @@ def test_analyst_can_create_and_update_hunt_and_request_is_audited(tmp_path) -> 
     assert data["status"] == "draft"
     assert data["audit_history"][0]["action"] == "HUNT_CREATED"
 
+    hypothesis = client.post(
+        f"/api/v1/hunts/{hunt_id}/hypothesis",
+        json={"hypothesis": "Credential abuse precedes lateral movement across scoped servers."},
+        headers=headers,
+    )
+    assert hypothesis.status_code == 200
+    assert hypothesis.json()["hypothesis"].startswith("Credential abuse")
+
     scope = client.post(
         f"/api/v1/hunts/{hunt_id}/scope",
         json={"hosts": ["server-01"], "users": ["svc-admin"], "sources": ["windows"]},
@@ -63,7 +71,8 @@ def test_analyst_can_create_and_update_hunt_and_request_is_audited(tmp_path) -> 
 
     detail = client.get(f"/api/v1/hunts/{hunt_id}", headers=headers)
     assert detail.status_code == 200
-    assert detail.json()["revision"] == 3
+    assert detail.json()["revision"] == 4
+    assert any(entry["action"] == "HUNT_HYPOTHESIS_UPDATED" for entry in detail.json()["audit_history"])
 
     listed = client.get("/api/v1/hunts?status=draft&limit=10", headers=headers)
     assert listed.status_code == 200
