@@ -109,7 +109,11 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
             secret = definition.get("secret", "")
             subject = definition.get("subject", key_id)
             role = definition.get("role", "")
-            if not isinstance(secret, str) or not secret or not isinstance(subject, str) or not subject or not isinstance(role, str) or role not in _VALID_ROLES:
+            if (
+                not isinstance(secret, str) or not secret or not secret.isascii()
+                or not isinstance(subject, str) or not subject
+                or not isinstance(role, str) or role not in _VALID_ROLES
+            ):
                 raise ValueError(f"Invalid API key definition for key ID {key_id!r}")
             self._api_secrets[key_id] = secret
             self._api_keys[key_id] = AuthPrincipal(subject=subject, role=role, key_id=key_id)
@@ -117,7 +121,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
             logger.warning("API auth is enabled but no API key is configured; protected routes fail closed.")
 
     def _authenticate(self, supplied_key: str | None) -> AuthPrincipal | None:
-        if not supplied_key:
+        if not supplied_key or not supplied_key.isascii():
             return None
         for key_id, secret in self._api_secrets.items():
             if hmac.compare_digest(supplied_key, secret):
