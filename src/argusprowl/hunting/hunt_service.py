@@ -158,7 +158,13 @@ class HuntService:
                 query_id=existing.query_id if existing else uuid4(),
             )
             queries = tuple(item for item in hunt.queries if item.name != name) + (query,)
-            return self._update(hunt, actor, "HUNT_QUERY_SAVED", queries=queries, query_name=name, query_version=query.version)
+            return self._update(
+                hunt,
+                actor,
+                "HUNT_QUERY_SAVED",
+                queries=queries,
+                audit_details={"query_name": name, "query_version": query.version},
+            )
 
     def record_execution(self, hunt_id: UUID, execution: HuntExecution, actor: str) -> Hunt:
         with self._lock:
@@ -167,11 +173,15 @@ class HuntService:
             if query is None or query.version != execution.query_version:
                 raise HuntConflictError("Execution must reference the current saved query ID and version.")
             return self._update(
-                hunt, actor, "HUNT_QUERY_EXECUTION_RECORDED",
+                hunt,
+                actor,
+                "HUNT_QUERY_EXECUTION_RECORDED",
                 executions=(*hunt.executions, execution),
-                execution_id=str(execution.execution_id),
-                result_count=execution.result_count,
-                query_version=execution.query_version,
+                audit_details={
+                    "execution_id": str(execution.execution_id),
+                    "result_count": execution.result_count,
+                    "query_version": execution.query_version,
+                },
             )
 
     def attach_evidence(self, hunt_id: UUID, reference: HuntEvidenceReference) -> Hunt:
@@ -180,10 +190,14 @@ class HuntService:
             if any(item.event_id == reference.event_id for item in hunt.evidence_references):
                 raise HuntConflictError("Evidence event is already attached to this hunt.")
             return self._update(
-                hunt, reference.added_by, "HUNT_EVIDENCE_ATTACHED",
+                hunt,
+                reference.added_by,
+                "HUNT_EVIDENCE_ATTACHED",
                 evidence_references=(*hunt.evidence_references, reference),
-                event_id=str(reference.event_id),
-                evidence_role=reference.role.value,
+                audit_details={
+                    "event_id": str(reference.event_id),
+                    "evidence_role": reference.role.value,
+                },
             )
 
     def add_finding(self, hunt_id: UUID, finding: HuntFinding) -> Hunt:
@@ -193,20 +207,28 @@ class HuntService:
             if not set(finding.evidence_event_ids).issubset(known):
                 raise HuntConflictError("Finding evidence must reference events already attached to the hunt.")
             return self._update(
-                hunt, finding.author, "HUNT_FINDING_RECORDED",
+                hunt,
+                finding.author,
+                "HUNT_FINDING_RECORDED",
                 findings=(*hunt.findings, finding),
-                finding_id=str(finding.finding_id),
-                disposition=finding.disposition.value,
+                audit_details={
+                    "finding_id": str(finding.finding_id),
+                    "disposition": finding.disposition.value,
+                },
             )
 
     def set_conclusion(self, hunt_id: UUID, conclusion: HuntConclusion) -> Hunt:
         with self._lock:
             hunt = self._require(hunt_id)
             return self._update(
-                hunt, conclusion.author, "HUNT_CONCLUSION_UPDATED",
+                hunt,
+                conclusion.author,
+                "HUNT_CONCLUSION_UPDATED",
                 conclusion=conclusion,
-                disposition=conclusion.disposition.value,
-                confidence=conclusion.confidence,
+                audit_details={
+                    "disposition": conclusion.disposition.value,
+                    "confidence": conclusion.confidence,
+                },
             )
 
     def transition_status(self, hunt_id: UUID, status: HuntStatus, actor: str) -> Hunt:
