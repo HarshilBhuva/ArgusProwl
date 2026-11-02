@@ -169,8 +169,10 @@ class HuntService:
         with self._lock:
             hunt = self._require(hunt_id)
             existing = next((query for query in hunt.queries if query.name == name), None)
-            if existing is None and len(hunt.queries) >= 100:
+            if existing is None and len({item.name for item in hunt.queries}) >= 100:
                 raise HuntConflictError("A hunt may contain at most 100 saved query names.")
+            if len(hunt.queries) >= 1000:
+                raise HuntConflictError("Hunt query version history capacity reached.")
             definition = json.loads(json.dumps(definition, separators=(",", ":")))
             query = HuntQuery(
                 name=name,
@@ -178,7 +180,8 @@ class HuntService:
                 version=(existing.version + 1) if existing else 1,
                 query_id=existing.query_id if existing else uuid4(),
             )
-            queries = tuple(item for item in hunt.queries if item.name != name) + (query,)
+            # Preserve every immutable version so historical executions remain reproducible.
+            queries = (*hunt.queries, query)
             return self._update(
                 hunt,
                 actor,
@@ -190,9 +193,12 @@ class HuntService:
     def record_execution(self, hunt_id: UUID, execution: HuntExecution, actor: str) -> Hunt:
         with self._lock:
             hunt = self._require(hunt_id)
-            query = next((item for item in hunt.queries if item.query_id == execution.query_id), None)
-            if query is None or query.version != execution.query_version:
-                raise HuntConflictError("Execution must reference the current saved query ID and version.")
+            query_exists = any(
+                item.query_id == execution.query_id and item.version == execution.query_version
+                for item in hunt.queries
+            )
+            if not query_exists:
+                raise HuntConflictError("Execution must reference a saved query ID and version.")
             if len(hunt.executions) >= 10000:
                 raise HuntConflictError("Hunt execution history capacity reached.")
             return self._update(
