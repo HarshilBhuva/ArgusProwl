@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import sqlite3
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -114,28 +115,32 @@ class AuditCheckpointManager:
         destination = Path(checkpoint_path).expanduser()
         destination.parent.mkdir(parents=True, exist_ok=True)
         data = (json.dumps(document, sort_keys=True, indent=2) + "\n").encode("utf-8")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        try:
-            descriptor = os.open(destination, flags, 0o600)
-        except FileExistsError as exc:
-            raise AuditCheckpointError(f"Checkpoint already exists; refusing overwrite: {destination}") from exc
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+        )
+        temporary = Path(temporary_name)
         try:
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            directory_fd = os.open(destination.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            # Hard-link publication is atomic and fails rather than replacing an
+            # existing checkpoint. The temporary file is on the same filesystem.
+            os.link(temporary, destination)
+            temporary.unlink()
+            if os.name == "posix":
+                directory_fd = os.open(destination.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        except FileExistsError as exc:
+            temporary.unlink(missing_ok=True)
+            raise AuditCheckpointError(
+                f"Checkpoint already exists; refusing overwrite: {destination}"
+            ) from exc
         except OSError as exc:
-            try:
-                destination.unlink(missing_ok=True)
-            except OSError:
-                pass
+            temporary.unlink(missing_ok=True)
             raise AuditCheckpointError(f"Unable to publish audit checkpoint: {exc}") from exc
         return payload
 
