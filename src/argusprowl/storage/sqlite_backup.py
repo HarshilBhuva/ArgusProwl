@@ -104,11 +104,13 @@ class SQLiteBackupManager:
         temporary_database = Path(temporary_name)
         temporary_manifest = Path(f"{temporary_database}.manifest")
         try:
-            with closing(sqlite3.connect(source)) as source_connection:
-                with closing(sqlite3.connect(temporary_database)) as backup_connection:
-                    source_connection.backup(backup_connection)
-                    self._quick_check(backup_connection)
-                    schema_version = self._schema_version(backup_connection)
+            with (
+                closing(sqlite3.connect(source)) as source_connection,
+                closing(sqlite3.connect(temporary_database)) as backup_connection,
+            ):
+                source_connection.backup(backup_connection)
+                self._quick_check(backup_connection)
+                schema_version = self._schema_version(backup_connection)
 
             size_bytes = temporary_database.stat().st_size
             manifest = BackupManifest(
@@ -222,14 +224,16 @@ class SQLiteBackupManager:
         os.close(fd)
         staged = Path(temporary_name)
         try:
-            with closing(
-                sqlite3.connect(f"file:{backup.resolve()}?mode=ro", uri=True)
-            ) as source:
-                with closing(sqlite3.connect(staged)) as target:
-                    source.backup(target)
-                    self._quick_check(target)
-                    if self._schema_version(target) != manifest.schema_version:
-                        raise SQLiteBackupError("Restored schema version does not match manifest.")
+            with (
+                closing(
+                    sqlite3.connect(f"file:{backup.resolve()}?mode=ro", uri=True)
+                ) as source,
+                closing(sqlite3.connect(staged)) as target,
+            ):
+                source.backup(target)
+                self._quick_check(target)
+                if self._schema_version(target) != manifest.schema_version:
+                    raise SQLiteBackupError("Restored schema version does not match manifest.")
             os.replace(staged, destination)
             self._fsync_directory(destination.parent)
             return manifest
