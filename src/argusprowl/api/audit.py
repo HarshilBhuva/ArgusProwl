@@ -17,8 +17,16 @@ from fastapi import APIRouter, Query, Request
 router = APIRouter(prefix="/api/v1", tags=["Security Audit"])
 _GENESIS_HASH = "0" * 64
 _EVENT_FIELDS = (
-    "id", "timestamp", "event_type", "actor_id", "role", "method",
-    "path", "status_code", "request_id", "client_ip",
+    "id",
+    "timestamp",
+    "event_type",
+    "actor_id",
+    "role",
+    "method",
+    "path",
+    "status_code",
+    "request_id",
+    "client_ip",
 )
 
 
@@ -87,10 +95,14 @@ class AuditLog:
             }
             migrated = False
             if "previous_hash" not in columns:
-                connection.execute("ALTER TABLE api_audit_events ADD COLUMN previous_hash TEXT")
+                connection.execute(
+                    "ALTER TABLE api_audit_events ADD COLUMN previous_hash TEXT"
+                )
                 migrated = True
             if "event_hash" not in columns:
-                connection.execute("ALTER TABLE api_audit_events ADD COLUMN event_hash TEXT")
+                connection.execute(
+                    "ALTER TABLE api_audit_events ADD COLUMN event_hash TEXT"
+                )
                 migrated = True
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_api_audit_timestamp "
@@ -137,7 +149,9 @@ class AuditLog:
             ).fetchone()
             previous_hash = latest["event_hash"] if latest else _GENESIS_HASH
             if previous_hash is None:
-                raise AuditIntegrityError("Audit chain is incomplete; refusing to append")
+                raise AuditIntegrityError(
+                    "Audit chain is incomplete; refusing to append"
+                )
 
             timestamp = datetime.now(UTC).isoformat()
             cursor = connection.execute(
@@ -148,8 +162,17 @@ class AuditLog:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    timestamp, event_type, actor_id, role, method, path,
-                    status_code, request_id, client_ip, previous_hash, "",
+                    timestamp,
+                    event_type,
+                    actor_id,
+                    role,
+                    method,
+                    path,
+                    status_code,
+                    request_id,
+                    client_ip,
+                    previous_hash,
+                    "",
                 ),
             )
             event = {
@@ -179,7 +202,7 @@ class AuditLog:
                 "FROM api_audit_events ORDER BY id ASC"
             ).fetchall()
             expected_previous = _GENESIS_HASH
-            for row in rows:
+            for index, row in enumerate(rows):
                 event = {field: row[field] for field in _EVENT_FIELDS}
                 actual_previous = row["previous_hash"]
                 actual_hash = row["event_hash"]
@@ -187,7 +210,7 @@ class AuditLog:
                 if actual_previous != expected_previous or actual_hash != expected_hash:
                     return {
                         "valid": False,
-                        "checked_count": sum(1 for _ in rows[: rows.index(row)]),
+                        "checked_count": index,
                         "first_invalid_id": event["id"],
                     }
                 expected_previous = actual_hash
@@ -215,7 +238,9 @@ class AuditLog:
     def count_events(self) -> int:
         """Return the number of retained audit events."""
         with self._lock, self._connection() as connection:
-            row = connection.execute("SELECT COUNT(*) AS total FROM api_audit_events").fetchone()
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM api_audit_events"
+            ).fetchone()
             return int(row["total"])
 
 
@@ -232,5 +257,11 @@ def list_audit_events(
         "total_count": audit_log.count_events(),
         "limit": limit,
         "offset": offset,
-        "integrity": audit_log.verify_integrity(),
     }
+
+
+@router.get("/audit/integrity", summary="Verify security audit chain")
+def verify_audit_integrity(request: Request) -> dict[str, Any]:
+    """Run the full audit-chain verification; middleware restricts this to admins."""
+    audit_log: AuditLog = request.app.state.audit_log
+    return audit_log.verify_integrity()
