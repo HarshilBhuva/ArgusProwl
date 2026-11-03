@@ -3,7 +3,9 @@
 Validates configuration dictionaries against constraints and type rules.
 """
 
+import ipaddress
 import math
+import os
 import re
 from typing import Any, ClassVar
 
@@ -462,8 +464,41 @@ class ConfigValidator:
             if not isinstance(origin, str) or not origin:
                 raise ValidationError("api.cors_origins must contain non-empty strings.")
 
-        if not isinstance(api.get("auth_enabled", False), bool):
+        auth_enabled = api.get("auth_enabled", False)
+        if not isinstance(auth_enabled, bool):
             raise ValidationError("api.auth_enabled must be a boolean.")
+
+        # A loopback-only listener is the supported unauthenticated development
+        # mode. Any other bind address may be reachable from another host, so
+        # require authentication and at least one configured credential.
+        normalized_host = host.strip().lower()
+        try:
+            externally_reachable = not ipaddress.ip_address(normalized_host).is_loopback
+        except ValueError:
+            externally_reachable = normalized_host != "localhost"
+        if externally_reachable:
+            if not auth_enabled:
+                raise ValidationError(
+                    "api.auth_enabled must be true when api.host is not a loopback address."
+                )
+            configured_legacy_key = api.get("api_key", "") or os.environ.get(
+                "ARGUSPROWL_API_KEY", ""
+            )
+            configured_named_keys = api.get("api_keys", {})
+            if not configured_legacy_key and not configured_named_keys:
+                raise ValidationError(
+                    "A remote API listener requires at least one credential: "
+                    "api.api_key, api.api_keys, or ARGUSPROWL_API_KEY."
+                )
+            if configured_legacy_key and (
+                not isinstance(configured_legacy_key, str)
+                or len(configured_legacy_key) < 32
+                or not configured_legacy_key.isascii()
+            ):
+                raise ValidationError(
+                    "The legacy API key for a remote listener must contain at least "
+                    "32 ASCII characters."
+                )
         header_name = api.get("auth_header_name", "X-ArgusProwl-Key")
         if not isinstance(header_name, str) or not re.fullmatch(r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]+", header_name):
             raise ValidationError("api.auth_header_name must be a valid HTTP header name.")
