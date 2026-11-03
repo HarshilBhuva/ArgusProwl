@@ -13,13 +13,13 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import argusprowl
+from argusprowl.api.audit_checkpoint import AuditCheckpointError, AuditCheckpointManager
 from argusprowl.attck.knowledge_service import AttckKnowledgeService
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.exit_codes import ExitCode
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.core.application import Application
 from argusprowl.exceptions.exceptions import ThreatHunterError
-from argusprowl.api.audit_checkpoint import AuditCheckpointError, AuditCheckpointManager
 from argusprowl.storage.sqlite_backup import SQLiteBackupManager
 from argusprowl.storage.sqlite_diagnostics import (
     SQLiteDiagnosticsError,
@@ -177,7 +177,10 @@ def create_parser() -> argparse.ArgumentParser:
         "create", help="Verify the current chain and create a signed checkpoint."
     )
     audit_checkpoint_create.add_argument(
-        "--output", required=True, type=str, help="New checkpoint file; existing files are never overwritten."
+        "--output",
+        required=True,
+        type=str,
+        help="New checkpoint file; existing files are never overwritten.",
     )
     audit_checkpoint_verify = audit_checkpoint_subparsers.add_parser(
         "verify", help="Verify checkpoint authenticity and the database's anchored history."
