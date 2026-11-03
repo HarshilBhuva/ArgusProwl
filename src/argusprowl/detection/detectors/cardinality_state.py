@@ -282,11 +282,11 @@ class CardinalityState:
             If triggered, trigger_event_id is the event that crossed threshold.
         """
         with self._lock:
-            reference_time = self._max_event_time
             if event is not None and (
-                reference_time is None or event.timestamp > reference_time
+                self._max_event_time is None or event.timestamp > self._max_event_time
             ):
-                reference_time = event.timestamp
+                self._max_event_time = event.timestamp
+            reference_time = self._max_event_time
 
             if reference_time is not None:
                 self._expire_old_observations(reference_time)
