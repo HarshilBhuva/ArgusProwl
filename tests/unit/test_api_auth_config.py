@@ -129,6 +129,7 @@ def test_named_api_key_expiry_and_enabled_fields_are_loaded(tmp_path, monkeypatc
 
 def test_named_api_key_rejects_naive_expiry_timestamp(tmp_path, monkeypatch) -> None:
     import json
+
     import pytest
 
     from argusprowl.exceptions.exceptions import ValidationError
@@ -155,6 +156,7 @@ def test_remote_listener_rejects_only_expired_or_disabled_named_keys(
     tmp_path, monkeypatch
 ) -> None:
     import json
+
     import pytest
 
     from argusprowl.exceptions.exceptions import ValidationError
@@ -183,6 +185,7 @@ def test_remote_listener_rejects_only_expired_or_disabled_named_keys(
 
 def test_named_api_key_rejects_non_boolean_enabled_field(tmp_path, monkeypatch) -> None:
     import json
+
     import pytest
 
     from argusprowl.exceptions.exceptions import ValidationError
@@ -207,6 +210,7 @@ def test_named_api_key_rejects_non_boolean_enabled_field(tmp_path, monkeypatch) 
 
 def test_remote_listener_rejects_disabled_named_credentials(tmp_path, monkeypatch) -> None:
     import json
+
     import pytest
 
     from argusprowl.exceptions.exceptions import ValidationError
