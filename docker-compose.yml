@@ -4,6 +4,7 @@
 # product image.
 #
 # Usage:
+#   export ARGUSPROWL_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 #   docker compose up --build
 #   -> product UI + API at http://localhost:8080
 #
