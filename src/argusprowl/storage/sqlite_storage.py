@@ -193,88 +193,103 @@ class SQLiteAdapter(Storage):
         limit: int,
         cursor: str | None = None,
     ) -> dict[str, object]:
-        """Search the durable evidence index with keyset pagination."""
+        """Search the durable evidence index with parameterized keyset pagination."""
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
             raise ValueError("Evidence result limit must be between 1 and 500.")
-        clauses: list[str] = []
-        values: list[object] = []
 
-        exact_fields = {
-            "event_id": "i.event_id",
-            "event_type": "i.event_type",
-            "source_type": "i.source_type",
-            "src_ip": "i.src_ip",
-            "dst_ip": "i.dst_ip",
-        }
-        for key, column in exact_fields.items():
-            value = filters.get(key)
-            if value is not None:
-                clauses.append(f"{column} = ?")
-                values.append(str(value))
-        for key, operator in (("start_time", ">="), ("end_time", "<=")):
-            value = filters.get(key)
-            if value is not None:
-                clauses.append(f"i.timestamp {operator} ?")
-                values.append(value.astimezone(UTC).isoformat() if isinstance(value, datetime) else str(value))
+        event_id = str(filters["event_id"]) if filters.get("event_id") is not None else None
+        event_type = str(filters["event_type"]) if filters.get("event_type") is not None else None
+        source_type = str(filters["source_type"]) if filters.get("source_type") is not None else None
+        src_ip = str(filters["src_ip"]) if filters.get("src_ip") is not None else None
+        dst_ip = str(filters["dst_ip"]) if filters.get("dst_ip") is not None else None
+        start_time = filters.get("start_time")
+        end_time = filters.get("end_time")
+        start_value = start_time.astimezone(UTC).isoformat() if isinstance(start_time, datetime) else (str(start_time) if start_time is not None else None)
+        end_value = end_time.astimezone(UTC).isoformat() if isinstance(end_time, datetime) else (str(end_time) if end_time is not None else None)
 
-        entity_type, entity_id = filters.get("entity_type"), filters.get("entity_id")
-        if entity_type is not None or entity_id is not None:
-            if not entity_type or not entity_id:
-                clauses.append("0 = 1")
-            else:
-                entity_columns = {
-                    "hostname": ("i.hostname",),
-                    "host": ("i.hostname",),
-                    "user": ("i.username",),
-                    "process": ("i.process_name",),
-                    "src_ip": ("i.src_ip", "i.dst_ip"),
-                    "ip": ("i.src_ip", "i.dst_ip"),
-                    "network": ("i.src_ip", "i.dst_ip"),
-                }
-                columns = entity_columns.get(str(entity_type).lower())
-                if columns is None:
-                    clauses.append("0 = 1")
-                elif len(columns) == 1:
-                    clauses.append(f"{columns[0]} = ? COLLATE NOCASE")
-                    values.append(str(entity_id))
-                else:
-                    clauses.append(f"({columns[0]} = ? OR {columns[1]} = ?)")
-                    values.extend((str(entity_id), str(entity_id)))
+        raw_entity_type = filters.get("entity_type")
+        raw_entity_id = filters.get("entity_id")
+        if raw_entity_type is None and raw_entity_id is None:
+            entity_type, entity_id = None, None
+        elif raw_entity_type is None or raw_entity_id is None:
+            entity_type, entity_id = "__invalid__", str(raw_entity_id) if raw_entity_id is not None else None
+        else:
+            entity_type, entity_id = str(raw_entity_type).lower(), str(raw_entity_id)
 
         domain = filters.get("domain")
+        domain_pattern = None
         if domain is not None:
-            clauses.append("(lower(i.hostname) LIKE ? OR lower(i.dst_ip) LIKE ?)")
-            pattern = f"%{str(domain).lower()}%"
-            values.extend((pattern, pattern))
+            literal = str(domain).lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            domain_pattern = f"%{literal}%"
 
-        where = " WHERE " + " AND ".join(clauses) if clauses else ""
         decoded = self._decode_cursor(cursor)
+        cursor_timestamp = decoded[0] if decoded is not None else None
+        cursor_event_id = decoded[1] if decoded is not None else None
+
+        where = """ WHERE (? IS NULL OR i.event_id = ?)
+            AND (? IS NULL OR i.timestamp >= ?)
+            AND (? IS NULL OR i.timestamp <= ?)
+            AND (? IS NULL OR i.event_type = ?)
+            AND (? IS NULL OR i.source_type = ?)
+            AND (? IS NULL OR i.src_ip = ?)
+            AND (? IS NULL OR i.dst_ip = ?)
+            AND (? IS NULL OR (
+                (? IN ('hostname', 'host') AND i.hostname = ? COLLATE NOCASE)
+                OR (? = 'user' AND i.username = ? COLLATE NOCASE)
+                OR (? = 'process' AND i.process_name = ? COLLATE NOCASE)
+                OR (? IN ('src_ip', 'ip', 'network') AND (i.src_ip = ? OR i.dst_ip = ?))
+            ))
+            AND (? IS NULL OR lower(i.hostname) LIKE ? ESCAPE '!' OR lower(i.dst_ip) LIKE ? ESCAPE '!')"""
+        base_values = (
+            event_id, event_id,
+            start_value, start_value,
+            end_value, end_value,
+            event_type, event_type,
+            source_type, source_type,
+            src_ip, src_ip,
+            dst_ip, dst_ip,
+            entity_type, entity_type, entity_id, entity_type, entity_id,
+            entity_type, entity_id, entity_id,
+            domain_pattern, domain_pattern, domain_pattern,
+        )
         with self._lock:
             total_row = self._connection.execute(
-                "SELECT COUNT(*) FROM telemetry_evidence_index i" + where, values
+                "SELECT COUNT(*) FROM telemetry_evidence_index i" + where,
+                base_values,
             ).fetchone()
             total_count = int(total_row[0]) if total_row else 0
-            page_clauses = list(clauses)
-            page_values = list(values)
-            if decoded is not None:
-                page_clauses.append("(i.timestamp > ? OR (i.timestamp = ? AND i.event_id > ?))")
-                page_values.extend((decoded[0], decoded[0], decoded[1]))
-            page_where = " WHERE " + " AND ".join(page_clauses) if page_clauses else ""
-            rows = self._connection.execute(
+            page_sql = (
                 """SELECT r.payload, i.timestamp, i.event_id
                 FROM telemetry_evidence_index i
                 JOIN records r ON r.collection=? AND r.record_id=i.event_id"""
-                + page_where
-                + " ORDER BY i.timestamp ASC, i.event_id ASC LIMIT ?",
-                [self._EVIDENCE_COLLECTION, *page_values, limit + 1],
+                + where
+                + """ AND (? IS NULL OR (
+                    i.timestamp > ? OR (i.timestamp = ? AND i.event_id > ?)
+                ))
+                ORDER BY i.timestamp ASC, i.event_id ASC LIMIT ?"""
+            )
+            rows = self._connection.execute(
+                page_sql,
+                (
+                    self._EVIDENCE_COLLECTION,
+                    *base_values,
+                    cursor_timestamp, cursor_timestamp, cursor_timestamp, cursor_event_id,
+                    limit + 1,
+                ),
             ).fetchall()
         has_more = len(rows) > limit
         selected = rows[:limit]
-        next_cursor = self._encode_cursor(selected[-1][1], selected[-1][2]) if has_more and selected else None
+        next_cursor = (
+            self._encode_cursor(selected[-1][1], selected[-1][2])
+            if has_more and selected else None
+        )
         try:
             payloads = [json.loads(row[0]) for row in selected]
         except json.JSONDecodeError as exc:
-            raise StorageError("Unable to decode indexed telemetry evidence", {"collection": self._EVIDENCE_COLLECTION}) from exc
+            raise StorageError(
+                "Unable to decode indexed telemetry evidence",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
         return {
             "records": payloads,
             "total_count": total_count,
