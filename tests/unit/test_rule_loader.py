@@ -1,12 +1,61 @@
 """Tests for YAML detector rule loading."""
 
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from argusprowl.detection.detectors.port_scan import PortScanDetector
 from argusprowl.detection.rule_loader import RuleLoader
 from argusprowl.exceptions.exceptions import DetectionError
+from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
+
+
+def test_rule_loader_wires_storage_into_temporal_detectors(tmp_path: Path) -> None:
+    (tmp_path / "event_count.yaml").write_text(
+        "rule_id: persisted_count\n"
+        "detector: EventCountCorrelationDetector\n"
+        "parameters:\n"
+        "  correlation:\n"
+        "    type: event_count\n"
+        "    count: 2\n"
+        "    timespan: 5m\n"
+        "    group_by: [hostname, pid]\n"
+    )
+    storage = SQLiteAdapter(tmp_path / "rule-loader-state.db")
+    loader = RuleLoader(tmp_path, storage=storage)
+    first_manager = loader.build_detection_manager()
+    first_detector = first_manager.get_registry().get("persisted_count")
+    first_event = NormalizedEvent(
+        event_id=uuid4(),
+        timestamp=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
+        source_type="sysmon",
+        event_type="process_start",
+        hostname="host-01",
+        pid=4242,
+    )
+    first_detector.observe(first_event)
+
+    restarted_manager = loader.build_detection_manager()
+    restarted_detector = restarted_manager.get_registry().get("persisted_count")
+    second_event = NormalizedEvent(
+        event_id=uuid4(),
+        timestamp=datetime(2026, 1, 1, 12, 0, 1, tzinfo=UTC),
+        source_type="linux_audit",
+        event_type="process_access",
+        hostname="host-01",
+        pid=4242,
+    )
+    restarted_detector.observe(second_event)
+    result = restarted_detector.detect(second_event)
+
+    assert result.matched is True
+    assert set(result.contributing_event_ids) == {
+        first_event.event_id,
+        second_event.event_id,
+    }
 
 
 def test_load_default_rules_builds_configured_manager() -> None:
