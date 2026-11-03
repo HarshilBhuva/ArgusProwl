@@ -94,7 +94,12 @@ header) directly. The detailed component diagnostics at
 `GET /api/v1/health/details` require authentication. Public `GET /health` and
 `GET /api/v1/health` expose only aggregate liveness metadata and do not disclose
 collector names, queue-loss counters, storage diagnostics, or internal error
-messages.
+messages. Authenticated `GET /api/v1/health/details` reports collector state,
+queue pressure and loss counters, storage read-probe status, and cumulative
+beaconing/correlation/evidence-persistence error counters. A nonzero error
+counter leaves the detection-pipeline component degraded for the remainder of
+the process lifetime; restart only after preserving and investigating the
+diagnostic evidence.
 
 ## Audit trail
 
