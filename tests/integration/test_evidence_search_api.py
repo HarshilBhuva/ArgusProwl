@@ -96,6 +96,26 @@ class TestSearchEvidence:
         assert response.status_code == 200
         evidence_service.search.assert_called_once()
 
+    def test_search_cursor_is_forwarded_and_returned(
+        self, api_client: TestClient, evidence_service: TelemetryEvidenceService
+    ) -> None:
+        evidence_service.search.return_value = EvidenceSearchResult(
+            records=(),
+            events={},
+            status="AVAILABLE",
+            reason=None,
+            truncated=True,
+            total_count=42,
+            returned_count=10,
+            next_cursor="opaque-next-page",
+        )
+
+        response = api_client.get("/api/v1/evidence", params={"limit": 10, "cursor": "opaque-current-page"})
+
+        assert response.status_code == 200
+        assert response.json()["next_cursor"] == "opaque-next-page"
+        assert evidence_service.search.call_args.kwargs["cursor"] == "opaque-current-page"
+
     def test_service_missing_returns_503(self) -> None:
         container = ServiceContainer.get_instance()
         assert not container.is_registered(TelemetryEvidenceService)
