@@ -89,7 +89,7 @@ describe('ArgusProwl Frontend', () => {
     fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'one-time-secret' } });
     fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
 
-    expect(await screen.findByText(/Signed in as soc-analyst/i)).toBeInTheDocument();
+    expect(await screen.findByText('soc-analyst')).toBeInTheDocument();
     await waitFor(() => expect(mockApi.createSession).toHaveBeenCalledWith('one-time-secret'));
     expect(screen.getByLabelText(/API key/i)).not.toBeInTheDocument();
 
