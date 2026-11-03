@@ -45,7 +45,7 @@ def _audit_login(
 
 
 @router.get("/status", summary="Get browser authentication requirements")
-async def auth_status(request: Request) -> dict[str, object]:
+async def auth_status(request: Request) -> JSONResponse:
     service: ApiKeyAuthService = request.app.state.auth_service
     return JSONResponse(
         {
@@ -57,7 +57,7 @@ async def auth_status(request: Request) -> dict[str, object]:
 
 
 @router.get("/me", summary="Get the authenticated browser principal")
-async def auth_me(request: Request) -> dict[str, object]:
+async def auth_me(request: Request) -> JSONResponse:
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
