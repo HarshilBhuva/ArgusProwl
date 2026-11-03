@@ -242,3 +242,17 @@ def test_retention_rejects_naive_cutoff_and_invalid_batch_size(tmp_path) -> None
     else:
         raise AssertionError("invalid batch size was accepted")
     storage.close()
+
+
+def test_storage_metrics_report_database_footprint_and_integrity(tmp_path) -> None:
+    storage = SQLiteAdapter(tmp_path / "evidence.db")
+    service = TelemetryEvidenceService(storage=storage)
+    service.record_event(_event(0))
+
+    stats = service.get_stats()
+    metrics = stats["storage_metrics"]
+    assert metrics["database_bytes"] > 0
+    assert metrics["wal_bytes"] >= 0
+    assert metrics["durable_events"] == 1
+    assert storage.check_integrity() == "ok"
+    storage.close()
