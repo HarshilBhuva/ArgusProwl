@@ -470,13 +470,16 @@ class Application:
                 metrics_collector=metrics,
             ),
         )
-        # Existing detection wiring remains intact; normalized events are a
-        # future boundary and deliberately do not alter Phase 1 detectors.
-        self._container.register_singleton(
-            DetectionManager, lambda: RuleLoader().build_detection_manager()
-        )
         self._container.register_singleton(
             Storage, lambda: SQLiteAdapter(self._config.storage.database_path)
+        )
+        # Event-count and ordered-sequence detectors share the configured
+        # durable store for temporal correlation state.
+        self._container.register_singleton(
+            DetectionManager,
+            lambda: RuleLoader(
+                storage=self._container.resolve(Storage)
+            ).build_detection_manager(),
         )
         # Persistent hunt aggregates share the configured transactional store.
         from argusprowl.hunting.hunt_service import HuntService
