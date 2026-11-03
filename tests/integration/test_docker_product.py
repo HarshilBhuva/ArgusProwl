@@ -269,6 +269,10 @@ def _run_container(tag: str, port: int) -> subprocess.CompletedProcess[str]:
             "TH_API__HOST=0.0.0.0",
             "-e",
             "TH_API__PORT=8080",
+            "-e",
+            "TH_API__AUTH_ENABLED=true",
+            "-e",
+            "ARGUSPROWL_API_KEY=argusprowl-ci-test-key-0123456789abcdef0123456789abcdef",
             tag,
         ],
         capture_output=True,
@@ -284,7 +288,12 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _http_request(port: int, path: str, timeout: float = 2.0) -> tuple[int, str]:
+def _http_request(
+    port: int,
+    path: str,
+    timeout: float = 2.0,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str]:
     """Request one local endpoint and return its status and body.
 
     urllib keeps the runtime smoke test in-process instead of launching a
@@ -295,7 +304,7 @@ def _http_request(port: int, path: str, timeout: float = 2.0) -> tuple[int, str]
     import urllib.request
 
     url = f"http://127.0.0.1:{port}{path}"
-    request = urllib.request.Request(url)
+    request = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, response.read().decode("utf-8", errors="replace")
@@ -450,18 +459,25 @@ def test_docker_container_boots_and_serves(docker_image):
         assert "<" in root_body, "GET / did not return HTML"
 
         # Unknown /api/v1/ path returns JSON 404/405, not SPA HTML.
-        api_status, api_body = _http_request(port, "/api/v1/nonexistent")
+        api_headers = {"X-ArgusProwl-Key": "argusprowl-ci-test-key-0123456789abcdef0123456789abcdef"}
+        api_status, api_body = _http_request(
+            port, "/api/v1/nonexistent", headers=api_headers
+        )
         assert api_status in (404, 405), f"unknown API path returned {api_status}, expected 404/405"
         assert "html" not in api_body.lower(), (
             "unknown /api/ path returned HTML (SPA swallowed the API route)"
         )
 
         # A valid /api/v1/ endpoint works.
-        health_api_status, _ = _http_request(port, "/api/v1/health")
+        health_api_status, _ = _http_request(
+            port, "/api/v1/health", headers=api_headers
+        )
         assert health_api_status in (200, 503), f"/api/v1/health returned {health_api_status}"
 
         # A SPA route resolves to the frontend (200 HTML).
-        spa_status, _ = _http_request(port, "/alerts/xyz")
+        spa_status, _ = _http_request(
+            port, "/alerts/xyz", headers={"Accept": "text/html"}
+        )
         assert spa_status == 200, f"SPA route /alerts/xyz returned {spa_status}, expected 200"
 
         # The process is running inside the container

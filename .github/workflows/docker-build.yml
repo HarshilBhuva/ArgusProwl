@@ -71,7 +71,10 @@ jobs:
       - name: Boot image and check API health
         run: |
           docker run -d --name argusprowl-ci -p 8080:8080 \
-            -e TH_API__HOST=0.0.0.0 -e TH_API__PORT=8080 argusprowl:ci
+            -e TH_API__HOST=0.0.0.0 -e TH_API__PORT=8080 \
+            -e TH_API__AUTH_ENABLED=true \
+            -e ARGUSPROWL_API_KEY=argusprowl-ci-test-key-0123456789abcdef0123456789abcdef \
+            argusprowl:ci
           deadline=$((SECONDS + 20))
           until curl --fail --silent --show-error --max-time 1 http://localhost:8080/health > /dev/null; do
             if (( SECONDS >= deadline )); then
