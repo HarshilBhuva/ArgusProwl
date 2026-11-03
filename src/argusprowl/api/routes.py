@@ -2412,13 +2412,24 @@ async def execute_hunt_query(hunt_id: str, query_id: str, request: Request, vers
     except Exception as exc:
         logger.exception("Hunt query execution failed")
         raise HTTPException(status_code=503, detail="Hunt query execution failed") from exc
-    return {"hunt": _hunt_payload(result.hunt), "execution": result.execution.__dict__ if hasattr(result.execution, "__dict__") else {
-        "execution_id": str(result.execution.execution_id), "query_id": str(result.execution.query_id),
-        "query_version": result.execution.query_version, "started_at": result.execution.started_at.isoformat(),
-        "completed_at": result.execution.completed_at.isoformat(), "result_count": result.execution.result_count,
-        "evidence_event_ids": [str(value) for value in result.execution.evidence_event_ids],
-        "status": result.execution.status, "error": result.execution.error, "truncated": result.execution.truncated,
-    }}
+    execution = result.execution
+    return {
+        "hunt": _hunt_payload(result.hunt),
+        "execution": {
+            "execution_id": str(execution.execution_id),
+            "query_id": str(execution.query_id),
+            "query_version": execution.query_version,
+            "started_at": execution.started_at.isoformat(),
+            "completed_at": execution.completed_at.isoformat(),
+            "result_count": execution.result_count,
+            "data_sources": list(execution.data_sources),
+            "evidence_event_ids": [str(value) for value in execution.evidence_event_ids],
+            "status": execution.status,
+            "error": execution.error,
+            "truncated": execution.truncated,
+        },
+    }
+
 
 @router.post("/hunts/{hunt_id}/executions", summary="Record a hunt query execution")
 async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, request: Request) -> dict[str, object]:
