@@ -71,12 +71,24 @@ handler executes; if the audit store cannot accept that record, the request is
 rejected with HTTP 503. Completion-record failures leave the durable start
 record as evidence of an incomplete audit lifecycle.
 
-Audit records are append-only through the application API. Automatic retention,
-rotation, and external archival are not implemented in this PR; monitor database
-growth and define an operator-managed retention/backup policy. This is not a
-cryptographically tamper-evident log: operators must protect the SQLite file,
-backups, and host filesystem permissions. External log shipping and signed
-integrity chains are outside this PR.
+Each event now stores a SHA-256 hash over its canonical event fields and the
+previous event hash. This creates an ordered chain: edits, deletions, insertions,
+or reordering within the retained history are detected by
+`GET /api/v1/audit/integrity` (administrator-only). Existing audit databases are
+migrated in place and their retained rows are chained in insertion order without
+discarding events. New events are appended with their chain link in the same
+SQLite transaction.
+
+The chain is tamper-evident against modification that does not also recompute
+every subsequent link. It is not a digital signature or an external trust
+anchor: an attacker able to rewrite the database and recompute the complete
+chain can forge a new history, and truncation of the newest tail cannot be
+detected without an independently retained checkpoint. Export or anchor chain
+checkpoints in a separately controlled system for stronger assurance. The
+integrity endpoint is administrator-only. Automatic retention, rotation, and
+external archival are not implemented; monitor database growth and define an
+operator-managed retention/backup policy. Protect the SQLite file, backups, and
+host filesystem permissions.
 
 ## Deployment notes
 
