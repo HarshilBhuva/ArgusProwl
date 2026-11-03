@@ -261,7 +261,7 @@ def test_out_of_order_events_preserve_event_time_expiration() -> None:
         timestamp=base + timedelta(minutes=5),
     )
 
-    # At T+20, only the T+10 observation remains in the sliding window.
+    # At T+25, the T+10 and T+5 observations have both expired.
     tracker.record_connection(
         hostname="HostC", dst_ip="203.0.113.77", process_name="agent",
         timestamp=base + timedelta(minutes=20),
@@ -269,7 +269,7 @@ def test_out_of_order_events_preserve_event_time_expiration() -> None:
     result = tracker.get_prevalence(
         dst_ip="203.0.113.77",
         process_name="agent",
-        timestamp=base + timedelta(minutes=20),
+        timestamp=base + timedelta(minutes=25),
     )
 
     assert result.dest_host_count == 1
