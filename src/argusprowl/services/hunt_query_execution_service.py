@@ -62,6 +62,24 @@ class HuntQueryExecutionService:
             params["start_time"] = max(params.get("start_time", scope.start_time), scope.start_time)
         if scope.end_time:
             params["end_time"] = min(params.get("end_time", scope.end_time), scope.end_time)
+        if scope.sources:
+            requested = params.get("source_type")
+            if requested is not None and requested not in scope.sources:
+                raise ValueError("Query source_type is outside the hunt scope.")
+            if requested is None and len(scope.sources) == 1:
+                params["source_type"] = scope.sources[0]
+        if scope.hosts:
+            requested_host = params.get("entity_id") if params.get("entity_type") == "hostname" else None
+            if requested_host is not None and requested_host not in scope.hosts:
+                raise ValueError("Query hostname is outside the hunt scope.")
+            if requested_host is None and len(scope.hosts) == 1:
+                params["entity_type"], params["entity_id"] = "hostname", scope.hosts[0]
+        if scope.users:
+            requested_user = params.get("entity_id") if params.get("entity_type") == "user" else None
+            if requested_user is not None and requested_user not in scope.users:
+                raise ValueError("Query user is outside the hunt scope.")
+            if requested_user is None and len(scope.users) == 1:
+                params["entity_type"], params["entity_id"] = "user", scope.users[0]
         if params.get("start_time") and params.get("end_time") and params["start_time"] > params["end_time"]:
             raise ValueError("Query time range does not intersect the hunt scope.")
         return {"limit": limit, **params}
