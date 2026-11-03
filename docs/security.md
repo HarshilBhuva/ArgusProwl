@@ -83,8 +83,9 @@ after one hour. It is marked Secure when the request uses HTTPS. The API key is
 not written to localStorage, sessionStorage, or returned in the login response.
 Session tokens are stateless HMAC-SHA-256 tokens signed with the associated API
 key secret. The API rechecks the credential's enabled and expiry state on every
-request. Unsafe cookie-authenticated requests must have a same-origin Origin
-header. Logout clears the current browser cookie; a copied token cannot be
+request. Browser login and unsafe cookie-authenticated requests require a
+same-origin Origin header; missing or mismatched origins are rejected. Logout
+clears the current browser cookie; a copied token cannot be
 individually revoked and remains valid until expiry or credential revocation.
 Cross-origin browser clients should use a separately designed authentication
 boundary; browser sessions are intentionally same-origin only.
