@@ -61,6 +61,59 @@ class TestOrderedSequenceState:
         assert completed is not None
         assert len(completed.steps) == 2
 
+    def test_late_event_is_rejected_without_advancing_sequence(self):
+        """Late delivery cannot advance or complete an event-time sequence."""
+        state = OrderedSequenceState(
+            group_key=("192.168.1.1",),
+            window_duration=timedelta(minutes=5),
+            total_steps=2,
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, event_type="login")
+        watermark_event = create_event(
+            t0 + timedelta(minutes=2), event_type="unrelated"
+        )
+        late_completion = create_event(
+            t0 + timedelta(minutes=1), event_type="data_access"
+        )
+        conditions = [{"event_type": "login"}, {"event_type": "data_access"}]
+
+        advanced, completed = state.try_advance(first, conditions)
+        assert advanced is True
+        assert completed is None
+
+        advanced, completed = state.try_advance(watermark_event, conditions)
+        assert advanced is False
+        assert completed is None
+
+        advanced, completed = state.try_advance(late_completion, conditions)
+        assert advanced is False
+        assert completed is None
+        assert state.late_event_count == 1
+        assert state.completed_sequence is None
+
+    def test_watermark_expires_sequences_monotonically(self):
+        """An older arrival cannot move sequence expiration backwards."""
+        state = OrderedSequenceState(
+            group_key=("192.168.1.1",),
+            window_duration=timedelta(minutes=5),
+            total_steps=2,
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, event_type="login")
+        later = create_event(t0 + timedelta(minutes=6), event_type="unrelated")
+        late = create_event(t0 + timedelta(minutes=3), event_type="data_access")
+        conditions = [{"event_type": "login"}, {"event_type": "data_access"}]
+
+        state.try_advance(first, conditions)
+        state.try_advance(later, conditions)
+        advanced, completed = state.try_advance(late, conditions)
+
+        assert advanced is False
+        assert completed is None
+        assert state.late_event_count == 1
+        assert state.completed_sequence is None
+
     def test_multiple_matching_partial_sequences(self):
         """Test that overlapping valid sequences can progress independently."""
         state = OrderedSequenceState(
