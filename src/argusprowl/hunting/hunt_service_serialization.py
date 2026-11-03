@@ -51,6 +51,7 @@ def serialize_hunt(hunt: Hunt) -> dict[str, object]:
             "completed_at": _dt(e.completed_at), "result_count": e.result_count,
             "data_sources": list(e.data_sources),
             "evidence_event_ids": [str(value) for value in e.evidence_event_ids],
+            "status": e.status, "error": e.error, "truncated": e.truncated,
         } for e in hunt.executions],
         "evidence_references": [{
             "event_id": str(e.event_id), "role": e.role.value, "added_by": e.added_by,
@@ -99,6 +100,7 @@ def deserialize_hunt(data: dict[str, object]) -> Hunt:
         completed_at=datetime.fromisoformat(e["completed_at"]), result_count=int(e["result_count"]),
         data_sources=tuple(e.get("data_sources", [])),
         evidence_event_ids=tuple(UUID(v) for v in e.get("evidence_event_ids", [])),
+        status=e.get("status", "complete"), error=e.get("error"), truncated=bool(e.get("truncated", False)),
     ) for e in data.get("executions", []))
     evidence = tuple(HuntEvidenceReference(
         event_id=UUID(e["event_id"]), role=EvidenceRole(e["role"]), added_by=e["added_by"],

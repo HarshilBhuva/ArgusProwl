@@ -638,6 +638,14 @@ class Application:
                 ),
             )
 
+            # Query execution uses the same configured evidence instance as ingestion.
+            from argusprowl.services.hunt_query_execution_service import HuntQueryExecutionService
+
+            self._container.register_singleton(
+                HuntQueryExecutionService,
+                lambda: HuntQueryExecutionService(self._container.resolve(TelemetryEvidenceService)),
+            )
+
         # Phase 6.1/6.2: ATT&CK remains optional semantic enrichment only.
         # The registry has one authoritative source and is isolated from
         # detection, decision, alert, incident, and lifecycle semantics.

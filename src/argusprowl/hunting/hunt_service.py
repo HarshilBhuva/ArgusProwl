@@ -244,6 +244,7 @@ class HuntService:
                     "execution_id": str(execution.execution_id),
                     "result_count": execution.result_count,
                     "query_version": execution.query_version,
+                    "status": execution.status,
                 },
             )
 

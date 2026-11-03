@@ -83,8 +83,15 @@ class HuntExecution:
     data_sources: tuple[str, ...] = ()
     execution_id: UUID = field(default_factory=uuid4)
     evidence_event_ids: tuple[UUID, ...] = ()
+    status: str = "complete"
+    error: str | None = None
+    truncated: bool = False
 
     def __post_init__(self) -> None:
+        if self.status not in {"complete", "partial", "degraded", "failed"}:
+            raise ValueError("Execution status must be complete, partial, degraded, or failed.")
+        if self.error is not None and len(self.error) > 2000:
+            raise ValueError("Execution error must not exceed 2000 characters.")
         if self.started_at.utcoffset() is None or self.completed_at.utcoffset() is None:
             raise ValueError("Execution timestamps must be timezone-aware.")
         if self.query_version < 1:

@@ -62,6 +62,9 @@ class HuntExecutionRequest(StrictRequest):
     result_count: int = Field(ge=0, le=100_000_000)
     data_sources: list[str] = Field(default_factory=list, max_length=100)
     evidence_event_ids: list[UUID] = Field(default_factory=list, max_length=10000)
+    status: str = Field(default="complete", pattern="^(complete|partial|degraded|failed)$")
+    error: str | None = Field(default=None, max_length=2000)
+    truncated: bool = False
 
     @model_validator(mode="after")
     def validate_execution(self) -> HuntExecutionRequest:
