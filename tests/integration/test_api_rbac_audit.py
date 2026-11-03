@@ -180,3 +180,35 @@ def test_legacy_audit_database_is_backfilled_without_losing_events(tmp_path) -> 
         "valid": True, "checked_count": 1, "first_invalid_id": None
     }
     assert audit.list_events(limit=1)[0]["actor_id"] == "legacy"
+
+
+
+def test_concurrent_audit_writers_preserve_a_single_chain(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    audit_path = str(tmp_path / "concurrent-audit.db")
+    audit_logs = [AuditLog(audit_path) for _ in range(4)]
+
+    def append_event(index: int) -> int:
+        audit = audit_logs[index % len(audit_logs)]
+        return audit.append(
+            event_type="REQUEST_COMPLETED",
+            actor_id=f"operator-{index}",
+            role="admin",
+            method="GET",
+            path="/api/v1/alerts",
+            status_code=200,
+            request_id=f"request-{index}",
+            client_ip="127.0.0.1",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        event_ids = list(executor.map(append_event, range(32)))
+
+    assert len(set(event_ids)) == 32
+    assert audit_logs[0].count_events() == 32
+    assert audit_logs[0].verify_integrity() == {
+        "valid": True,
+        "checked_count": 32,
+        "first_invalid_id": None,
+    }
