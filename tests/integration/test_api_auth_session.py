@@ -35,7 +35,11 @@ def test_api_auth_status_is_public_and_reports_authentication_mode(tmp_path) -> 
 def test_browser_login_issues_httponly_session_and_logout_clears_it(tmp_path) -> None:
     client, secret, audit_path = _client(tmp_path, "analyst")
 
-    login = client.post("/api/v1/auth/session", json={"api_key": secret})
+    login = client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    )
 
     assert login.status_code == 200
     assert login.json() == {
@@ -73,7 +77,11 @@ def test_browser_login_issues_httponly_session_and_logout_clears_it(tmp_path) ->
 
 def test_logout_clears_cookie_even_if_audit_storage_fails(tmp_path, monkeypatch) -> None:
     client, secret, _audit_path = _client(tmp_path, "analyst")
-    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    assert client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    ).status_code == 200
 
     def fail_audit(**_kwargs):
         raise OSError("audit store unavailable")
@@ -86,12 +94,27 @@ def test_logout_clears_cookie_even_if_audit_storage_fails(tmp_path, monkeypatch)
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
+
+def test_browser_login_rejects_cross_origin_request(tmp_path) -> None:
+    client, secret, _audit_path = _client(tmp_path, "analyst")
+
+    response = client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "https://attacker.example"},
+    )
+
+    assert response.status_code == 403
+    assert response.headers.get("set-cookie") is None
+
+
 def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
     client, _secret, audit_path = _client(tmp_path)
 
     response = client.post(
         "/api/v1/auth/session",
         json={"api_key": "not-the-configured-api-key"},
+        headers={"Origin": "http://testserver"},
     )
 
     assert response.status_code == 401
@@ -103,7 +126,11 @@ def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
 
 def test_browser_session_respects_role_authorization(tmp_path) -> None:
     client, secret, _audit_path = _client(tmp_path, "viewer")
-    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    assert client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    ).status_code == 200
 
     denied = client.post(
         "/api/v1/hunts",
@@ -116,7 +143,11 @@ def test_browser_session_respects_role_authorization(tmp_path) -> None:
 
 def test_browser_session_rejects_cross_origin_state_changes(tmp_path) -> None:
     client, secret, _audit_path = _client(tmp_path, "analyst")
-    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    assert client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    ).status_code == 200
 
     denied = client.post(
         "/api/v1/hunts",
@@ -130,7 +161,11 @@ def test_browser_session_rejects_cross_origin_state_changes(tmp_path) -> None:
 
 def test_browser_session_rejects_state_changes_without_origin(tmp_path) -> None:
     client, secret, _audit_path = _client(tmp_path, "analyst")
-    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    assert client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    ).status_code == 200
 
     denied = client.post(
         "/api/v1/hunts",
@@ -141,7 +176,11 @@ def test_browser_session_rejects_state_changes_without_origin(tmp_path) -> None:
 
 def test_rotating_api_key_invalidates_existing_browser_sessions(tmp_path) -> None:
     client, secret, _audit_path = _client(tmp_path, "analyst")
-    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    assert client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    ).status_code == 200
     service = client.app.state.auth_service
     principal, _old_secret, enabled, expires_at = service._credentials["analyst-key"]
     service._credentials["analyst-key"] = (
@@ -164,7 +203,11 @@ def test_public_health_is_minimal_and_detailed_health_requires_auth(tmp_path) ->
     assert client.get("/health").status_code == 200
     assert client.get("/api/v1/health/details").status_code == 401
 
-    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    assert client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    ).status_code == 200
     detailed = client.get("/api/v1/health/details")
     assert detailed.status_code == 200
     assert "components" in detailed.json()
