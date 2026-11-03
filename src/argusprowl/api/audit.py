@@ -1,7 +1,9 @@
-"""Durable, append-only SQLite audit log for API activity."""
+"""Durable, hash-chained SQLite audit log for API activity."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -13,10 +15,19 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 
 router = APIRouter(prefix="/api/v1", tags=["Security Audit"])
+_GENESIS_HASH = "0" * 64
+_EVENT_FIELDS = (
+    "id", "timestamp", "event_type", "actor_id", "role", "method",
+    "path", "status_code", "request_id", "client_ip",
+)
+
+
+class AuditIntegrityError(RuntimeError):
+    """Raised when the existing audit chain cannot safely be extended."""
 
 
 class AuditLog:
-    """Append-only audit event store backed by SQLite."""
+    """Append-only SQLite audit event store with a SHA-256 hash chain."""
 
     def __init__(self, database_path: str = "data/audit.db") -> None:
         self._database_path = database_path
@@ -35,6 +46,21 @@ class AuditLog:
         with closing(self._connect()) as connection, connection:
             yield connection
 
+    @staticmethod
+    def _canonical_event(event: dict[str, Any]) -> bytes:
+        payload = {field: event[field] for field in _EVENT_FIELDS}
+        return json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+
+    @classmethod
+    def _event_hash(cls, event: dict[str, Any], previous_hash: str) -> str:
+        digest = hashlib.sha256()
+        digest.update(previous_hash.encode("ascii"))
+        digest.update(b"\n")
+        digest.update(cls._canonical_event(event))
+        return digest.hexdigest()
+
     def _initialize(self) -> None:
         with self._lock, self._connection() as connection:
             connection.execute(
@@ -49,10 +75,23 @@ class AuditLog:
                     path TEXT NOT NULL,
                     status_code INTEGER NOT NULL,
                     request_id TEXT NOT NULL,
-                    client_ip TEXT
+                    client_ip TEXT,
+                    previous_hash TEXT,
+                    event_hash TEXT
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(api_audit_events)")
+            }
+            migrated = False
+            if "previous_hash" not in columns:
+                connection.execute("ALTER TABLE api_audit_events ADD COLUMN previous_hash TEXT")
+                migrated = True
+            if "event_hash" not in columns:
+                connection.execute("ALTER TABLE api_audit_events ADD COLUMN event_hash TEXT")
+                migrated = True
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_api_audit_timestamp "
                 "ON api_audit_events(timestamp DESC, id DESC)"
@@ -61,6 +100,23 @@ class AuditLog:
                 "CREATE INDEX IF NOT EXISTS idx_api_audit_actor "
                 "ON api_audit_events(actor_id, timestamp DESC)"
             )
+            if migrated:
+                self._backfill_legacy_chain(connection)
+
+    def _backfill_legacy_chain(self, connection: sqlite3.Connection) -> None:
+        """Chain pre-existing rows once, in immutable insertion order."""
+        previous_hash = _GENESIS_HASH
+        rows = connection.execute(
+            f"SELECT {', '.join(_EVENT_FIELDS)} FROM api_audit_events ORDER BY id ASC"
+        ).fetchall()
+        for row in rows:
+            event = dict(row)
+            current_hash = self._event_hash(event, previous_hash)
+            connection.execute(
+                "UPDATE api_audit_events SET previous_hash = ?, event_hash = ? WHERE id = ?",
+                (previous_hash, current_hash, event["id"]),
+            )
+            previous_hash = current_hash
 
     def append(
         self,
@@ -74,21 +130,72 @@ class AuditLog:
         request_id: str,
         client_ip: str | None,
     ) -> int:
-        """Append one event without recording credentials, query strings, or bodies."""
+        """Append an event and its chain link in one SQLite transaction."""
         with self._lock, self._connection() as connection:
+            latest = connection.execute(
+                "SELECT event_hash FROM api_audit_events ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            previous_hash = latest["event_hash"] if latest else _GENESIS_HASH
+            if previous_hash is None:
+                raise AuditIntegrityError("Audit chain is incomplete; refusing to append")
+
+            timestamp = datetime.now(UTC).isoformat()
             cursor = connection.execute(
                 """
                 INSERT INTO api_audit_events (
                     timestamp, event_type, actor_id, role, method, path,
-                    status_code, request_id, client_ip
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status_code, request_id, client_ip, previous_hash, event_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    datetime.now(UTC).isoformat(), event_type, actor_id, role, method,
-                    path, status_code, request_id, client_ip,
+                    timestamp, event_type, actor_id, role, method, path,
+                    status_code, request_id, client_ip, previous_hash, "",
                 ),
             )
-            return int(cursor.lastrowid)
+            event = {
+                "id": int(cursor.lastrowid),
+                "timestamp": timestamp,
+                "event_type": event_type,
+                "actor_id": actor_id,
+                "role": role,
+                "method": method,
+                "path": path,
+                "status_code": status_code,
+                "request_id": request_id,
+                "client_ip": client_ip,
+            }
+            event_hash = self._event_hash(event, previous_hash)
+            connection.execute(
+                "UPDATE api_audit_events SET event_hash = ? WHERE id = ?",
+                (event_hash, event["id"]),
+            )
+            return event["id"]
+
+    def verify_integrity(self) -> dict[str, Any]:
+        """Verify every row and link from the genesis hash to the current tail."""
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                f"SELECT {', '.join(_EVENT_FIELDS)}, previous_hash, event_hash "
+                "FROM api_audit_events ORDER BY id ASC"
+            ).fetchall()
+            expected_previous = _GENESIS_HASH
+            for row in rows:
+                event = {field: row[field] for field in _EVENT_FIELDS}
+                actual_previous = row["previous_hash"]
+                actual_hash = row["event_hash"]
+                expected_hash = self._event_hash(event, expected_previous)
+                if actual_previous != expected_previous or actual_hash != expected_hash:
+                    return {
+                        "valid": False,
+                        "checked_count": sum(1 for _ in rows[: rows.index(row)]),
+                        "first_invalid_id": event["id"],
+                    }
+                expected_previous = actual_hash
+            return {
+                "valid": True,
+                "checked_count": len(rows),
+                "first_invalid_id": None,
+            }
 
     def list_events(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Return newest audit events with bounded pagination."""
@@ -96,7 +203,7 @@ class AuditLog:
             rows = connection.execute(
                 """
                 SELECT id, timestamp, event_type, actor_id, role, method, path,
-                       status_code, request_id, client_ip
+                       status_code, request_id, client_ip, previous_hash, event_hash
                 FROM api_audit_events
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
@@ -125,4 +232,5 @@ def list_audit_events(
         "total_count": audit_log.count_events(),
         "limit": limit,
         "offset": offset,
+        "integrity": audit_log.verify_integrity(),
     }
