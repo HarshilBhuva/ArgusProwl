@@ -161,7 +161,7 @@ function buildAlertQuery(params: AlertSearchParams = {}): string {
 }
 
 export const api = {
-  health: () => request<HealthResponse>('/api/v1/health'),
+  health: () => request<HealthResponse>('/api/v1/health/details'),
   authStatus: () => request<AuthStatusResponse>('/api/v1/auth/status'),
   authMe: () => request<AuthPrincipalResponse>('/api/v1/auth/me'),
   createSession: (apiKey: string) =>
