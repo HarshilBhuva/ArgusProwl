@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('./lib/api', () => ({
@@ -7,6 +7,10 @@ vi.mock('./lib/api', () => ({
     health: vi.fn(),
     metrics: vi.fn(),
     alerts: vi.fn(),
+    authStatus: vi.fn().mockResolvedValue({ auth_enabled: false, session_ttl_seconds: 3600 }),
+    authMe: vi.fn(),
+    createSession: vi.fn(),
+    logout: vi.fn(),
   },
   ApiClientError: class ApiClientError extends Error {
     statusCode: number;
@@ -33,6 +37,7 @@ vi.mock('./hooks/useQueries', () => ({
 }));
 
 import { useHealth, useMetrics, useAlerts, useEntities, useEntityDetail, useEntityTimeline, useRules, useRuleDetail, useEvidence } from './hooks/useQueries';
+import { ApiClientError, api } from './lib/api';
 import App from './App';
 
 const mockUseHealth = useHealth as ReturnType<typeof vi.fn>;
@@ -44,15 +49,49 @@ const mockUseEntityTimeline = useEntityTimeline as ReturnType<typeof vi.fn>;
 const mockUseRules = useRules as ReturnType<typeof vi.fn>;
 const mockUseRuleDetail = useRuleDetail as ReturnType<typeof vi.fn>;
 const mockUseEvidence = useEvidence as ReturnType<typeof vi.fn>;
+const mockApi = vi.mocked(api);
 
 describe('ArgusProwl Frontend', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApi.authStatus.mockResolvedValue({ auth_enabled: false, session_ttl_seconds: 3600 });
     window.history.pushState({}, '', '/');
     mockUseEntities.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
     mockUseEntityDetail.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
     mockUseEntityTimeline.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
     mockUseEvidence.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
+  });
+
+
+  it('authenticates the browser with a short-lived session without persisting the API key', async () => {
+    mockApi.authStatus.mockResolvedValue({ auth_enabled: true, session_ttl_seconds: 3600 });
+    mockApi.authMe
+      .mockRejectedValueOnce(new ApiClientError(401, 'Unauthorized'))
+      .mockResolvedValue({
+        authenticated: true,
+        subject: 'soc-analyst',
+        role: 'analyst',
+        key_id: 'analyst-key',
+      });
+    mockApi.createSession.mockResolvedValue({
+      authenticated: true,
+      subject: 'soc-analyst',
+      role: 'analyst',
+      key_id: 'analyst-key',
+    });
+    mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
+    mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
+    mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: /Sign in/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'one-time-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
+
+    expect(await screen.findByText(/Signed in as soc-analyst/i)).toBeInTheDocument();
+    await waitFor(() => expect(mockApi.createSession).toHaveBeenCalledWith('one-time-secret'));
+    expect(screen.getByLabelText(/API key/i)).not.toBeInTheDocument();
   });
 
   it('renders the application shell', () => {
