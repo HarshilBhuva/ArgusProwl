@@ -91,7 +91,6 @@ def _parse_key_expiry(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-
 class ApiKeyAuthService:
     """Validate API keys and issue short-lived, stateless browser sessions.
 
