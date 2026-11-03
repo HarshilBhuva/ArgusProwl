@@ -356,9 +356,13 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
             if authenticated_via_session and method not in {"GET", "HEAD", "OPTIONS"}:
                 origin = request.headers.get("origin")
                 if origin:
-                    origin_host = urlsplit(origin).netloc.lower()
-                    request_host = request.headers.get("host", "").lower()
-                    if origin == "null" or not origin_host or origin_host != request_host:
+                    origin_parts = urlsplit(origin)
+                    request_parts = urlsplit(str(request.base_url))
+                    if (
+                        origin == "null"
+                        or origin_parts.scheme.lower() != request_parts.scheme.lower()
+                        or origin_parts.netloc.lower() != request_parts.netloc.lower()
+                    ):
                         try:
                             self._audit(
                                 event_type="CSRF_ORIGIN_REJECTED", principal=principal,
