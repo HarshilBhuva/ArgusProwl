@@ -1,5 +1,6 @@
 """End-to-end Hunt query execution API tests."""
 from fastapi.testclient import TestClient
+
 from argusprowl.api.app import create_api_app
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.hunting.hunt_service import HuntService
