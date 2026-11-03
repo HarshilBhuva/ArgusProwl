@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
@@ -43,7 +44,7 @@ class SQLiteDiagnosticsService:
         # URI quoting prevents special path characters from changing URI semantics.
         database_uri = f"file:{quote(str(path.resolve()), safe='/')}?mode=ro"
         try:
-            with sqlite3.connect(database_uri, uri=True) as connection:
+            with closing(sqlite3.connect(database_uri, uri=True)) as connection:
                 tables = {
                     str(row[0])
                     for row in connection.execute(
