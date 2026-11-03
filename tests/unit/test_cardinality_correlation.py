@@ -7,6 +7,7 @@ from uuid import uuid4
 from argusprowl.detection.detectors.cardinality_correlation import CardinalityCorrelationDetector
 from argusprowl.detection.detectors.cardinality_state import CardinalityState
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def create_event(
@@ -14,6 +15,7 @@ def create_event(
     src_ip: str = "192.168.1.1",
     dst_port: int = 80,
     event_type: str = "connection",
+    hostname: str | None = None,
 ) -> NormalizedEvent:
     """Helper to create a normalized event."""
     return NormalizedEvent(
@@ -22,6 +24,7 @@ def create_event(
         event_type=event_type,
         source_type="test",
         src_ip=src_ip,
+        hostname=hostname,
         dst_port=dst_port,
         attributes={},
     )
@@ -29,6 +32,49 @@ def create_event(
 
 class TestCardinalityState:
     """Tests for CardinalityState."""
+
+    def test_out_of_order_event_is_rejected_without_rewinding_window(self):
+        state = CardinalityState(
+            group_key=("192.168.1.1",),
+            window_duration=timedelta(minutes=5),
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, dst_port=80)
+        newer = create_event(t0 + timedelta(minutes=2), dst_port=81)
+        late = create_event(t0 + timedelta(minutes=1), dst_port=82)
+
+        assert state.add(first, 80)
+        assert state.add(newer, 81)
+        assert not state.add(late, 82)
+        assert state.late_event_count == 1
+        assert state.unique_count == 2
+        assert state.get_contributing_event_ids() == (
+            first.event_id,
+            newer.event_id,
+        )
+
+    def test_state_snapshot_round_trip_preserves_values_and_watermark(self):
+        state = CardinalityState(
+            group_key=("192.168.1.1",),
+            window_duration=timedelta(minutes=5),
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, dst_port=80)
+        newer = create_event(t0 + timedelta(seconds=2), dst_port=81)
+        late = create_event(t0 + timedelta(seconds=1), dst_port=82)
+        state.add(first, 80)
+        state.add(newer, 81)
+        state.add(late, 82)
+
+        restored = CardinalityState.from_dict(state.to_dict())
+
+        assert restored.unique_count == 2
+        assert restored.late_event_count == 1
+        assert restored.get_contributing_event_ids() == (
+            first.event_id,
+            newer.event_id,
+        )
+        assert restored.get_sample_values() == [80, 81]
 
     def test_threshold_not_reached(self):
         state = CardinalityState(group_key=("192.168.1.1",), window_duration=timedelta(minutes=5))
@@ -333,6 +379,41 @@ class TestCardinalityReplay:
 
 
 class TestCardinalityCorrelationDetector:
+    def test_persistent_cardinality_state_restores_after_detector_restart(self, tmp_path: Path):
+        storage = SQLiteAdapter(tmp_path / "cardinality-state.db")
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, dst_port=80, hostname="host-01")
+        second = create_event(
+            t0 + timedelta(seconds=1), dst_port=81, hostname="host-01"
+        )
+        first_detector = CardinalityCorrelationDetector(
+            cardinality_field="dst_port",
+            threshold=2,
+            timespan=timedelta(minutes=5),
+            group_by=["hostname"],
+            name="persistent-cardinality",
+            storage=storage,
+        )
+        first_detector.observe(first)
+
+        restarted_detector = CardinalityCorrelationDetector(
+            cardinality_field="dst_port",
+            threshold=2,
+            timespan=timedelta(minutes=5),
+            group_by=["hostname"],
+            name="persistent-cardinality",
+            storage=storage,
+        )
+        restarted_detector.observe(second)
+        result = restarted_detector.detect(second)
+
+        assert result.matched is True
+        assert set(result.contributing_event_ids) == {
+            first.event_id,
+            second.event_id,
+        }
+
+
     """Tests for CardinalityCorrelationDetector."""
 
     def test_basic_detection(self):

@@ -6,10 +6,12 @@ grouped by configurable fields. Used by CardinalityCorrelationDetector.
 
 from __future__ import annotations
 
+import math
 from collections import Counter, deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 from threading import Lock
 from typing import Any
+from uuid import UUID
 
 from argusprowl.models.normalized_event import NormalizedEvent
 
@@ -50,7 +52,142 @@ class CardinalityState:
         self._triggered = False
         self._trigger_event_id: Any = None
         self._trigger_count: int = 0
+        self._max_event_time: datetime | None = None
+        self._late_event_count = 0
         self._lock = Lock()
+
+    @property
+    def late_event_count(self) -> int:
+        """Return the number of out-of-order events rejected by this state."""
+        with self._lock:
+            return self._late_event_count
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a versioned, JSON-compatible cardinality state snapshot."""
+        with self._lock:
+            return {
+                "schema_version": 1,
+                "group_key": list(self._group_key),
+                "window_duration_seconds": self._window_duration.total_seconds(),
+                "max_observations": self._max_observations,
+                "max_event_time": (
+                    self._max_event_time.isoformat()
+                    if self._max_event_time is not None
+                    else None
+                ),
+                "late_event_count": self._late_event_count,
+                "observations": [
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "event_id": str(event_id),
+                        "value": value,
+                    }
+                    for timestamp, event_id, value in self._observations
+                ],
+                "triggered": self._triggered,
+                "trigger_event_id": (
+                    str(self._trigger_event_id)
+                    if self._trigger_event_id is not None
+                    else None
+                ),
+                "trigger_count": self._trigger_count,
+            }
+
+    @classmethod
+    def from_dict(cls, snapshot: dict[str, object]) -> CardinalityState:
+        """Restore a validated cardinality snapshot."""
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+            raise ValueError("Unsupported cardinality state snapshot schema.")
+        group_key = snapshot.get("group_key")
+        duration = snapshot.get("window_duration_seconds")
+        capacity = snapshot.get("max_observations")
+        raw_observations = snapshot.get("observations")
+        if (
+            not isinstance(group_key, list)
+            or not group_key
+            or any(not isinstance(part, str) for part in group_key)
+        ):
+            raise ValueError("Cardinality snapshot group_key is invalid.")
+        if (
+            not isinstance(duration, (int, float))
+            or isinstance(duration, bool)
+            or duration <= 0
+            or duration > 31_536_000
+            or not math.isfinite(float(duration))
+        ):
+            raise ValueError("Cardinality snapshot window duration is invalid.")
+        if (
+            not isinstance(capacity, int)
+            or isinstance(capacity, bool)
+            or not 1 <= capacity <= 1_000_000
+        ):
+            raise ValueError("Cardinality snapshot capacity is invalid.")
+        if not isinstance(raw_observations, list) or len(raw_observations) > capacity:
+            raise ValueError("Cardinality snapshot observations are invalid.")
+
+        observations: list[tuple[datetime, UUID, Any]] = []
+        for item in raw_observations:
+            if not isinstance(item, dict):
+                raise ValueError("Cardinality snapshot contains an invalid observation.")
+            raw_timestamp = item.get("timestamp")
+            raw_event_id = item.get("event_id")
+            value = item.get("value")
+            if (
+                not isinstance(raw_timestamp, str)
+                or not isinstance(raw_event_id, str)
+                or not (
+                    value is None
+                    or isinstance(value, (str, int, float, bool))
+                )
+                or (isinstance(value, float) and not math.isfinite(value))
+            ):
+                raise ValueError("Cardinality snapshot observation fields are invalid.")
+            timestamp = datetime.fromisoformat(raw_timestamp)
+            if timestamp.tzinfo is None:
+                raise ValueError("Cardinality snapshot timestamps must be timezone-aware.")
+            observations.append((timestamp, UUID(raw_event_id), value))
+        if observations != sorted(observations, key=lambda item: item[0]):
+            raise ValueError("Cardinality snapshot observations are not time ordered.")
+        if len({item[1] for item in observations}) != len(observations):
+            raise ValueError("Cardinality snapshot contains duplicate event identities.")
+
+        raw_watermark = snapshot.get("max_event_time")
+        if raw_watermark is not None and not isinstance(raw_watermark, str):
+            raise ValueError("Cardinality snapshot watermark is invalid.")
+        watermark = datetime.fromisoformat(raw_watermark) if raw_watermark is not None else None
+        if watermark is not None and watermark.tzinfo is None:
+            raise ValueError("Cardinality snapshot watermark must be timezone-aware.")
+        if observations and (watermark is None or observations[-1][0] > watermark):
+            raise ValueError("Cardinality snapshot observations exceed the watermark.")
+
+        late_count = snapshot.get("late_event_count")
+        triggered = snapshot.get("triggered")
+        trigger_count = snapshot.get("trigger_count")
+        raw_trigger_id = snapshot.get("trigger_event_id")
+        if not isinstance(late_count, int) or isinstance(late_count, bool) or late_count < 0:
+            raise ValueError("Cardinality snapshot late-event count is invalid.")
+        if not isinstance(triggered, bool):
+            raise ValueError("Cardinality snapshot trigger flag is invalid.")
+        if not isinstance(trigger_count, int) or isinstance(trigger_count, bool) or trigger_count < 0:
+            raise ValueError("Cardinality snapshot trigger count is invalid.")
+        if raw_trigger_id is not None and not isinstance(raw_trigger_id, str):
+            raise ValueError("Cardinality snapshot trigger identity is invalid.")
+        if triggered and raw_trigger_id is None:
+            raise ValueError("Triggered cardinality state requires a trigger identity.")
+
+        state = cls(
+            group_key=tuple(group_key),
+            window_duration=timedelta(seconds=float(duration)),
+            max_observations=capacity,
+        )
+        state._observations = deque(observations, maxlen=capacity)
+        state._unique_counts = Counter(item[2] for item in observations)
+        state._max_event_time = watermark
+        state._late_event_count = late_count
+        state._triggered = triggered
+        state._trigger_event_id = UUID(raw_trigger_id) if raw_trigger_id is not None else None
+        state._trigger_count = trigger_count
+        return state
 
     @property
     def group_key(self) -> tuple[str, ...]:
@@ -107,7 +244,12 @@ class CardinalityState:
             True if added, False if duplicate event.
         """
         with self._lock:
-            self._expire_old_observations(event.timestamp)
+            if self._max_event_time is not None and event.timestamp < self._max_event_time:
+                self._late_event_count += 1
+                return False
+            if self._max_event_time is None or event.timestamp > self._max_event_time:
+                self._max_event_time = event.timestamp
+            self._expire_old_observations(self._max_event_time)
 
             # Check for duplicate event_id
             for _, eid, _ in self._observations:
@@ -140,11 +282,11 @@ class CardinalityState:
             If triggered, trigger_event_id is the event that crossed threshold.
         """
         with self._lock:
-            reference_time = (
-                event.timestamp
-                if event is not None
-                else (self._observations[-1][0] if self._observations else None)
-            )
+            if event is not None and (
+                self._max_event_time is None or event.timestamp > self._max_event_time
+            ):
+                self._max_event_time = event.timestamp
+            reference_time = self._max_event_time
 
             if reference_time is not None:
                 self._expire_old_observations(reference_time)

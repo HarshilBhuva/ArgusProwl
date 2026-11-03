@@ -190,6 +190,7 @@ class RuleLoader:
                     config=rule.parameters,
                     confidence=rule.confidence,
                     version=rule.version,
+                    storage=self._storage,
                     **params,
                 )
             elif detector_class is OrderedSequenceDetector:
