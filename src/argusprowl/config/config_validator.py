@@ -147,6 +147,8 @@ class ConfigValidator:
             value = evidence_cfg.get(key, default)
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 raise ValidationError(f"telemetry_evidence.{key} must be a positive integer.")
+            if key == "cleanup_batch_size" and value > 10_000:
+                raise ValidationError("telemetry_evidence.cleanup_batch_size must not exceed 10000.")
 
     def _validate_events_section(self, events_cfg: Any) -> None:
         if not isinstance(events_cfg, dict):
