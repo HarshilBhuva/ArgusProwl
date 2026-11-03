@@ -483,6 +483,18 @@ class EvidenceStatsResponse(BaseModel):
     persistence_operations_failed: int = Field(
         default=0, description="Failed recovery, lookup, or retention operations."
     )
+    retention_last_run_at: str | None = Field(
+        default=None, description="UTC timestamp of the last durable retention batch."
+    )
+    retention_last_deleted_count: int = Field(
+        default=0, description="Evidence records deleted by the most recent retention batch."
+    )
+    retention_runs_failed: int = Field(
+        default=0, description="Number of failed durable retention batches since startup."
+    )
+    retention_last_error: str | None = Field(
+        default=None, description="Most recent retention error, if any."
+    )
 
 
 # ---------------------------------------------------------------------------
