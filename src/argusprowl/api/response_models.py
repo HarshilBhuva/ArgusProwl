@@ -495,6 +495,12 @@ class EvidenceStatsResponse(BaseModel):
     retention_last_error: str | None = Field(
         default=None, description="Most recent retention error, if any."
     )
+    database_bytes: int | None = Field(
+        default=None, description="SQLite database file size in bytes."
+    )
+    wal_bytes: int | None = Field(
+        default=None, description="SQLite write-ahead log file size in bytes."
+    )
 
 
 # ---------------------------------------------------------------------------
