@@ -191,6 +191,7 @@ class ApiKeyAuthService:
             "kid": principal.key_id,
             "sub": principal.subject,
             "role": principal.role,
+            "jti": uuid4().hex,
             "iat": now,
             "exp": now + self.session_ttl_seconds,
         }
@@ -213,12 +214,15 @@ class ApiKeyAuthService:
             key_id = payload["kid"]
             subject = payload["sub"]
             role = payload["role"]
+            token_id = payload["jti"]
             issued_at = payload["iat"]
             expires_at = payload["exp"]
             if (
                 not isinstance(key_id, str)
                 or not isinstance(subject, str)
                 or not isinstance(role, str)
+                or not isinstance(token_id, str)
+                or not token_id
                 or not isinstance(issued_at, int)
                 or isinstance(issued_at, bool)
                 or not isinstance(expires_at, int)
