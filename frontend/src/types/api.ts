@@ -274,6 +274,7 @@ export interface EvidenceSearchResponse {
   truncated: boolean;
   total_count: number;
   returned_count: number;
+  next_cursor: string | null;
 }
 
 export interface EvidenceDetailResponse {
@@ -328,6 +329,7 @@ export interface EvidenceSearchParams {
   domain?: string;
   event_type?: string;
   source_type?: string;
+  cursor?: string;
 }
 
 export interface AnnotationResponse {
