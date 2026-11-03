@@ -1,6 +1,7 @@
 """SQLite infrastructure adapter with indexed telemetry evidence queries."""
 
 import base64
+import binascii
 import json
 import sqlite3
 import threading
@@ -169,11 +170,15 @@ class SQLiteAdapter(Storage):
         try:
             raw = base64.urlsafe_b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4))
             value = json.loads(raw)
-            timestamp, event_id = value["timestamp"], str(UUID(value["event_id"]))
+            timestamp = value["timestamp"]
             if not isinstance(timestamp, str) or not timestamp:
                 raise ValueError
-            return timestamp, event_id
-        except (ValueError, KeyError, TypeError, UnicodeError, json.JSONDecodeError) as exc:
+            parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if parsed_timestamp.tzinfo is None:
+                raise ValueError
+            event_id = str(UUID(value["event_id"]))
+            return parsed_timestamp.astimezone(UTC).isoformat(), event_id
+        except (ValueError, KeyError, TypeError, UnicodeError, binascii.Error, json.JSONDecodeError) as exc:
             raise ValueError("Invalid evidence pagination cursor.") from exc
 
     @staticmethod
