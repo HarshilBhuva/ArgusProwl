@@ -1,7 +1,10 @@
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Header, MobileNav, Sidebar } from './components/Layout';
 import { queryClient } from './lib/queryClient';
+import { ApiClientError, api } from './lib/api';
+import type { AuthPrincipalResponse } from './types/api';
 import { AlertDetailPage } from './pages/AlertDetailPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { AttckPage } from './pages/AttckPage';
@@ -48,6 +51,142 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+
+function authErrorMessage(error: unknown): string {
+  return error instanceof ApiClientError
+    ? error.userMessage
+    : "Unable to verify browser authentication with the ArgusProwl API.";
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const [phase, setPhase] = useState<"checking" | "ready" | "login" | "unavailable">("checking");
+  const [principal, setPrincipal] = useState<AuthPrincipalResponse | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkAuthentication = useCallback(async () => {
+    setPhase("checking");
+    setError(null);
+    try {
+      const status = await api.authStatus();
+      if (!status.auth_enabled) {
+        setPrincipal(null);
+        setPhase("ready");
+        return;
+      }
+      try {
+        const current = await api.authMe();
+        setPrincipal(current);
+        setPhase("ready");
+      } catch (authError) {
+        if (authError instanceof ApiClientError && authError.statusCode === 401) {
+          setPrincipal(null);
+          setPhase("login");
+        } else {
+          throw authError;
+        }
+      }
+    } catch (authError) {
+      setError(authErrorMessage(authError));
+      setPhase("unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkAuthentication();
+  }, [checkAuthentication]);
+
+  const signIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!apiKey.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createSession(apiKey);
+      setApiKey("");
+      const current = await api.authMe();
+      setPrincipal(current);
+      setPhase("ready");
+    } catch (authError) {
+      setError(authErrorMessage(authError));
+      setPhase("login");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.logout();
+      setPrincipal(null);
+      setPhase("login");
+    } catch (authError) {
+      setError(authErrorMessage(authError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (phase === "checking") {
+    return <div className="min-h-screen bg-background p-8 text-sm text-muted-foreground">Checking API authentication…</div>;
+  }
+
+  if (phase === "unavailable") {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-xl items-center justify-center bg-background p-6">
+        <div className="w-full border border-border bg-surface p-5">
+          <h1 className="text-lg font-semibold text-foreground">Authentication service unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <button type="button" onClick={() => void checkAuthentication()} className="mt-4 rounded-sm border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "login") {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-xl items-center justify-center bg-background p-6">
+        <div className="w-full border border-border bg-surface p-5">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">ArgusProwl · Threat Hunter Console</p>
+          <h1 className="mt-2 text-xl font-semibold text-foreground">Sign in</h1>
+          <p className="mt-1 text-xs text-muted-foreground">Enter an enabled ArgusProwl API key. The key is exchanged for a short-lived HttpOnly browser session and is not stored in browser storage.</p>
+          <form onSubmit={signIn} className="mt-5 space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">API key</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                className="w-full rounded-sm border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                required
+              />
+            </label>
+            {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+            <button type="submit" disabled={busy || !apiKey.trim()} className="rounded-sm border border-primary bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy ? "Signing in…" : "Sign in"}</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {principal && (
+        <div className="flex items-center justify-end gap-3 border-b border-border bg-surface px-4 py-1.5 text-[10px] text-muted-foreground">
+          <span>Signed in as <strong className="text-foreground">{principal.subject}</strong> · {principal.role}</span>
+          <button type="button" disabled={busy} onClick={() => void signOut()} className="font-medium text-primary hover:underline disabled:opacity-50">Sign out</button>
+        </div>
+      )}
+      {error && principal && <p role="alert" className="bg-amber-500/10 px-4 py-2 text-xs text-amber-700">{error}</p>}
+      {children}
+    </>
+  );
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -76,9 +215,11 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AppShell>
-          <AppRoutes />
-        </AppShell>
+        <AuthGate>
+          <AppShell>
+            <AppRoutes />
+          </AppShell>
+        </AuthGate>
       </BrowserRouter>
     </QueryClientProvider>
   );
