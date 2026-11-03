@@ -319,7 +319,6 @@ class TestEventCountState:
         # Should contain the last 3 events
         assert ids == tuple(e.event_id for e in events[2:])
 
-
     def test_state_snapshot_round_trip_preserves_observations_and_trigger(self) -> None:
         state = EventCountState(
             group_key=("workstation-01", "4242"),
