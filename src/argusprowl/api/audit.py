@@ -148,9 +148,13 @@ class AuditLog:
                 "SELECT event_hash FROM api_audit_events ORDER BY id DESC LIMIT 1"
             ).fetchone()
             previous_hash = latest["event_hash"] if latest else _GENESIS_HASH
-            if previous_hash is None:
+            if (
+                not isinstance(previous_hash, str)
+                or len(previous_hash) != 64
+                or any(char not in "0123456789abcdef" for char in previous_hash)
+            ):
                 raise AuditIntegrityError(
-                    "Audit chain is incomplete; refusing to append"
+                    "Audit chain tail is invalid; refusing to append"
                 )
 
             timestamp = datetime.now(UTC).isoformat()
