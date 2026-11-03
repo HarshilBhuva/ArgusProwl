@@ -114,6 +114,66 @@ class TestOrderedSequenceState:
         assert state.late_event_count == 1
         assert state.completed_sequence is None
 
+    def test_state_snapshot_restores_partial_progress_and_watermark(self):
+        state = OrderedSequenceState(
+            group_key=("workstation-01", "4242"),
+            window_duration=timedelta(minutes=5),
+            total_steps=2,
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, event_type="login")
+        watermark_event = create_event(
+            t0 + timedelta(seconds=2), event_type="unrelated"
+        )
+        late_event = create_event(
+            t0 + timedelta(seconds=1), event_type="data_access"
+        )
+        conditions = [{"event_type": "login"}, {"event_type": "data_access"}]
+
+        state.try_advance(first, conditions)
+        state.try_advance(watermark_event, conditions)
+        state.try_advance(late_event, conditions)
+        assert state.late_event_count == 1
+
+        restored = OrderedSequenceState.from_dict(state.to_dict())
+        assert restored.group_key == state.group_key
+        assert restored.late_event_count == 1
+
+        completion = create_event(
+            t0 + timedelta(seconds=3), event_type="data_access"
+        )
+        advanced, completed = restored.try_advance(completion, conditions)
+
+        assert advanced is True
+        assert completed is not None
+        assert completed.get_contributing_event_ids() == (
+            first.event_id,
+            completion.event_id,
+        )
+
+    def test_completed_state_snapshot_preserves_trigger_evidence(self):
+        state = OrderedSequenceState(
+            group_key=("192.168.1.1",),
+            window_duration=timedelta(minutes=5),
+            total_steps=2,
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, event_type="login")
+        second = create_event(t0 + timedelta(seconds=1), event_type="data_access")
+        conditions = [{"event_type": "login"}, {"event_type": "data_access"}]
+        state.try_advance(first, conditions)
+        state.try_advance(second, conditions)
+
+        restored = OrderedSequenceState.from_dict(state.to_dict())
+        triggered, completed = restored.check_and_clear_trigger(second)
+
+        assert triggered is True
+        assert completed is not None
+        assert completed.get_contributing_event_ids() == (
+            first.event_id,
+            second.event_id,
+        )
+
     def test_multiple_matching_partial_sequences(self):
         """Test that overlapping valid sequences can progress independently."""
         state = OrderedSequenceState(
