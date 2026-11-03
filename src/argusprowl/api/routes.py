@@ -2383,6 +2383,43 @@ async def save_hunt_query(hunt_id: str, payload: HuntQueryRequest, request: Requ
     return _hunt_payload(hunt)
 
 
+
+
+@router.post("/hunts/{hunt_id}/queries/{query_id}/execute", summary="Execute a saved hunt query")
+async def execute_hunt_query(hunt_id: str, query_id: str, request: Request, version: int = Query(..., ge=1)) -> dict[str, object]:
+    """Execute one immutable saved-query version against retained telemetry."""
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.services.hunt_query_execution_service import HuntQueryExecutionService
+
+    try:
+        parsed_hunt_id, parsed_query_id = UUID(hunt_id), UUID(query_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Hunt or query not found") from exc
+    service = _owned_hunt_service(parsed_hunt_id, request)
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(HuntQueryExecutionService):
+        raise HTTPException(status_code=503, detail="Hunt query execution service not available")
+    try:
+        result = container.resolve(HuntQueryExecutionService).execute(
+            service, parsed_hunt_id, parsed_query_id, version, _hunt_actor(request)
+        )
+    except HuntNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Hunt or query not found") from exc
+    except HuntConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Hunt query execution failed")
+        raise HTTPException(status_code=503, detail="Hunt query execution failed") from exc
+    return {"hunt": _hunt_payload(result.hunt), "execution": result.execution.__dict__ if hasattr(result.execution, "__dict__") else {
+        "execution_id": str(result.execution.execution_id), "query_id": str(result.execution.query_id),
+        "query_version": result.execution.query_version, "started_at": result.execution.started_at.isoformat(),
+        "completed_at": result.execution.completed_at.isoformat(), "result_count": result.execution.result_count,
+        "evidence_event_ids": [str(value) for value in result.execution.evidence_event_ids],
+        "status": result.execution.status, "error": result.execution.error, "truncated": result.execution.truncated,
+    }}
+
 @router.post("/hunts/{hunt_id}/executions", summary="Record a hunt query execution")
 async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, request: Request) -> dict[str, object]:
     """Persist an execution receipt and the exact query version it references."""
@@ -2398,6 +2435,9 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         result_count=payload.result_count,
         data_sources=tuple(payload.data_sources),
         evidence_event_ids=tuple(payload.evidence_event_ids),
+        status=payload.status,
+        error=payload.error,
+        truncated=payload.truncated,
     )
     try:
         hunt = _owned_hunt_service(parsed_id, request).record_execution(parsed_id, execution, _hunt_actor(request))
