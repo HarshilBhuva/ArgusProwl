@@ -209,7 +209,7 @@ def test_alert_manager_reports_false_persistence_result(tmp_path) -> None:
     persistence.close()
 
 
-def test_evidence_retention_evicts_durable_records_but_duplicate_does_not(tmp_path) -> None:
+def test_evidence_cache_eviction_preserves_durable_historical_records(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
     service = TelemetryEvidenceService(max_retained_events=1, storage=storage)
     first = _event()
@@ -221,7 +221,11 @@ def test_evidence_retention_evicts_durable_records_but_duplicate_does_not(tmp_pa
 
     service.record_event(second)
     assert service.get_event(first.event_id) is None
-    assert storage.load("telemetry_evidence", first.event_id) is None
+    assert storage.load("telemetry_evidence", first.event_id) is not None
+    historical = service.get_detail(first.event_id)
+    assert historical is not None
+    assert historical.event is not None
+    assert historical.event.event_id == first.event_id
     assert service.get_event(second.event_id) is not None
     assert storage.load("telemetry_evidence", second.event_id) is not None
     storage.close()
