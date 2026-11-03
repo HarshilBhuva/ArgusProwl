@@ -433,6 +433,9 @@ class EvidenceSearchResponse(BaseModel):
     truncated: bool = Field(..., description="Whether results were truncated by the limit.")
     total_count: int = Field(..., description="Total matching events in the store.")
     returned_count: int = Field(..., description="Number of records returned in this response.")
+    next_cursor: str | None = Field(
+        default=None, description="Opaque cursor for the next page; absent when no more results exist."
+    )
 
 
 class EvidenceDetailResponse(BaseModel):
