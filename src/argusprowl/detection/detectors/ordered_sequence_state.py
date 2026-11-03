@@ -110,12 +110,20 @@ class OrderedSequenceState:
         self._triggered = False
         self._trigger_event_id: Any = None
         self._completed_sequence: SequenceProgress | None = None
+        self._max_event_time: Any = None
+        self._late_event_count = 0
         self._lock = Lock()
 
     @property
     def group_key(self) -> tuple[str, ...]:
         """Return the grouping key."""
         return self._group_key
+
+    @property
+    def late_event_count(self) -> int:
+        """Return the number of out-of-order events rejected by this state."""
+        with self._lock:
+            return self._late_event_count
 
     @property
     def triggered(self) -> bool:
@@ -172,7 +180,17 @@ class OrderedSequenceState:
             If completed_sequence is not None, the sequence just completed.
         """
         with self._lock:
-            self._expire_old_sequences(event.timestamp)
+            # Sequence progress is evaluated in event-time order. Without a
+            # reorder buffer, accepting an event behind the watermark could
+            # create an impossible sequence or make replay delivery-order
+            # dependent. Reject it explicitly and keep expiration monotonic.
+            if self._max_event_time is not None and event.timestamp < self._max_event_time:
+                self._late_event_count += 1
+                return False, None
+
+            if self._max_event_time is None or event.timestamp > self._max_event_time:
+                self._max_event_time = event.timestamp
+            self._expire_old_sequences(self._max_event_time)
 
             advanced_any = False
             completed_seq = None
