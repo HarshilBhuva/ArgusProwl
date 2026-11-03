@@ -18,6 +18,7 @@ from argusprowl.constants.exit_codes import ExitCode
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.core.application import Application
 from argusprowl.exceptions.exceptions import ThreatHunterError
+from argusprowl.storage.sqlite_backup import SQLiteBackupManager
 
 
 def _validate_stix_url(url: str) -> str:
@@ -103,6 +104,36 @@ def create_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("validate-config", help="Load and validate configuration, then exit.")
 
+    # Explicit operator workflow for local SQLite backup lifecycle.
+    backup_parser = subparsers.add_parser(
+        "backup", help="Create, verify, or restore a SQLite database backup."
+    )
+    backup_parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to YAML configuration file (required for create and restore).",
+    )
+    backup_subparsers = backup_parser.add_subparsers(dest="backup_action", required=True)
+    backup_create_parser = backup_subparsers.add_parser(
+        "create", help="Create a consistent SQLite backup and integrity manifest."
+    )
+    backup_create_parser.add_argument(
+        "--output", required=True, type=str, help="Destination database backup file."
+    )
+    backup_verify_parser = backup_subparsers.add_parser(
+        "verify", help="Verify a backup manifest, checksum, schema, and SQLite integrity."
+    )
+    backup_verify_parser.add_argument("backup_file", type=str, help="Backup database file.")
+    backup_restore_parser = backup_subparsers.add_parser(
+        "restore", help="Restore a verified backup to the configured SQLite database."
+    )
+    backup_restore_parser.add_argument("backup_file", type=str, help="Backup database file.")
+    backup_restore_parser.add_argument(
+        "--confirm-offline",
+        action="store_true",
+        help="Confirm ArgusProwl and all writers are stopped before offline restore.",
+    )
+
     # 'server' subcommand
     server_parser = subparsers.add_parser(
         "server", help="Start the HTTP API server (requires api.enabled in config)."
@@ -169,6 +200,54 @@ def main() -> int:
     application: Application | None = None
 
     try:
+        if command == "backup":
+            backup_manager = SQLiteBackupManager()
+
+            if args.backup_action == "verify":
+                manifest = backup_manager.verify_backup(args.backup_file)
+                print("[+] Backup verification successful.")
+                print(f"    Created: {manifest.created_at}")
+                print(f"    Application version: {manifest.application_version}")
+                print(f"    Schema version: {manifest.schema_version}")
+                print(f"    Database size: {manifest.database_size_bytes} bytes")
+                print(f"    SHA-256: {manifest.sha256}")
+                return ExitCode.SUCCESS
+
+            app_config = ConfigManager().load(config_path)
+            if app_config.storage.backend.lower() != "sqlite":
+                print(
+                    "[!] Backup create/restore currently requires storage.backend=sqlite.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+
+            database_path = app_config.storage.database_path
+            if args.backup_action == "create":
+                manifest = backup_manager.create_backup(
+                    database_path,
+                    args.output,
+                    application_version=argusprowl.__version__,
+                )
+                print("[+] SQLite backup created and verified.")
+                print(f"    Database: {args.output}")
+                print(f"    Manifest: {args.output}.manifest.json")
+                print(f"    SHA-256: {manifest.sha256}")
+                return ExitCode.SUCCESS
+
+            if not args.confirm_offline:
+                print(
+                    "[!] Restore is offline-only. Stop ArgusProwl and all database writers, "
+                    "then rerun with --confirm-offline.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+
+            manifest = backup_manager.restore_backup(args.backup_file, database_path)
+            print("[+] SQLite backup restored successfully.")
+            print(f"    Database: {database_path}")
+            print(f"    Backup created: {manifest.created_at}")
+            return ExitCode.SUCCESS
+
         if command == "validate-config":
             ConfigManager().load(config_path)
             print(f"Configuration valid: {config_path}")
