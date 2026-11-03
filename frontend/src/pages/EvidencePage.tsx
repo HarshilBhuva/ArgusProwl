@@ -50,7 +50,9 @@ export function EvidencePage() {
   const [limit, setLimit] = useState(50);
   const [draft, setDraft] = useState<FilterDraft>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<EvidenceSearchParams>({});
-  const evidenceQuery = useEvidence({ limit, ...filters });
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [previousCursors, setPreviousCursors] = useState<Array<string | undefined>>([]);
+  const evidenceQuery = useEvidence({ limit, ...filters, cursor });
 
   const updateDraft = (field: keyof FilterDraft, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -60,6 +62,8 @@ export function EvidencePage() {
     event.preventDefault();
     const startTime = toIsoTimestamp(draft.start_time);
     const endTime = toIsoTimestamp(draft.end_time);
+    setCursor(undefined);
+    setPreviousCursors([]);
     setFilters({
       event_id: draft.event_id.trim() || undefined,
       start_time: startTime,
@@ -76,6 +80,8 @@ export function EvidencePage() {
 
   const clearFilters = () => {
     setDraft(EMPTY_FILTERS);
+    setCursor(undefined);
+    setPreviousCursors([]);
     setFilters({});
   };
 
@@ -249,6 +255,39 @@ export function EvidencePage() {
           </div>
         </form>
       </Card>
+
+      <div className="flex items-center justify-between border-t border-border pt-3">
+        <button
+          type="button"
+          onClick={() => {
+            const previous = [...previousCursors];
+            const next = previous.pop();
+            setPreviousCursors(previous);
+            setCursor(next);
+          }}
+          disabled={previousCursors.length === 0 || evidenceQuery.isLoading}
+          className="rounded-md border border-border px-3 py-2 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Previous page
+        </button>
+        <span className="text-xs text-muted-foreground">
+          {cursor ? 'Historical results' : 'Newest search page'}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            const next = evidenceQuery.data?.next_cursor;
+            if (next) {
+              setPreviousCursors((current) => [...current, cursor]);
+              setCursor(next);
+            }
+          }}
+          disabled={!evidenceQuery.data?.next_cursor || evidenceQuery.isLoading}
+          className="rounded-md border border-border px-3 py-2 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Next page
+        </button>
+      </div>
 
       {degraded && (
         <div role="status" className="border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
