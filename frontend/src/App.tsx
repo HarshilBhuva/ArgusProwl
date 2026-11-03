@@ -112,6 +112,7 @@ function AuthGate({ children }: { children: ReactNode }) {
       setError(authErrorMessage(authError));
       setPhase("login");
     } finally {
+      setApiKey("");
       setBusy(false);
     }
   };
