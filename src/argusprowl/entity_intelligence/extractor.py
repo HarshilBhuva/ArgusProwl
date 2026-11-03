@@ -12,7 +12,6 @@ import ipaddress
 import re
 from dataclasses import dataclass
 
-
 _ENTITY_TYPE_ALIASES = {
     "host": "hostname",
     "hostname": "hostname",
