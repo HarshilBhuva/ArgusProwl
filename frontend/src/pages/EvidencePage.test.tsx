@@ -175,6 +175,30 @@ describe('EvidencePage', () => {
     expect(screen.getByText(/showing 50 of 101 matching events/i)).toBeInTheDocument();
   });
 
+  it('navigates to the next indexed evidence page using the returned cursor', () => {
+    mockUseEvidence.mockReturnValue(
+      result({
+        data: {
+          records: mockRecords,
+          events: mockEvents,
+          status: 'AVAILABLE',
+          reason: null,
+          truncated: true,
+          total_count: 101,
+          returned_count: 50,
+          next_cursor: 'opaque-next-cursor',
+        },
+      })
+    );
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }));
+
+    expect(mockUseEvidence).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: 'opaque-next-cursor' })
+    );
+  });
+
   it('renders error state when API fails', () => {
     mockUseEvidence.mockReturnValue({
       isLoading: false,

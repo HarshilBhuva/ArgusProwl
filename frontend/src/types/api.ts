@@ -274,6 +274,7 @@ export interface EvidenceSearchResponse {
   truncated: boolean;
   total_count: number;
   returned_count: number;
+  next_cursor?: string | null;
 }
 
 export interface EvidenceDetailResponse {
@@ -286,6 +287,7 @@ export interface EvidenceDetailResponse {
 
 export interface EvidenceStatsResponse {
   retained_events: number;
+  durable_events?: number | null;
   max_retained_events: number;
   eviction_count: number;
   capacity_used_pct: number;
@@ -328,6 +330,7 @@ export interface EvidenceSearchParams {
   domain?: string;
   event_type?: string;
   source_type?: string;
+  cursor?: string;
 }
 
 export interface AnnotationResponse {

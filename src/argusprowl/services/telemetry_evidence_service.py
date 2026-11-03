@@ -77,6 +77,7 @@ class EvidenceSearchResult:
     truncated: bool
     total_count: int
     returned_count: int
+    next_cursor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,12 +351,8 @@ class TelemetryEvidenceService:
         ):
             oldest_id, _ = self._events.popitem(last=False)
             oldest_record = self._records.pop(oldest_id, None)
-            if self._storage is not None:
-                try:
-                    self._storage.delete("telemetry_evidence", oldest_id)
-                except Exception:
-                    self._persistence_operations_failed.increment()
-                    logger.exception("Failed to delete evicted evidence event_id=%s", oldest_id)
+            # Cache eviction is not durable retention. The SQLite evidence record
+            # and its secondary index remain queryable until explicit retention.
             if oldest_record is not None and oldest_record.provenance in (
                 PROVENANCE_CONTRIBUTING_EVENT,
                 PROVENANCE_DETECTION_SOURCE,
@@ -394,6 +391,7 @@ class TelemetryEvidenceService:
         domain: str | None = None,
         event_type: str | None = None,
         source_type: str | None = None,
+        cursor: str | None = None,
     ) -> EvidenceSearchResult:
         """Query evidence with bounded filters.
 
@@ -402,10 +400,81 @@ class TelemetryEvidenceService:
         """
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        for name, value in (("start_time", start_time), ("end_time", end_time)):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"{name} must be timezone-aware.")
+
+        indexed_search = getattr(self._storage, "search_telemetry_evidence", None)
+        if callable(indexed_search):
+            filters: dict[str, object] = {
+                "event_id": event_id,
+                "start_time": start_time,
+                "end_time": end_time,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "src_ip": src_ip,
+                "dst_ip": dst_ip,
+                "domain": domain,
+                "event_type": event_type,
+                "source_type": source_type,
+            }
+            try:
+                page = indexed_search(filters, limit=limit, cursor=cursor)
+                records: list[EvidenceRecord] = []
+                events: dict[UUID, NormalizedEvent] = {}
+                malformed = 0
+                for payload in page["records"]:
+                    try:
+                        raw_event = payload["event"]
+                        if not isinstance(raw_event, dict):
+                            raise ValueError("Persisted evidence event payload is not an object")
+                        event = NormalizedEvent.from_dict(raw_event)
+                        raw_contributors = payload.get("contributing_event_ids", [])
+                        if not isinstance(raw_contributors, list):
+                            raise ValueError("Persisted contributing_event_ids is not a list")
+                        record = EvidenceRecord(
+                            event_id=event.event_id,
+                            provenance=str(payload["provenance"]),
+                            detection_result_id=UUID(str(payload["detection_result_id"]))
+                            if payload.get("detection_result_id") else None,
+                            contributing_event_ids=tuple(UUID(str(value)) for value in raw_contributors),
+                        )
+                        records.append(record)
+                        events[event.event_id] = event
+                    except (KeyError, TypeError, ValueError) as exc:
+                        malformed += 1
+                        logger.warning("Skipping malformed indexed evidence row: %s", exc)
+                status, reason = self._query_status()
+                if malformed:
+                    status = "DEGRADED"
+                    reason = f"Indexed search skipped {malformed} malformed evidence record(s)."
+                return EvidenceSearchResult(
+                    records=tuple(records),
+                    events=events,
+                    status=status,
+                    reason=reason,
+                    truncated=bool(page["truncated"]),
+                    total_count=int(page["total_count"]),
+                    returned_count=len(records),
+                    next_cursor=page.get("next_cursor"),
+                )
+            except Exception:
+                self._persistence_operations_failed.increment()
+                logger.exception("Indexed telemetry evidence search failed")
+                raise
+
+        if cursor is not None:
+            raise ValueError("Cursor pagination requires an indexed evidence storage backend.")
 
         with self._lock:
             # Exact event ID lookup — O(1).
-            if event_id is not None:
+            if event_id is not None and all(
+                value is None
+                for value in (
+                    start_time, end_time, entity_type, entity_id, src_ip, dst_ip,
+                    domain, event_type, source_type,
+                )
+            ):
                 event = self._events.get(event_id)
                 if event is None:
                     return EvidenceSearchResult(
@@ -431,6 +500,8 @@ class TelemetryEvidenceService:
             # Filtered scan — O(n) over in-memory store.
             matching_ids: list[UUID] = []
             for eid, ev in self._events.items():
+                if event_id is not None and eid != event_id:
+                    continue
                 if start_time is not None and ev.timestamp < start_time:
                     continue
                 if end_time is not None and ev.timestamp > end_time:
@@ -513,6 +584,39 @@ class TelemetryEvidenceService:
                 )
 
             record = self._evicted_contributing_records.get(event_id)
+            if self._storage is not None:
+                try:
+                    payload = self._storage.load("telemetry_evidence", event_id)
+                    if payload is not None:
+                        raw_event = payload.get("event")
+                        raw_contributors = payload.get("contributing_event_ids", [])
+                        if not isinstance(raw_event, dict) or not isinstance(raw_contributors, list):
+                            raise ValueError("Persisted evidence detail payload is malformed.")
+                        event = NormalizedEvent.from_dict(raw_event)
+                        record = EvidenceRecord(
+                            event_id=event.event_id,
+                            provenance=str(payload["provenance"]),
+                            detection_result_id=UUID(str(payload["detection_result_id"]))
+                            if payload.get("detection_result_id") else None,
+                            contributing_event_ids=tuple(UUID(str(value)) for value in raw_contributors),
+                        )
+                        return EvidenceDetailResult(
+                            event_id=event_id,
+                            status=self._recovery_status,
+                            reason=self._recovery_reason,
+                            event=event,
+                            record=record,
+                        )
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception("Unable to load historical evidence detail event_id=%s", event_id)
+                    return EvidenceDetailResult(
+                        event_id=event_id,
+                        status="UNAVAILABLE",
+                        reason="Persisted evidence detail could not be loaded.",
+                        event=None,
+                        record=None,
+                    )
             if record is None:
                 if self._recovery_status != "AVAILABLE":
                     return EvidenceDetailResult(
@@ -550,6 +654,14 @@ class TelemetryEvidenceService:
             for eid in event_ids:
                 if eid in self._events or self._recovery_status != "AVAILABLE":
                     status[eid] = self._recovery_status
+                elif self._storage is not None:
+                    try:
+                        persisted = self._storage.load("telemetry_evidence", eid)
+                        status[eid] = "AVAILABLE" if persisted is not None else "EVICTED"
+                    except Exception:
+                        self._persistence_operations_failed.increment()
+                        logger.exception("Unable to resolve referenced evidence event_id=%s", eid)
+                        status[eid] = "UNAVAILABLE"
                 else:
                     status[eid] = "EVICTED"
         return status
@@ -557,8 +669,17 @@ class TelemetryEvidenceService:
     def get_stats(self) -> dict[str, Any]:
         """Return store statistics for health reporting."""
         with self._lock:
+            durable_count = None
+            count_durable = getattr(self._storage, "count_telemetry_evidence", None)
+            if callable(count_durable):
+                try:
+                    durable_count = count_durable()
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception("Unable to count durable telemetry evidence")
             return {
                 "retained_events": len(self._events),
+                "durable_events": durable_count,
                 "max_retained_events": self._max_retained,
                 "eviction_count": self._eviction_count,
                 "capacity_used_pct": round(len(self._events) / self._max_retained * 100, 2),

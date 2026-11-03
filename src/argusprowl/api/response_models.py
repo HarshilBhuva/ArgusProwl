@@ -433,6 +433,9 @@ class EvidenceSearchResponse(BaseModel):
     truncated: bool = Field(..., description="Whether results were truncated by the limit.")
     total_count: int = Field(..., description="Total matching events in the store.")
     returned_count: int = Field(..., description="Number of records returned in this response.")
+    next_cursor: str | None = Field(
+        default=None, description="Opaque cursor for the next page; absent when no more results exist."
+    )
 
 
 class EvidenceDetailResponse(BaseModel):
@@ -457,7 +460,10 @@ class EvidenceDetailResponse(BaseModel):
 class EvidenceStatsResponse(BaseModel):
     """Store statistics for health reporting."""
 
-    retained_events: int = Field(..., description="Number of events currently retained.")
+    retained_events: int = Field(..., description="Number of events currently retained in the hot cache.")
+    durable_events: int | None = Field(
+        default=None, description="Number of durable historical evidence records, when supported."
+    )
     max_retained_events: int = Field(..., description="Maximum capacity of the store.")
     eviction_count: int = Field(..., description="Total events evicted since startup.")
     capacity_used_pct: float = Field(
