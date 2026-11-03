@@ -30,7 +30,7 @@ _ANALYST_WRITE_PATTERNS = (
     re.compile(r"^/api/v1/alerts/[^/]+/(?:acknowledge|close)$"),
     re.compile(r"^/api/v1/incidents/[^/]+/(?:annotations|close|transition)$"),
     re.compile(r"^/api/v1/entities/[^/]+/[^/]+/annotations$"),
-    re.compile(r"^/api/v1/hunts(?:/[^/]+/(?:hypothesis|scope|queries|executions|evidence|findings|conclusion|status))?$"),
+    re.compile(r"^/api/v1/hunts(?:/[^/]+/(?:hypothesis|scope|queries(?:/[^/]+/execute)?|executions|evidence|findings|conclusion|status))?$"),
 )
 
 
