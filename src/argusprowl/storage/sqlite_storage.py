@@ -4,6 +4,7 @@ import base64
 import json
 import sqlite3
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -209,7 +210,7 @@ class SQLiteAdapter(Storage):
             value = filters.get(key)
             if value is not None:
                 clauses.append(f"i.timestamp {operator} ?")
-                values.append(value.isoformat() if hasattr(value, "isoformat") else str(value))
+                values.append(value.astimezone(UTC).isoformat() if isinstance(value, datetime) else str(value))
 
         entity_type, entity_id = filters.get("entity_type"), filters.get("entity_id")
         if entity_type is not None or entity_id is not None:
