@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from argusprowl.interfaces.storage import Storage
+from argusprowl.metrics.collector import MetricsCollector
 from argusprowl.models.system_status import HealthStatus
 from argusprowl.reliability.buffer import BoundedIngestionBuffer
 from argusprowl.services.health_service import HealthService
@@ -71,3 +72,23 @@ def test_storage_health_probe_reports_failures() -> None:
 
     assert component.status == HealthStatus.UNHEALTHY
     assert "database unavailable" in component.message
+
+
+def test_detection_pipeline_health_reports_detector_and_evidence_errors() -> None:
+    metrics = MetricsCollector()
+    beaconing = metrics.register_counter("beaconing_detector_errors")
+    correlation = metrics.register_counter("correlation_detector_errors")
+    evidence = metrics.register_counter("evidence_persistence_errors")
+
+    healthy = HealthService(metrics_collector=metrics)._check_detection_pipeline()
+    assert healthy.status == HealthStatus.HEALTHY
+
+    beaconing.increment(2)
+    correlation.increment()
+    evidence.increment(3)
+    degraded = HealthService(metrics_collector=metrics)._check_detection_pipeline()
+
+    assert degraded.status == HealthStatus.DEGRADED
+    assert "beaconing_detector_errors=2" in degraded.message
+    assert "correlation_detector_errors=1" in degraded.message
+    assert "evidence_persistence_errors=3" in degraded.message
