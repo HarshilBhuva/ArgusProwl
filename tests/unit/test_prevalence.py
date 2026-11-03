@@ -383,3 +383,34 @@ def test_event_with_multiple_destination_keys_counts_once() -> None:
         event_id=UUID("00000000-0000-0000-0000-000000000004"),
     )
     assert tracker.total_observations == 1
+
+
+def test_historical_query_does_not_reset_event_time_watermark() -> None:
+    """A query past the window must not make a stale late arrival acceptable."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="CurrentHost",
+        dst_ip="203.0.113.120",
+        timestamp=base + timedelta(minutes=20),
+        event_id=UUID("00000000-0000-0000-0000-000000000120"),
+    )
+
+    # This historical query is beyond the retained window. It must not erase
+    # the ingestion watermark used to reject subsequently delivered old events.
+    tracker.get_prevalence(
+        dst_ip="203.0.113.120",
+        timestamp=base + timedelta(minutes=40),
+    )
+    tracker.record_connection(
+        hostname="StaleHost",
+        dst_ip="203.0.113.120",
+        timestamp=base + timedelta(minutes=5),
+        event_id=UUID("00000000-0000-0000-0000-000000000121"),
+    )
+
+    assert tracker.total_observations == 1
