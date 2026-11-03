@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('./lib/api', () => ({
@@ -7,7 +7,12 @@ vi.mock('./lib/api', () => ({
     health: vi.fn(),
     metrics: vi.fn(),
     alerts: vi.fn(),
+    authStatus: vi.fn().mockResolvedValue({ auth_enabled: false, session_ttl_seconds: 3600 }),
+    authMe: vi.fn(),
+    createSession: vi.fn(),
+    logout: vi.fn(),
   },
+  setBrowserSessionActive: vi.fn(),
   ApiClientError: class ApiClientError extends Error {
     statusCode: number;
     userMessage: string;
@@ -33,6 +38,7 @@ vi.mock('./hooks/useQueries', () => ({
 }));
 
 import { useHealth, useMetrics, useAlerts, useEntities, useEntityDetail, useEntityTimeline, useRules, useRuleDetail, useEvidence } from './hooks/useQueries';
+import { ApiClientError, api } from './lib/api';
 import App from './App';
 
 const mockUseHealth = useHealth as ReturnType<typeof vi.fn>;
@@ -44,10 +50,12 @@ const mockUseEntityTimeline = useEntityTimeline as ReturnType<typeof vi.fn>;
 const mockUseRules = useRules as ReturnType<typeof vi.fn>;
 const mockUseRuleDetail = useRuleDetail as ReturnType<typeof vi.fn>;
 const mockUseEvidence = useEvidence as ReturnType<typeof vi.fn>;
+const mockApi = vi.mocked(api);
 
 describe('ArgusProwl Frontend', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApi.authStatus.mockResolvedValue({ auth_enabled: false, session_ttl_seconds: 3600 });
     window.history.pushState({}, '', '/');
     mockUseEntities.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
     mockUseEntityDetail.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
@@ -55,14 +63,49 @@ describe('ArgusProwl Frontend', () => {
     mockUseEvidence.mockReturnValue({ data: null, isLoading: false, error: null, refetch: vi.fn() });
   });
 
-  it('renders the application shell', () => {
+
+  it('authenticates the browser with a short-lived session without persisting the API key', async () => {
+    mockApi.authStatus.mockResolvedValue({ auth_enabled: true, session_ttl_seconds: 3600 });
+    mockApi.authMe
+      .mockRejectedValueOnce(new ApiClientError(401, 'Unauthorized'))
+      .mockResolvedValue({
+        authenticated: true,
+        subject: 'soc-analyst',
+        role: 'analyst',
+        key_id: 'analyst-key',
+      });
+    mockApi.createSession.mockResolvedValue({
+      authenticated: true,
+      subject: 'soc-analyst',
+      role: 'analyst',
+      key_id: 'analyst-key',
+    });
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /Operations Dashboard/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Sign in/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'one-time-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
+
+    expect(await screen.findByText('soc-analyst')).toBeInTheDocument();
+    await waitFor(() => expect(mockApi.createSession).toHaveBeenCalledWith('one-time-secret'));
+    expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument();
+
+    window.dispatchEvent(new Event('argusprowl:session-expired'));
+    expect(await screen.findByRole('heading', { name: /Sign in/i })).toBeInTheDocument();
+  });
+
+  it('renders the application shell', async () => {
+    mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
+    mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
+    mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: /Operations Dashboard/i })).toBeInTheDocument();
   });
 
   it('shows health status when available', async () => {
@@ -79,27 +122,27 @@ describe('ArgusProwl Frontend', () => {
     expect(await screen.findByRole('heading', { name: /System Health/i })).toBeInTheDocument();
   });
 
-  it('shows loading state while fetching', () => {
+  it('shows loading state while fetching', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: true, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: true, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: true, error: null });
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /System Health/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /System Health/i })).toBeInTheDocument();
   });
 
-  it('shows error state when API is unavailable', () => {
+  it('shows error state when API is unavailable', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: new Error('API unavailable') });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
 
     render(<App />);
 
-    expect(screen.getByText(/Backend status unavailable/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Backend status unavailable/i)).toBeInTheDocument();
   });
 
-  it('renders metrics and alerts returned by the backend', () => {
+  it('renders metrics and alerts returned by the backend', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({
       data: {
@@ -134,12 +177,12 @@ describe('ArgusProwl Frontend', () => {
 
     render(<App />);
 
-    expect(screen.getByText('Alert Count')).toBeInTheDocument();
+    expect(await screen.findByText('Alert Count')).toBeInTheDocument();
     expect(screen.getByText('<script>alert(1)</script>')).toBeInTheDocument();
     expect(screen.queryByRole('script')).not.toBeInTheDocument();
   });
 
-  it('shows the alerts empty state', () => {
+  it('shows the alerts empty state', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({
@@ -150,10 +193,10 @@ describe('ArgusProwl Frontend', () => {
 
     render(<App />);
 
-    expect(screen.getByText(/No alerts are currently available/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No alerts are currently available/i)).toBeInTheDocument();
   });
 
-  it('renders placeholder routes and the 404 route', () => {
+  it('renders placeholder routes and the 404 route', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
@@ -178,11 +221,11 @@ describe('ArgusProwl Frontend', () => {
       refetch: vi.fn(),
     });
     const { unmount } = render(<App />);
-    expect(screen.getByRole('heading', { name: /Entity Investigation/i, level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Entity Investigation/i, level: 1 })).toBeInTheDocument();
 
     unmount();
     window.history.pushState({}, '', '/does-not-exist');
     render(<App />);
-    expect(screen.getByRole('heading', { name: /Page not found/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Page not found/i })).toBeInTheDocument();
   });
 });

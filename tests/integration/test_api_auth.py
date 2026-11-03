@@ -107,8 +107,8 @@ def env_var_fallback_app(mock_alert_search_service: MagicMock) -> TestClient:
     try:
         container = ServiceContainer.get_instance()
         container.register_singleton(AlertSearchService, lambda: mock_alert_search_service)
-        # The app factory installs the middleware; it resolves the legacy
-        # environment key at request time, so the variable remains set during the test.
+        # The app factory builds the shared auth service from the legacy
+        # environment key, so the variable remains set during app construction.
         app = create_api_app(
             auth_enabled=True,
             api_key="",  # config has no key — env var provides it

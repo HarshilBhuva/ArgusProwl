@@ -116,20 +116,27 @@ def create_api_app(
     # every handler (including those on included routers) is protected.
     from argusprowl.api.audit import AuditLog
     from argusprowl.api.audit import router as audit_router
-    from argusprowl.api.auth import ApiKeyAuthMiddleware
+    from argusprowl.api.auth import ApiKeyAuthMiddleware, ApiKeyAuthService
+    from argusprowl.api.auth_routes import router as auth_router
     from argusprowl.api.routes import operational_router, router
 
     audit_log = AuditLog(audit_db_path)
-    app.state.audit_log = audit_log
-    app.add_middleware(
-        ApiKeyAuthMiddleware,
+    auth_service = ApiKeyAuthService(
         auth_enabled=auth_enabled,
         api_key=api_key,
         api_keys=api_keys,
+    )
+    app.state.audit_log = audit_log
+    app.state.auth_service = auth_service
+    app.add_middleware(
+        ApiKeyAuthMiddleware,
+        auth_enabled=auth_enabled,
         auth_header_name=auth_header_name,
         audit_log=audit_log,
+        auth_service=auth_service,
     )
 
+    app.include_router(auth_router)
     app.include_router(router)
     app.include_router(operational_router)
     app.include_router(audit_router)

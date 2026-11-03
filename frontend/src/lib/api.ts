@@ -30,6 +30,8 @@ import type {
   HuntListResponse,
   HuntQueryExecutionResponse,
   HuntScopeRequest,
+  AuthStatusResponse,
+  AuthPrincipalResponse,
 } from '../types/api';
 
 export class ApiClientError extends Error {
@@ -83,12 +85,19 @@ function extractDetail(payload: unknown): string | null {
   return null;
 }
 
+let browserSessionActive = false;
+
+export function setBrowserSessionActive(active: boolean): void {
+  browserSessionActive = active;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${getApiBaseUrl()}${path}`;
 
   try {
     const response = await fetch(url, {
       ...options,
+      credentials: 'same-origin',
       headers: {
         Accept: 'application/json',
         ...options.headers,
@@ -96,6 +105,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     });
 
     if (!response.ok) {
+      if (response.status === 401 && browserSessionActive && !path.startsWith('/api/v1/auth/')) {
+        window.dispatchEvent(new Event('argusprowl:session-expired'));
+      }
       let payload: unknown = null;
       try {
         payload = await response.json();
@@ -158,7 +170,18 @@ function buildAlertQuery(params: AlertSearchParams = {}): string {
 }
 
 export const api = {
-  health: () => request<HealthResponse>('/api/v1/health'),
+  health: () => request<HealthResponse>('/api/v1/health/details'),
+  authStatus: () => request<AuthStatusResponse>('/api/v1/auth/status'),
+  authMe: () => request<AuthPrincipalResponse>('/api/v1/auth/me'),
+  createSession: (apiKey: string) =>
+    request<AuthPrincipalResponse>('/api/v1/auth/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  logout: () =>
+    request<{ authenticated: boolean }>('/api/v1/auth/session', { method: 'DELETE' }),
+
   hunts: () => request<HuntListResponse>('/api/v1/hunts'),
   hunt: (huntId: string) =>
     request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}`),

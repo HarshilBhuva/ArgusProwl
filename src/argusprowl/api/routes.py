@@ -127,6 +127,19 @@ def _build_health_response(status) -> HealthResponse:
     )
 
 
+
+def _build_public_health_response(status) -> HealthResponse:
+    """Expose liveness metadata without internal component names or diagnostics."""
+    full = _build_health_response(status)
+    return HealthResponse(
+        status=full.status,
+        version=full.version,
+        uptime_seconds=full.uptime_seconds,
+        checked_at=full.checked_at,
+        components=[],
+    )
+
+
 def _build_metrics_response(snapshot) -> MetricsResponse:
     """Build a structured metrics response from MetricsSnapshot."""
     from argusprowl.models.metrics_snapshot import MetricsSnapshot
@@ -709,11 +722,10 @@ async def health_check() -> HealthResponse:
         if container.is_registered(HealthService):
             health_service = container.resolve(HealthService)
             status = health_service.check_health()
-            return _build_health_response(status)
+            return _build_public_health_response(status)
         else:
             # Service not registered (e.g., application not started).
-            # Health is a public endpoint — always return 200 so probes and
-            # public pages can observe the status without auth.
+            # Public liveness is intentionally limited to aggregate status.
             return JSONResponse(
                 content={
                     "status": "unhealthy",
@@ -738,6 +750,39 @@ async def health_check() -> HealthResponse:
         )
 
 
+
+@router.get(
+    "/health/details",
+    summary="Detailed operational health",
+    response_model=HealthResponse,
+)
+async def detailed_health_check() -> HealthResponse:
+    """Return component diagnostics to authenticated operators only."""
+    try:
+        from argusprowl.dependency_injection.container import ServiceContainer
+        from argusprowl.services.health_service import HealthService
+
+        container = ServiceContainer.get_instance()
+        if container.is_registered(HealthService):
+            return _build_health_response(container.resolve(HealthService).check_health())
+        return HealthResponse(
+            status="unhealthy",
+            version="unknown",
+            uptime_seconds=0.0,
+            checked_at=datetime.now(UTC),
+            components=[],
+        )
+    except Exception as exc:
+        logger.warning("Detailed health check failed: %s", exc)
+        return HealthResponse(
+            status="unhealthy",
+            version="unknown",
+            uptime_seconds=0.0,
+            checked_at=datetime.now(UTC),
+            components=[],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Operational Health endpoint (no prefix)
 # ---------------------------------------------------------------------------
@@ -757,7 +802,7 @@ async def operational_health_check() -> JSONResponse:
         if container.is_registered(HealthService):
             health_service = container.resolve(HealthService)
             status = health_service.check_health()
-            response = _build_health_response(status)
+            response = _build_public_health_response(status)
             return JSONResponse(content=response.model_dump(mode="json"), status_code=200)
         else:
             return JSONResponse(

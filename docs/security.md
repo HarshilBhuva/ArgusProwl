@@ -46,14 +46,16 @@ For zero-downtime rotation, add a new key ID and secret alongside the old key,
 deploy the updated configuration, switch clients to the new credential, then
 disable or remove the old key and redeploy. Configuration-based revocation
 requires a configuration deployment/restart; a remote management API and
-persistent runtime revocation store are not implemented.
+persistent runtime revocation store are not implemented. Browser sessions are
+signed by the API key that created them, so disabling, removing, expiring, or
+rotating that key invalidates its outstanding sessions on the next request.
 
 ## Role boundaries
 
 | Role | Access |
 | --- | --- |
 | `viewer` | Read API resources; no write operations |
-| `analyst` | Viewer access plus alert acknowledge/close, incident transitions/close/annotations, and entity annotations |
+| `analyst` | Viewer access plus alert acknowledge/close, incident transitions/close/annotations, entity annotations, and owned hunt creation/management |
 | `admin` | All API operations, including audit-log reads |
 
 Authorization is deny-by-default for write operations. Newly introduced write
@@ -64,11 +66,43 @@ The legacy single API key is administrator-level for compatibility. Rotate it
 and migrate to named role-bearing keys when multiple operators need different
 permissions.
 
-The current React client does not yet provide an API-key login or credential
-entry flow. Enabling API authentication protects the API, but browser-side
-requests from the existing UI will not include these keys; use an authenticated
-API client or a trusted authentication-aware reverse proxy until frontend
-authentication is implemented.
+### Browser sessions
+
+When API authentication is enabled, the React client uses the following flow:
+
+1. `GET /api/v1/auth/status` reports whether API authentication is enabled.
+2. The operator enters an API key into the sign-in form.
+3. `POST /api/v1/auth/session` validates the key and issues a short-lived
+   signed session cookie.
+4. The API validates that cookie on protected requests and enforces the same
+   role policy used by API-key header clients.
+5. `DELETE /api/v1/auth/session` ends the browser session.
+
+The browser cookie is HttpOnly, SameSite=Strict, scoped to `/api`, and expires
+after one hour. It is marked Secure when the request uses HTTPS. The API key is
+not written to localStorage, sessionStorage, or returned in the login response.
+Session tokens are stateless HMAC-SHA-256 tokens signed with the associated API
+key secret. The API rechecks the credential's enabled and expiry state on every
+request. Browser login and unsafe cookie-authenticated requests require a
+same-origin Origin header; missing or mismatched origins are rejected. When
+deployed behind a TLS reverse proxy, preserve the external Host header and set
+`X-Forwarded-Proto` to the browser-facing scheme so Origin validation and the
+Secure cookie attribute use the public origin. Logout clears the current browser cookie; a copied token cannot be
+individually revoked and remains valid until expiry or credential revocation.
+Cross-origin browser clients should use a separately designed authentication
+boundary; browser sessions are intentionally same-origin only.
+
+Non-browser clients may continue sending `X-ArgusProwl-Key` (or the configured
+header) directly. The detailed component diagnostics at
+`GET /api/v1/health/details` require authentication. Public `GET /health` and
+`GET /api/v1/health` expose only aggregate liveness metadata and do not disclose
+collector names, queue-loss counters, storage diagnostics, or internal error
+messages. Authenticated `GET /api/v1/health/details` reports collector state,
+queue pressure and loss counters, storage read-probe status, and cumulative
+beaconing/correlation/evidence-persistence error counters. A nonzero error
+counter leaves the detection-pipeline component degraded for the remainder of
+the process lifetime; restart only after preserving and investigating the
+diagnostic evidence.
 
 ## Audit trail
 
@@ -97,7 +131,8 @@ every subsequent link. It is not a digital signature or an external trust
 anchor: an attacker able to rewrite the database and recompute the complete
 chain can forge a new history, and truncation of the newest tail cannot be
 detected without an independently retained checkpoint. The integrity endpoint
-is administrator-only.
+is administrator-only. Browser login successes, failures, and session
+termination events are recorded without storing API-key values or request bodies.
 
 ### External audit-chain checkpoints
 
@@ -137,9 +172,24 @@ recovery are not implemented. Losing the signing key makes the checkpoint
 unverifiable. A compromised signing key permits an attacker to forge a
 replacement checkpoint.
 
-Automatic retention, rotation, and external archival are not implemented;
-monitor database growth and define an operator-managed retention/backup policy.
-Protect the SQLite file, backups, and host filesystem permissions.
+Telemetry-evidence retention and cleanup are configurable under
+`telemetry_evidence`; this policy does not automatically apply to the API audit
+database or hunt records. Audit-log retention, audit-database rotation, and
+external archival remain operator-managed. Monitor database growth, run and
+verify SQLite backups, and protect database files and backups with host
+filesystem permissions.
+
+
+## Deployment tenancy boundary
+
+ArgusProwl currently has a **single-tenant-per-instance** data model. Authenticated
+principals in one instance share alert, incident, entity-intelligence, telemetry
+evidence, and audit data according to their role. Non-admin hunt access is
+owner-scoped, but that does not provide organization-level tenant isolation for
+the rest of the platform. Do not host multiple customer organizations in one
+instance. Until tenant identifiers and isolation constraints are enforced across
+all persistence layers, deploy a separate application instance and separate
+storage volumes for each customer.
 
 ## Deployment notes
 
