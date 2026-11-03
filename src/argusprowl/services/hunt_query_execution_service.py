@@ -73,16 +73,24 @@ class HuntQueryExecutionService:
         query = next((item for item in hunt.queries if item.query_id == query_id and item.version == version), None)
         if query is None:
             raise HuntConflictError("Execution must reference an exact saved query ID and version.")
-        params = self._compile(query.definition, hunt.scope)
         started = datetime.now(UTC)
+        try:
+            params = self._compile(query.definition, hunt.scope)
+        except ValueError as exc:
+            finished = datetime.now(UTC)
+            failed = HuntExecution(query_id=query_id, query_version=version, started_at=started, completed_at=finished, result_count=0, status="failed", error=str(exc)[:2000])
+            hunts.record_execution(hunt_id, failed, actor)
+            raise
         status, error, truncated, ids, sources = "complete", None, False, (), ()
         try:
             found = self._evidence.search(**params)
             ids = tuple(found.events.keys())
             truncated = found.truncated
             sources = tuple(sorted({event.source_type for event in found.events.values()}))
-            status = "partial" if truncated else ("degraded" if found.status != "AVAILABLE" else "complete")
-            error = found.reason if found.status != "AVAILABLE" else None
+            status = ("degraded" if found.status != "AVAILABLE" else "complete")
+            if truncated and status == "complete":
+                status = "partial"
+            error = found.reason if found.status != "AVAILABLE" else ("Result limit reached; additional matches may exist." if truncated else None)
             # Verify each match against the durable authoritative detail lookup.
             verified = []
             if found.status == "UNAVAILABLE":
