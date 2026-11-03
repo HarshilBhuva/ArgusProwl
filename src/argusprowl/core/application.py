@@ -500,6 +500,7 @@ class Application:
                 self._start_time,
                 self._config_manager,
                 self._container.resolve(Storage),
+                collector_manager=self._container.resolve(CollectorManager),
                 event_queue=self._event_queue,
             ),
         )
