@@ -256,6 +256,45 @@ class TestTemporalBucket:
             item.event_id for item in recent
         ]
 
+    def test_allowed_lateness_accepts_boundary_and_rejects_older_events(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        bucket = TemporalBucket(
+            key=("1.2.3.4", 443),
+            window_duration=timedelta(minutes=5),
+            allowed_lateness=timedelta(seconds=10),
+        )
+        first = TemporalObservation(uuid4(), start + timedelta(seconds=20), "1.2.3.4", 443)
+        boundary = TemporalObservation(uuid4(), start + timedelta(seconds=10), "1.2.3.4", 443)
+        too_late = TemporalObservation(uuid4(), start + timedelta(seconds=9), "1.2.3.4", 443)
+
+        assert bucket.add(first)
+        assert bucket.add(boundary)
+        assert not bucket.add(too_late)
+        assert bucket.watermark == start + timedelta(seconds=20)
+        assert bucket.late_event_count == 1
+        assert [item.timestamp for item in bucket.observations] == [
+            start + timedelta(seconds=10),
+            start + timedelta(seconds=20),
+        ]
+
+    def test_watermark_does_not_rewind_when_reordered_event_arrives(self) -> None:
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        bucket = TemporalBucket(
+            key=("1.2.3.4", 443),
+            window_duration=timedelta(minutes=5),
+            allowed_lateness=timedelta(seconds=30),
+        )
+        for offset in (10, 30, 20):
+            assert bucket.add(
+                TemporalObservation(
+                    uuid4(), start + timedelta(seconds=offset), "1.2.3.4", 443
+                )
+            )
+
+        assert bucket.watermark == start + timedelta(seconds=30)
+        assert bucket.get_interval_seconds() == [10.0, 10.0]
+        assert bucket.late_event_count == 0
+
     def test_max_observation_bound(self) -> None:
         bucket = TemporalBucket(
             key=("1.2.3.4", 443),
