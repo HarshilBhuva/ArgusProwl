@@ -421,19 +421,6 @@ class Application:
         self._container.register_singleton(
             HuntService, lambda: HuntService(self._container.resolve(Storage))
         )
-        # Hunt query execution composes the hunt aggregate with the durable
-        # telemetry evidence service; resolve dependencies lazily after startup.
-        from argusprowl.services.hunt_query_execution_service import HuntQueryExecutionService
-        from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
-
-        self._container.register_singleton(
-            TelemetryEvidenceService,
-            lambda: TelemetryEvidenceService(storage=self._container.resolve(Storage), metrics_collector=metrics),
-        )
-        self._container.register_singleton(
-            HuntQueryExecutionService,
-            lambda: HuntQueryExecutionService(self._container.resolve(TelemetryEvidenceService)),
-        )
         self._container.register_singleton(
             HealthService,
             lambda: HealthService(
@@ -649,6 +636,14 @@ class Application:
                     storage=self._container.resolve(Storage),
                     metrics_collector=self._container.resolve(MetricsCollector),
                 ),
+            )
+
+            # Query execution uses the same configured evidence instance as ingestion.
+            from argusprowl.services.hunt_query_execution_service import HuntQueryExecutionService
+
+            self._container.register_singleton(
+                HuntQueryExecutionService,
+                lambda: HuntQueryExecutionService(self._container.resolve(TelemetryEvidenceService)),
             )
 
         # Phase 6.1/6.2: ATT&CK remains optional semantic enrichment only.
