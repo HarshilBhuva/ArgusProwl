@@ -12,6 +12,7 @@ import argusprowl
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.interfaces.storage import Storage
 from argusprowl.logging.logger_factory import LoggerFactory
+from argusprowl.metrics.collector import MetricsCollector
 from argusprowl.models.system_status import ComponentHealth, HealthStatus, SystemStatus
 
 
@@ -25,12 +26,14 @@ class HealthService:
         storage: Storage | None = None,
         collector_manager: object | None = None,
         event_queue: object | None = None,
+        metrics_collector: MetricsCollector | None = None,
     ) -> None:
         self._start_time = start_time or datetime.now(UTC)
         self._config_manager = config_manager
         self._storage = storage
         self._collector_manager = collector_manager  # CollectorManager | None (optional)
         self._event_queue = event_queue
+        self._metrics_collector = metrics_collector
 
     def check_health(self) -> SystemStatus:
         """Run all subsystem health checks and return aggregated SystemStatus.
@@ -44,6 +47,7 @@ class HealthService:
         components.append(self._check_logging())
         components.append(self._check_processing_queue())
         components.append(self._check_storage())
+        components.append(self._check_detection_pipeline())
         components.append(self._check_disk())
 
         # Collector health is optional - silently skipped when no manager is wired.
@@ -164,6 +168,42 @@ class HealthService:
                 status=HealthStatus.UNHEALTHY,
                 message=f"Storage read probe failed: {exc}",
             )
+
+
+    def _check_detection_pipeline(self) -> ComponentHealth:
+        """Surface detector and evidence-persistence failures that do not stop ingestion."""
+        if self._metrics_collector is None:
+            return ComponentHealth(
+                name="detection_pipeline",
+                status=HealthStatus.DEGRADED,
+                message="Detection pipeline error metrics are not wired into health checks.",
+            )
+        metric_names = (
+            "beaconing_detector_errors",
+            "correlation_detector_errors",
+            "evidence_persistence_errors",
+        )
+        try:
+            counts = {
+                name: int(self._metrics_collector.get_counter(name).get_value())
+                for name in metric_names
+            }
+        except KeyError:
+            counts = {name: 0 for name in metric_names}
+        except Exception as exc:
+            return ComponentHealth(
+                name="detection_pipeline",
+                status=HealthStatus.DEGRADED,
+                message=f"Unable to inspect detection pipeline metrics: {exc}",
+            )
+        total = sum(counts.values())
+        status = HealthStatus.DEGRADED if total else HealthStatus.HEALTHY
+        message = (
+            "Detector/evidence errors detected; "
+            if total
+            else "No detector/evidence errors recorded; "
+        ) + "; ".join(f"{name}={count}" for name, count in counts.items())
+        return ComponentHealth(name="detection_pipeline", status=status, message=message)
 
     def _check_disk(self) -> ComponentHealth:
         try:
