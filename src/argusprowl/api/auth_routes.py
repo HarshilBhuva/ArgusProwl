@@ -47,10 +47,13 @@ def _audit_login(
 @router.get("/status", summary="Get browser authentication requirements")
 async def auth_status(request: Request) -> dict[str, object]:
     service: ApiKeyAuthService = request.app.state.auth_service
-    return {
-        "auth_enabled": service.auth_enabled,
-        "session_ttl_seconds": service.session_ttl_seconds,
-    }
+    return JSONResponse(
+        {
+            "auth_enabled": service.auth_enabled,
+            "session_ttl_seconds": service.session_ttl_seconds,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/me", summary="Get the authenticated browser principal")
@@ -58,12 +61,15 @@ async def auth_me(request: Request) -> dict[str, object]:
     principal = getattr(request.state, "principal", None)
     if principal is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    return {
-        "authenticated": True,
-        "subject": principal.subject,
-        "role": principal.role,
-        "key_id": principal.key_id,
-    }
+    return JSONResponse(
+        {
+            "authenticated": True,
+            "subject": principal.subject,
+            "role": principal.role,
+            "key_id": principal.key_id,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/session", summary="Create a short-lived browser session")
@@ -100,7 +106,8 @@ async def create_session(payload: SessionCreateRequest, request: Request) -> JSO
             "subject": principal.subject,
             "role": principal.role,
             "key_id": principal.key_id,
-        }
+        },
+        headers={"Cache-Control": "no-store"},
     )
     response.set_cookie(
         key=service.cookie_name,
@@ -129,7 +136,10 @@ async def delete_session(request: Request) -> JSONResponse:
         except Exception:
             # Logout must clear the browser credential even if audit storage is down.
             logger.exception("Could not persist browser session termination event")
-    response = JSONResponse({"authenticated": False})
+    response = JSONResponse(
+        {"authenticated": False},
+        headers={"Cache-Control": "no-store"},
+    )
     response.delete_cookie(
         key=service.cookie_name,
         path="/api",
