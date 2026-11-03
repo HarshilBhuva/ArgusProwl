@@ -11,6 +11,7 @@ vi.mock('./lib/api', () => ({
     authMe: vi.fn(),
     createSession: vi.fn(),
     logout: vi.fn(),
+    setBrowserSessionActive: vi.fn(),
   },
   ApiClientError: class ApiClientError extends Error {
     statusCode: number;
