@@ -502,6 +502,7 @@ class Application:
                 self._container.resolve(Storage),
                 collector_manager=self._container.resolve(CollectorManager),
                 event_queue=self._event_queue,
+                metrics_collector=self._container.resolve(MetricsCollector),
             ),
         )
         # Phase 2.1: Collector framework - registered after health so the
@@ -918,6 +919,19 @@ class Application:
         if not self._shutdown_event.is_set():
             self._event_queue.put(event)
 
+
+    def _increment_metric_counter(self, name: str) -> None:
+        """Increment a bounded operational counter without affecting event processing."""
+        try:
+            metrics = self._container.resolve(MetricsCollector)
+            try:
+                counter = metrics.get_counter(name)
+            except KeyError:
+                counter = metrics.register_counter(name)
+            counter.increment()
+        except Exception:
+            self._logger.exception("Unable to increment operational metric %s", name)
+
     def _process_event(self, event: NormalizedEvent) -> bool:
         """Process one event; return True only when the core pipeline completes."""
         try:
@@ -966,7 +980,8 @@ class Application:
                     if result.matched:
                         detection_results.append(result)
             except Exception:
-                pass  # BeaconingDetector not registered (temporal disabled)
+                self._logger.exception("Beaconing detector failed")
+                self._increment_metric_counter("beaconing_detector_errors")
 
             try:
                 correlation_detector = self._container.resolve(CorrelationDetector)
@@ -981,6 +996,7 @@ class Application:
                         detection_results.append(result)
             except Exception as exc:
                 self._logger.error("Error in correlation detector: %s", exc, exc_info=True)
+                self._increment_metric_counter("correlation_detector_errors")
 
             # Decision and alerting
             for result in detection_results:
@@ -1027,6 +1043,7 @@ class Application:
                 self._logger.exception(
                     "Telemetry evidence persistence failed for event_id=%s", event.event_id
                 )
+                self._increment_metric_counter("evidence_persistence_errors")
 
         except Exception as exc:
             self._logger.error("Error processing event: %s", exc, exc_info=True)
