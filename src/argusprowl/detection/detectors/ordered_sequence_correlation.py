@@ -6,6 +6,7 @@ grouped by specified fields. Used for multi-step attack detection.
 
 from __future__ import annotations
 
+import json
 import re
 from collections import OrderedDict
 from datetime import timedelta
@@ -14,9 +15,11 @@ from threading import Lock
 from typing import Any, ClassVar
 
 from argusprowl.constants.severity import Severity
+from argusprowl.detection.correlation_state_repository import CorrelationStateRepository
 from argusprowl.detection.detectors.ordered_sequence_state import OrderedSequenceState
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
+from argusprowl.interfaces.storage import Storage
 from argusprowl.models.detection_result import DetectionResult
 from argusprowl.models.normalized_event import NormalizedEvent
 
@@ -115,6 +118,7 @@ class OrderedSequenceDetector(Detector):
         enabled: bool = True,
         config: dict[str, Any] | None = None,
         name: str = "ordered_sequence_correlation",
+        storage: Storage | None = None,
     ) -> None:
         """Initialize ordered sequence correlation detector.
 
@@ -149,6 +153,23 @@ class OrderedSequenceDetector(Detector):
         self._config = config or {}
         self._name = name
         self._detections_count = 0
+        state_identity = json.dumps(
+            {
+                "version": version,
+                "steps": self._steps,
+                "timespan_seconds": timespan.total_seconds(),
+                "group_by": self._group_by,
+                "max_sequences_per_key": max_sequences_per_key,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        self._state_repository = (
+            CorrelationStateRepository(storage, name, state_identity)
+            if storage is not None
+            else None
+        )
 
         # Bounded state storage: group_key -> OrderedSequenceState
         self._state: OrderedDict[tuple[str, ...], OrderedSequenceState] = OrderedDict()
@@ -239,18 +260,31 @@ class OrderedSequenceDetector(Detector):
             state = self._state.get(group_key)
             if state is None:
                 if len(self._state) >= self._max_keys:
-                    self._state.popitem(last=False)
-                state = OrderedSequenceState(
-                    group_key=group_key,
-                    window_duration=self._timespan,
-                    max_steps=self._max_sequences_per_key,
-                    total_steps=len(self._steps),
+                    evicted_key, _ = self._state.popitem(last=False)
+                    if self._state_repository is not None:
+                        self._state_repository.delete(evicted_key)
+                snapshot = (
+                    self._state_repository.load(group_key)
+                    if self._state_repository is not None
+                    else None
+                )
+                state = (
+                    OrderedSequenceState.from_dict(snapshot)
+                    if snapshot is not None
+                    else OrderedSequenceState(
+                        group_key=group_key,
+                        window_duration=self._timespan,
+                        max_steps=self._max_sequences_per_key,
+                        total_steps=len(self._steps),
+                    )
                 )
                 self._state[group_key] = state
             else:
                 self._state.move_to_end(group_key)
 
         state.try_advance(event, self._steps)
+        if self._state_repository is not None:
+            self._state_repository.save(group_key, state.to_dict())
 
     def detect(self, event: NormalizedEvent) -> DetectionResult:
         """Evaluate the event for sequence completion.
@@ -273,6 +307,14 @@ class OrderedSequenceDetector(Detector):
 
         with self._lock:
             state = self._state.get(group_key)
+            if state is None and self._state_repository is not None:
+                snapshot = self._state_repository.load(group_key)
+                if snapshot is not None:
+                    if len(self._state) >= self._max_keys:
+                        evicted_key, _ = self._state.popitem(last=False)
+                        self._state_repository.delete(evicted_key)
+                    state = OrderedSequenceState.from_dict(snapshot)
+                    self._state[group_key] = state
 
         if state is None:
             return DetectionResult(
@@ -283,6 +325,8 @@ class OrderedSequenceDetector(Detector):
             )
 
         was_triggered, completed = state.check_and_clear_trigger(event)
+        if was_triggered and self._state_repository is not None:
+            self._state_repository.save(group_key, state.to_dict())
 
         if not was_triggered:
             return DetectionResult(
