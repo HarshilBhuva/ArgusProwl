@@ -298,3 +298,30 @@ def test_observations_older_than_retained_window_are_ignored() -> None:
         timestamp=base + timedelta(minutes=20),
     )
     assert result.dest_host_count == 1
+
+
+def test_historical_query_excludes_future_observations() -> None:
+    """Historical assessments must not see telemetry from later event times."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=30),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="EarlierHost", dst_ip="203.0.113.99", process_name="agent",
+        timestamp=base + timedelta(minutes=10),
+    )
+    tracker.record_connection(
+        hostname="FutureHost", dst_ip="203.0.113.99", process_name="agent",
+        timestamp=base + timedelta(minutes=20),
+    )
+
+    result = tracker.get_prevalence(
+        dst_ip="203.0.113.99",
+        process_name="agent",
+        timestamp=base + timedelta(minutes=15),
+    )
+
+    assert result.dest_host_count == 1
+    assert result.process_dest_count == 1
