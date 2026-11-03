@@ -106,7 +106,7 @@ def test_non_ascii_api_key_header_is_rejected_without_server_error(tmp_path) -> 
     client, _ = _build_client(tmp_path, "viewer")
     response = client.get(
         "/api/v1/alerts",
-        headers=[(b"X-ArgusProwl-Key", b"\\xe9" * 40)],
+        headers=[(b"X-ArgusProwl-Key", b"\xe9" * 40)],
     )
     assert response.status_code == 401
     ServiceContainer.reset_instance()
