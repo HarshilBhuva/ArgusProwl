@@ -22,12 +22,24 @@ def _create_database(path):
 def test_backup_includes_committed_wal_data_and_manifest(tmp_path):
     source = tmp_path / "source.db"
     backup = tmp_path / "backup.db"
-    _create_database(source)
+    source_connection = sqlite3.connect(source)
+    source_connection.execute("PRAGMA journal_mode=WAL")
+    source_connection.execute("PRAGMA user_version=7")
+    source_connection.execute(
+        "CREATE TABLE evidence (event_id TEXT PRIMARY KEY, payload TEXT)"
+    )
+    source_connection.execute(
+        "INSERT INTO evidence(event_id, payload) VALUES (?, ?)",
+        ("event-1", '{"severity":"high"}'),
+    )
+    source_connection.commit()
+    assert (tmp_path / "source.db-wal").exists()
 
     manager = SQLiteBackupManager()
     manifest = manager.create_backup(
         source, backup, application_version="0.1.0"
     )
+    source_connection.close()
 
     assert manifest.schema_version == 7
     assert manifest.database_size_bytes == backup.stat().st_size
