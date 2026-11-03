@@ -38,3 +38,12 @@ def test_spa_navigation_is_public_but_non_navigation_is_not() -> None:
     assert not _is_public_path("/investigations/123", accept="application/json")
     assert not _is_public_path("/investigations/123", method="POST", accept="text/html")
     assert not _is_public_path("/health/private", accept="text/html")
+
+
+def test_browser_session_paths_have_method_specific_public_access() -> None:
+    assert _is_public_path("/api/v1/auth/status")
+    assert _is_public_path("/api/v1/auth/session", method="POST")
+    assert _is_public_path("/api/v1/auth/session", method="DELETE")
+    assert not _is_public_path("/api/v1/auth/session", method="GET")
+    assert not _is_public_path("/api/v1/auth/me")
+    assert not _is_public_path("/api/v1/auth/status", method="POST")
