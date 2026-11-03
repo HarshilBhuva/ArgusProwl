@@ -82,8 +82,10 @@ SQLite transaction.
 The chain is tamper-evident against modification that does not also recompute
 every subsequent link. It is not a digital signature or an external trust
 anchor: an attacker able to rewrite the database and recompute the complete
-chain can forge a new history. Export or anchor chain checkpoints in a separately
-controlled system for stronger assurance. Automatic retention, rotation, and
+chain can forge a new history, and truncation of the newest tail cannot be
+detected without an independently retained checkpoint. Export or anchor chain
+checkpoints in a separately controlled system for stronger assurance. The
+integrity endpoint is administrator-only. Automatic retention, rotation, and
 external archival are not implemented; monitor database growth and define an
 operator-managed retention/backup policy. Protect the SQLite file, backups, and
 host filesystem permissions.
