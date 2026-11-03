@@ -324,11 +324,11 @@ class SQLiteAdapter(Storage):
                     placeholders = ",".join("?" for _ in event_ids)
                     values = [str(event_id) for event_id in event_ids]
                     self._connection.execute(
-                        f"DELETE FROM records WHERE collection=? AND record_id IN ({placeholders})",
+                        f"DELETE FROM records WHERE collection=? AND record_id IN ({placeholders})",  # nosec B608
                         [self._EVIDENCE_COLLECTION, *values],
                     )
                     self._connection.execute(
-                        f"DELETE FROM telemetry_evidence_index WHERE event_id IN ({placeholders})",
+                        f"DELETE FROM telemetry_evidence_index WHERE event_id IN ({placeholders})",  # nosec B608
                         values,
                     )
             return event_ids
