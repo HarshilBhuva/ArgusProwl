@@ -65,3 +65,25 @@ The evidence and alert stores remain independently committed. A future transacti
 - Restore is an **offline operation**. Stop ArgusProwl and all processes that can write to the target database before restoring. The manager refuses to proceed when target `-wal` or `-shm` sidecars exist; it does not attempt to terminate processes or remove sidecars automatically.
 - The manifest checksum detects accidental corruption or tampering only when the manifest itself is trusted. It is not a digital signature, does not provide authenticity against an attacker who can replace both files, and does not encrypt backup contents.
 - This capability creates and verifies local backup files on demand. It does not schedule backups, upload them offsite, implement retention of backup generations, encrypt backups, or guarantee a particular RPO/RTO. Operators remain responsible for protected off-host copies, access controls, backup cadence, and periodic restore drills.
+
+
+### SQLite backup operator CLI
+
+The CLI exposes the local backup manager without starting the detection application:
+
+```bash
+# Create a new consistent backup from storage.database_path
+python -m argusprowl backup create --output backups/argusprowl-2026-11-03.db
+
+# Verify the database and companion manifest before relying on a backup
+python -m argusprowl backup verify backups/argusprowl-2026-11-03.db
+
+# Restore to the configured storage.database_path (application must be stopped)
+python -m argusprowl backup restore backups/argusprowl-2026-11-03.db --confirm-offline
+```
+
+- Create and restore load the selected configuration and require `storage.backend: sqlite`; they use its `storage.database_path`.
+- Verify is self-contained and does not need to load application configuration.
+- Restore refuses to run unless the operator supplies `--confirm-offline`. This is an explicit operator acknowledgement, not an automated proof that writers have stopped. The backup manager also rejects existing target WAL/SHM sidecars.
+- Backup output paths are unique: an existing database or manifest is never overwritten.
+- These commands remain local and on-demand. They do not schedule jobs, upload backups, or guarantee that operators have performed a restore drill.
