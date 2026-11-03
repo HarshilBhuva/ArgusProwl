@@ -18,6 +18,7 @@ def create_event(
     timestamp: datetime,
     src_ip: str = "192.168.1.1",
     event_type: str = "connection",
+    source_type: str = "test",
     **kwargs,
 ) -> NormalizedEvent:
     """Helper to create a normalized event."""
@@ -25,7 +26,7 @@ def create_event(
         event_id=uuid4(),
         timestamp=timestamp,
         event_type=event_type,
-        source_type="test",
+        source_type=source_type,
         src_ip=src_ip,
         **kwargs,
     )
@@ -487,6 +488,38 @@ class TestOrderedSequenceDetector:
 
         res = detector.detect(event2)
         assert res.matched
+
+    def test_sequence_grouping_by_process_identity_across_sources(self):
+        """An ordered sequence can span telemetry sources for one process."""
+        detector = OrderedSequenceDetector(
+            steps=[{"event_type": "process_start"}, {"event_type": "network_connection"}],
+            timespan=timedelta(minutes=5),
+            group_by=["hostname", "pid"],
+        )
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(
+            t0,
+            hostname="workstation-01",
+            pid=4242,
+            process_name="powershell.exe",
+            event_type="process_start",
+            source_type="sysmon",
+        )
+        second = create_event(
+            t0 + timedelta(seconds=1),
+            hostname="workstation-01",
+            pid=4242,
+            process_name="powershell.exe",
+            event_type="network_connection",
+            source_type="zeek",
+        )
+
+        detector.observe(first)
+        detector.observe(second)
+        result = detector.detect(second)
+
+        assert result.matched is True
+        assert result.evidence is not None
 
     def test_missing_group_field(self):
         """Test handling of missing group field."""
