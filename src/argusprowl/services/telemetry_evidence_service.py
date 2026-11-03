@@ -465,7 +465,13 @@ class TelemetryEvidenceService:
 
         with self._lock:
             # Exact event ID lookup — O(1).
-            if event_id is not None:
+            if event_id is not None and all(
+                value is None
+                for value in (
+                    start_time, end_time, entity_type, entity_id, src_ip, dst_ip,
+                    domain, event_type, source_type,
+                )
+            ):
                 event = self._events.get(event_id)
                 if event is None:
                     return EvidenceSearchResult(
@@ -491,6 +497,8 @@ class TelemetryEvidenceService:
             # Filtered scan — O(n) over in-memory store.
             matching_ids: list[UUID] = []
             for eid, ev in self._events.items():
+                if event_id is not None and eid != event_id:
+                    continue
                 if start_time is not None and ev.timestamp < start_time:
                     continue
                 if end_time is not None and ev.timestamp > end_time:
