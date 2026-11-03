@@ -291,6 +291,8 @@ export interface EvidenceStatsResponse {
   max_retained_events: number;
   eviction_count: number;
   capacity_used_pct: number;
+  retention_enabled?: boolean;
+  retention_days?: number | null;
   retention_last_run_at?: string | null;
   retention_last_deleted_count?: number;
   retention_runs_failed?: number;
