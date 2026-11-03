@@ -2,6 +2,7 @@
 from unittest.mock import MagicMock
 
 from argusprowl.hunting.hunt_service import HuntService
+from argusprowl.models.hunt import HuntScope
 from argusprowl.models.normalized_event import NormalizedEvent
 from argusprowl.services.hunt_query_execution_service import HuntQueryExecutionService
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
@@ -50,3 +51,38 @@ def test_query_execution_rejects_unknown_fields_and_oversized_limits(tmp_path):
         assert result.execution.error
     evidence.search.assert_not_called()
     storage.close()
+
+
+def test_query_compiler_fails_closed_for_unrepresentable_multi_value_scope():
+    service = HuntQueryExecutionService(MagicMock(spec=TelemetryEvidenceService))
+
+    try:
+        service._compile({}, HuntScope(sources=("sysmon", "zeek")))
+    except ValueError as exc:
+        assert "source_type filter is required" in str(exc)
+    else:
+        raise AssertionError("multi-source hunt scope was not enforced")
+
+    try:
+        service._compile({}, HuntScope(hosts=("host-1", "host-2")))
+    except ValueError as exc:
+        assert "hostname entity filter is required" in str(exc)
+    else:
+        raise AssertionError("multi-host hunt scope was not enforced")
+
+    try:
+        service._compile(
+            {"entity_type": "hostname", "entity_id": "host-3"},
+            HuntScope(hosts=("host-1", "host-2")),
+        )
+    except ValueError as exc:
+        assert "outside the hunt scope" in str(exc)
+    else:
+        raise AssertionError("out-of-scope host was accepted")
+
+    try:
+        service._compile({}, HuntScope(hosts=("host-1",), users=("analyst",)))
+    except ValueError as exc:
+        assert "simultaneously" in str(exc)
+    else:
+        raise AssertionError("unrepresentable host+user scope was accepted")
