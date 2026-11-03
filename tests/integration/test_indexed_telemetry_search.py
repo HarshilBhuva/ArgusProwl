@@ -163,7 +163,7 @@ def test_invalid_or_tampered_cursor_is_rejected(tmp_path) -> None:
 
 def test_retention_deletes_only_expired_rows_in_bounded_batches(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
-    service = TelemetryEvidenceService(max_retained_events=10, storage=storage)
+    service = TelemetryEvidenceService(max_retained_events=10, storage=storage, retention_enabled=True, retention_days=365)
     events = [_event(i) for i in range(3)]
     for event in events:
         service.record_event(event)
@@ -188,7 +188,7 @@ def test_retention_deletes_only_expired_rows_in_bounded_batches(tmp_path) -> Non
 
 def test_retention_does_not_delete_events_at_or_after_cutoff(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
-    service = TelemetryEvidenceService(storage=storage)
+    service = TelemetryEvidenceService(storage=storage, retention_enabled=True, retention_days=365)
     event = _event(2)
     service.record_event(event)
 
@@ -202,7 +202,7 @@ def test_retention_does_not_delete_events_at_or_after_cutoff(tmp_path) -> None:
 
 def test_retention_delete_failure_rolls_back_records_and_index(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
-    service = TelemetryEvidenceService(storage=storage)
+    service = TelemetryEvidenceService(storage=storage, retention_enabled=True, retention_days=365)
     event = _event(0)
     service.record_event(event)
     storage._connection.execute(
@@ -228,7 +228,7 @@ def test_retention_delete_failure_rolls_back_records_and_index(tmp_path) -> None
 
 def test_retention_rejects_naive_cutoff_and_invalid_batch_size(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
-    service = TelemetryEvidenceService(storage=storage)
+    service = TelemetryEvidenceService(storage=storage, retention_enabled=True, retention_days=365)
     try:
         service.run_retention(datetime(2025, 1, 1), batch_size=10)
     except ValueError as exc:
