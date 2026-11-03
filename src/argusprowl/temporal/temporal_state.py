@@ -80,7 +80,34 @@ class TemporalBucket:
     observations: deque[TemporalObservation] = field(default_factory=deque)
     max_observations: int = 1000
     window_duration: timedelta = field(default_factory=lambda: timedelta(hours=1))
+    allowed_lateness: timedelta | None = None
     lock: Lock = field(default_factory=Lock, repr=False)
+    _max_event_time: datetime | None = field(default=None, init=False, repr=False)
+    _late_event_count: int = field(default=0, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.max_observations < 1:
+            raise ValueError("max_observations must be positive")
+        if self.window_duration <= timedelta(0):
+            raise ValueError("window_duration must be positive")
+        if self.allowed_lateness is None:
+            self.allowed_lateness = self.window_duration
+        if self.allowed_lateness < timedelta(0):
+            raise ValueError("allowed_lateness cannot be negative")
+        if self.allowed_lateness > self.window_duration:
+            raise ValueError("allowed_lateness cannot exceed window_duration")
+
+    @property
+    def watermark(self) -> datetime | None:
+        """Return the greatest accepted event timestamp."""
+        with self.lock:
+            return self._max_event_time
+
+    @property
+    def late_event_count(self) -> int:
+        """Return the number of observations rejected beyond allowed lateness."""
+        with self.lock:
+            return self._late_event_count
 
     def add(self, observation: TemporalObservation) -> bool:
         """Add an observation, evicting expired and excess entries.
@@ -96,25 +123,32 @@ class TemporalBucket:
             True if the observation was accepted, False if it was a duplicate.
         """
         with self.lock:
-            # Use the greatest event timestamp as the watermark. A late event
-            # must not move the active window backwards or evict newer data.
-            watermark = max(
-                (item.timestamp for item in self.observations),
-                default=observation.timestamp,
-            )
-            watermark = max(watermark, observation.timestamp)
-            cutoff = watermark - self.window_duration
+            # The watermark is monotonic and advances only for accepted events.
+            # The lateness boundary provides a bounded reorder window.
+            previous_watermark = self._max_event_time
+            if previous_watermark is not None:
+                lateness_cutoff = previous_watermark - self.allowed_lateness
+                if observation.timestamp < lateness_cutoff:
+                    self._late_event_count += 1
+                    return False
 
+            if self._is_duplicate_unlocked(observation):
+                return False
+
+            watermark = (
+                observation.timestamp
+                if previous_watermark is None
+                else max(previous_watermark, observation.timestamp)
+            )
+            cutoff = watermark - self.window_duration
             retained = [
                 item for item in self.observations if item.timestamp >= cutoff
             ]
             self.observations = deque(retained)
-
-            # Events older than the active window are explicitly rejected.
             if observation.timestamp < cutoff:
+                self._late_event_count += 1
                 return False
-            if self._is_duplicate_unlocked(observation):
-                return False
+            self._max_event_time = watermark
 
             # Keep event-time order so interval calculations and replay are
             # independent of delivery order for events inside the window.
