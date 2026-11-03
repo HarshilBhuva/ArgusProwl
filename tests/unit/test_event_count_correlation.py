@@ -319,6 +319,41 @@ class TestEventCountState:
         # Should contain the last 3 events
         assert ids == tuple(e.event_id for e in events[2:])
 
+    def test_state_snapshot_round_trip_preserves_observations_and_trigger(self) -> None:
+        state = EventCountState(
+            group_key=("workstation-01", "4242"),
+            window_duration=timedelta(minutes=5),
+            max_observations=10,
+        )
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        events = [
+            _make_event(
+                hostname="workstation-01",
+                pid=4242,
+                timestamp=base + timedelta(seconds=index),
+            )
+            for index in range(2)
+        ]
+        for event in events:
+            assert state.add(event)
+
+        triggered, count, trigger_id = state.check_threshold(2, events[-1])
+        assert triggered is True
+        assert count == 2
+        assert trigger_id == events[-1].event_id
+
+        restored = EventCountState.from_dict(state.to_dict())
+
+        assert restored.group_key == state.group_key
+        assert restored.count == 2
+        assert restored.observations == events
+        assert restored.triggered is True
+        assert restored.trigger_event_id == events[-1].event_id
+        assert restored.trigger_count == 2
+
+    def test_state_snapshot_rejects_unsupported_schema(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported event-count state snapshot schema"):
+            EventCountState.from_dict({"schema_version": 999})
 
 # ---------------------------------------------------------------------------
 # EventCountCorrelationDetector tests

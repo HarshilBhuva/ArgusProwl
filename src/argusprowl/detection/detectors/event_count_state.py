@@ -6,10 +6,12 @@ grouped by configurable fields. Used by EventCountCorrelationDetector.
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from datetime import timedelta
 from threading import Lock
 from typing import Any
+from uuid import UUID
 
 from argusprowl.models.normalized_event import NormalizedEvent
 
@@ -52,6 +54,99 @@ class EventCountState:
         self._trigger_event_id: Any = None
         self._trigger_count: int = 0
         self._lock = Lock()
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a versioned snapshot suitable for durable correlation storage."""
+        with self._lock:
+            return {
+                "schema_version": 1,
+                "group_key": list(self._group_key),
+                "window_duration_seconds": self._window_duration.total_seconds(),
+                "max_observations": self._max_observations,
+                "observations": [event.to_dict() for event in self._observations],
+                "triggered": self._triggered,
+                "trigger_event_id": (
+                    str(self._trigger_event_id)
+                    if self._trigger_event_id is not None
+                    else None
+                ),
+                "trigger_count": self._trigger_count,
+            }
+
+    @classmethod
+    def from_dict(cls, snapshot: dict[str, object]) -> EventCountState:
+        """Restore a validated state snapshot without changing its event window."""
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+            raise ValueError("Unsupported event-count state snapshot schema.")
+
+        group_key = snapshot.get("group_key")
+        duration = snapshot.get("window_duration_seconds")
+        max_observations = snapshot.get("max_observations")
+        raw_observations = snapshot.get("observations")
+        if (
+            not isinstance(group_key, list)
+            or not group_key
+            or any(not isinstance(part, str) for part in group_key)
+        ):
+            raise ValueError("Event-count state snapshot group_key is invalid.")
+        if (
+            not isinstance(duration, (int, float))
+            or isinstance(duration, bool)
+            or duration <= 0
+            or duration > 31_536_000
+            or not math.isfinite(float(duration))
+        ):
+            raise ValueError("Event-count state snapshot window duration is invalid.")
+        if (
+            not isinstance(max_observations, int)
+            or isinstance(max_observations, bool)
+            or not 1 <= max_observations <= 1_000_000
+        ):
+            raise ValueError("Event-count state snapshot capacity is invalid.")
+        if (
+            not isinstance(raw_observations, list)
+            or len(raw_observations) > max_observations
+        ):
+            raise ValueError("Event-count state snapshot observations are invalid.")
+
+        observations = [
+            NormalizedEvent.from_dict(item)
+            for item in raw_observations
+            if isinstance(item, dict)
+        ]
+        if len(observations) != len(raw_observations):
+            raise ValueError("Event-count state snapshot contains an invalid event.")
+        if observations != sorted(observations, key=lambda event: event.timestamp):
+            raise ValueError("Event-count state snapshot events are not time ordered.")
+
+        triggered = snapshot.get("triggered")
+        trigger_count = snapshot.get("trigger_count")
+        raw_trigger_event_id = snapshot.get("trigger_event_id")
+        if not isinstance(triggered, bool):
+            raise ValueError("Event-count state snapshot trigger flag is invalid.")
+        if (
+            not isinstance(trigger_count, int)
+            or isinstance(trigger_count, bool)
+            or trigger_count < 0
+        ):
+            raise ValueError("Event-count state snapshot trigger count is invalid.")
+        if raw_trigger_event_id is not None and not isinstance(raw_trigger_event_id, str):
+            raise ValueError("Event-count state snapshot trigger identity is invalid.")
+        if triggered and raw_trigger_event_id is None:
+            raise ValueError("Triggered event-count state requires a trigger identity.")
+
+        state = cls(
+            group_key=tuple(group_key),
+            window_duration=timedelta(seconds=float(duration)),
+            max_observations=max_observations,
+        )
+        state._observations = deque(observations, maxlen=max_observations)
+        state._triggered = triggered
+        state._trigger_event_id = (
+            UUID(raw_trigger_event_id) if raw_trigger_event_id is not None else None
+        )
+        state._trigger_count = trigger_count
+        return state
 
     @property
     def group_key(self) -> tuple[str, ...]:
