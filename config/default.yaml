@@ -23,6 +23,14 @@ storage:
   backend: sqlite
   base_path: data
   database_path: data/argusprowl.db
+telemetry_evidence:
+  enabled: true
+  max_retained_events: 100000
+  # Durable deletion is opt-in; configure the age threshold before enabling.
+  retention_enabled: false
+  retention_days: 365
+  cleanup_interval_seconds: 3600
+  cleanup_batch_size: 1000
 events:
   queue_size: 1000
   async_dispatch: false
