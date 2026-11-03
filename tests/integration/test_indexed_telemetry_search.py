@@ -115,7 +115,7 @@ def test_legacy_evidence_rows_are_backfilled_into_the_search_index(tmp_path) -> 
     connection.close()
 
     storage = SQLiteAdapter(path)
-    result = storage.search_telemetry_evidence({"hostname": "host-1"}, limit=10)
+    result = storage.search_telemetry_evidence({"entity_type": "hostname", "entity_id": "host-1"}, limit=10)
     assert result["total_count"] == 1
     assert result["records"][0]["event"]["event_id"] == str(event.event_id)
     storage.close()
