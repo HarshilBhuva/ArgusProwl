@@ -1866,8 +1866,9 @@ async def search_evidence(
     source_type: str | None = Query(
         None, max_length=128, description="Source type filter (e.g. zeek, sysmon)."
     ),
+    cursor: str | None = Query(None, max_length=1024, description="Opaque keyset pagination cursor."),
 ) -> dict[str, Any]:
-    """Search telemetry evidence with bounded filters.
+    """Search telemetry evidence with indexed filters and stable cursor pagination.
 
     All filters are ANDed. Results are sorted by timestamp then event_id.
     """
@@ -1961,6 +1962,7 @@ async def search_evidence(
             domain=domain,
             event_type=event_type,
             source_type=source_type,
+            cursor=cursor,
         )
     except ValueError as exc:
         return JSONResponse(
@@ -2000,6 +2002,7 @@ async def search_evidence(
         truncated=result.truncated,
         total_count=result.total_count,
         returned_count=result.returned_count,
+        next_cursor=result.next_cursor,
     ).model_dump()
 
 
