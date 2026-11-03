@@ -124,6 +124,21 @@ def test_rotating_api_key_invalidates_existing_browser_sessions(tmp_path) -> Non
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
+
+def test_public_health_is_minimal_and_detailed_health_requires_auth(tmp_path) -> None:
+    client, secret, _audit_path = _client(tmp_path, "viewer")
+
+    public = client.get("/api/v1/health")
+    assert public.status_code == 200
+    assert public.json()["components"] == []
+    assert client.get("/health").status_code == 200
+    assert client.get("/api/v1/health/details").status_code == 401
+
+    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+    detailed = client.get("/api/v1/health/details")
+    assert detailed.status_code == 200
+    assert "components" in detailed.json()
+
 def test_auth_disabled_status_does_not_require_browser_login(tmp_path) -> None:
     app = create_api_app(auth_enabled=False, audit_db_path=str(tmp_path / "audit.db"))
     client = TestClient(app)
