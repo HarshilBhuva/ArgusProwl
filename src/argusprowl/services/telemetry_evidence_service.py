@@ -724,9 +724,18 @@ class TelemetryEvidenceService:
                 except Exception:
                     self._persistence_operations_failed.increment()
                     logger.exception("Unable to count durable telemetry evidence")
+            storage_metrics = None
+            get_storage_metrics = getattr(self._storage, "get_storage_metrics", None)
+            if callable(get_storage_metrics):
+                try:
+                    storage_metrics = get_storage_metrics()
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception("Unable to read telemetry storage metrics")
             return {
                 "retained_events": len(self._events),
                 "durable_events": durable_count,
+                "storage_metrics": storage_metrics,
                 "max_retained_events": self._max_retained,
                 "eviction_count": self._eviction_count,
                 "capacity_used_pct": round(len(self._events) / self._max_retained * 100, 2),
