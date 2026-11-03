@@ -301,8 +301,9 @@ class EnvironmentPrevalenceTracker:
             for key in keys_to_query:
                 if key in self._destinations:
                     bucket = self._destinations[key]
-                    while bucket and bucket[0].timestamp < cutoff:
-                        bucket.popleft()
+                    # Queries must not mutate the retained event-time watermark.
+                    # Pruning here could empty the bucket and let a later stale
+                    # arrival establish a new, incorrectly old watermark.
                     for obs in bucket:
                         if cutoff <= obs.timestamp <= now:
                             dest_hosts.add(obs.src_host)
@@ -316,8 +317,7 @@ class EnvironmentPrevalenceTracker:
                     proc_key = (p_name, dest_key)
                     if proc_key in self._process_destinations:
                         bucket = self._process_destinations[proc_key]
-                        while bucket and bucket[0].timestamp < cutoff:
-                            bucket.popleft()
+                        # Keep the bucket intact so ingestion retains its watermark.
                         for obs in bucket:
                             if cutoff <= obs.timestamp <= now:
                                 process_hosts.add(obs.src_host)
