@@ -3,7 +3,7 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Header, MobileNav, Sidebar } from './components/Layout';
 import { queryClient } from './lib/queryClient';
-import { ApiClientError, api } from './lib/api';
+import { ApiClientError, api, setBrowserSessionActive } from './lib/api';
 import type { AuthPrincipalResponse } from './types/api';
 import { AlertDetailPage } from './pages/AlertDetailPage';
 import { AlertsPage } from './pages/AlertsPage';
@@ -71,16 +71,19 @@ function AuthGate({ children }: { children: ReactNode }) {
     try {
       const status = await api.authStatus();
       if (!status.auth_enabled) {
+        setBrowserSessionActive(false);
         setPrincipal(null);
         setPhase("ready");
         return;
       }
       try {
         const current = await api.authMe();
+        setBrowserSessionActive(true);
         setPrincipal(current);
         setPhase("ready");
       } catch (authError) {
         if (authError instanceof ApiClientError && authError.statusCode === 401) {
+          setBrowserSessionActive(false);
           setPrincipal(null);
           setPhase("login");
         } else {
@@ -99,6 +102,7 @@ function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleSessionExpired = () => {
+      setBrowserSessionActive(false);
       setPrincipal(null);
       setPhase("login");
       setError("Your session expired or the API key was revoked. Sign in again.");
@@ -116,6 +120,7 @@ function AuthGate({ children }: { children: ReactNode }) {
       await api.createSession(apiKey);
       setApiKey("");
       const current = await api.authMe();
+      setBrowserSessionActive(true);
       setPrincipal(current);
       setPhase("ready");
     } catch (authError) {
@@ -132,6 +137,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     setError(null);
     try {
       await api.logout();
+      setBrowserSessionActive(false);
       setPrincipal(null);
       setPhase("login");
     } catch (authError) {
