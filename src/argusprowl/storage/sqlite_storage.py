@@ -278,6 +278,20 @@ class SQLiteAdapter(Storage):
             "next_cursor": next_cursor,
         }
 
+    def count_telemetry_evidence(self) -> int:
+        """Return the durable evidence row count, independent of the hot cache."""
+        try:
+            with self._lock:
+                row = self._connection.execute(
+                    "SELECT COUNT(*) FROM telemetry_evidence_index"
+                ).fetchone()
+            return int(row[0]) if row else 0
+        except sqlite3.Error as exc:
+            raise StorageError(
+                "Unable to count durable telemetry evidence",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
+
     def close(self) -> None:
         with self._lock:
             self._connection.close()
