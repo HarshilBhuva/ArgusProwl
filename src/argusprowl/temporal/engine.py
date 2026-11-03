@@ -35,6 +35,7 @@ class TemporalEngine:
         max_keys: int = 10000,
         max_observations_per_key: int = 1000,
         window_duration: timedelta = timedelta(hours=1),
+        allowed_lateness: timedelta | None = None,
     ) -> None:
         """Initialize temporal engine.
 
@@ -42,10 +43,21 @@ class TemporalEngine:
             max_keys: Maximum number of (dst_ip, dst_port) keys to track.
             max_observations_per_key: Maximum observations per key.
             window_duration: Time window for analysis.
+            allowed_lateness: Maximum event-time delay accepted behind the watermark.
+                Defaults to the analysis window duration.
         """
+        if max_keys < 1:
+            raise ValueError("max_keys must be positive")
+        if max_observations_per_key < 1:
+            raise ValueError("max_observations_per_key must be positive")
+        if window_duration <= timedelta(0):
+            raise ValueError("window_duration must be positive")
+        if allowed_lateness is not None and not timedelta(0) <= allowed_lateness <= window_duration:
+            raise ValueError("allowed_lateness must be between zero and window_duration")
         self._max_keys = max_keys
         self._max_observations = max_observations_per_key
         self._window_duration = window_duration
+        self._allowed_lateness = allowed_lateness
         self._buckets: OrderedDict[tuple[str, int], TemporalBucket] = OrderedDict()
         self._lock = Lock()
 
@@ -95,6 +107,7 @@ class TemporalEngine:
                     key=key,
                     max_observations=self._max_observations,
                     window_duration=self._window_duration,
+                    allowed_lateness=self._allowed_lateness,
                 )
                 bucket.add(observation)
                 self._buckets[key] = bucket
