@@ -171,6 +171,10 @@ export function HuntsPage() {
   const saveScope = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!hunt) return;
+    if (scopeHost.trim() && scopeUser.trim()) {
+      setError('The current hunt query executor cannot enforce host and user scope simultaneously. Choose one scope dimension.');
+      return;
+    }
     const scope: HuntScopeRequest = {
       start_time: toIso(scopeStart),
       end_time: toIso(scopeEnd),
@@ -184,6 +188,14 @@ export function HuntsPage() {
   const saveQuery = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!hunt) return;
+    if (Boolean(queryEntityType.trim()) !== Boolean(queryEntityId.trim())) {
+      setError('Entity type and entity ID must be supplied together.');
+      return;
+    }
+    if (queryStart && queryEnd && new Date(queryStart).getTime() > new Date(queryEnd).getTime()) {
+      setError('Query start time must not be after query end time.');
+      return;
+    }
     const definition: Record<string, unknown> = { limit: 500 };
     if (querySource.trim()) definition.source_type = querySource.trim();
     if (queryEventType.trim()) definition.event_type = queryEventType.trim();
