@@ -23,6 +23,7 @@ def _client(tmp_path, role: str = "viewer"):
     return TestClient(app), secret, audit_path
 
 
+
 def test_api_auth_status_is_public_and_reports_authentication_mode(tmp_path) -> None:
     client, _secret, _audit_path = _client(tmp_path)
 
@@ -30,6 +31,7 @@ def test_api_auth_status_is_public_and_reports_authentication_mode(tmp_path) -> 
 
     assert response.status_code == 200
     assert response.json() == {"auth_enabled": True, "session_ttl_seconds": 3600}
+
 
 
 def test_browser_login_issues_httponly_session_and_logout_clears_it(tmp_path) -> None:
@@ -108,6 +110,7 @@ def test_browser_login_rejects_cross_origin_request(tmp_path) -> None:
     assert response.headers.get("set-cookie") is None
 
 
+
 def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
     client, _secret, audit_path = _client(tmp_path)
 
@@ -122,6 +125,7 @@ def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
     events = AuditLog(str(audit_path)).list_events(limit=20)
     assert any(event["event_type"] == "AUTHENTICATION_FAILED" for event in events)
     assert "not-the-configured-api-key" not in str(events)
+
 
 
 def test_browser_session_respects_role_authorization(tmp_path) -> None:
@@ -139,6 +143,7 @@ def test_browser_session_respects_role_authorization(tmp_path) -> None:
     )
 
     assert denied.status_code == 403
+
 
 
 def test_browser_session_rejects_cross_origin_state_changes(tmp_path) -> None:
@@ -173,6 +178,7 @@ def test_browser_session_rejects_state_changes_without_origin(tmp_path) -> None:
     )
 
     assert denied.status_code == 403
+
 
 def test_rotating_api_key_invalidates_existing_browser_sessions(tmp_path) -> None:
     client, secret, _audit_path = _client(tmp_path, "analyst")
@@ -211,6 +217,7 @@ def test_public_health_is_minimal_and_detailed_health_requires_auth(tmp_path) ->
     detailed = client.get("/api/v1/health/details")
     assert detailed.status_code == 200
     assert "components" in detailed.json()
+
 
 def test_auth_disabled_status_does_not_require_browser_login(tmp_path) -> None:
     app = create_api_app(auth_enabled=False, audit_db_path=str(tmp_path / "audit.db"))
