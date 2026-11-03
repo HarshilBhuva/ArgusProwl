@@ -16,8 +16,8 @@ import statistics
 import sys
 import tempfile
 import time
-from dataclasses import asdict, dataclass
 from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypeVar
