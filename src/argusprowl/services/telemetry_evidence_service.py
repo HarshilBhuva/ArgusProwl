@@ -699,7 +699,7 @@ class TelemetryEvidenceService:
             except Exception as exc:
                 self._persistence_operations_failed.increment()
                 self._retention_runs_failed += 1
-                self._retention_last_error = str(exc)[:500]
+                self._retention_last_error = f"{type(exc).__name__}: retention batch failed"
                 self._retention_last_run_at = datetime.now(UTC).isoformat()
                 logger.exception("Telemetry evidence retention batch failed")
                 raise
