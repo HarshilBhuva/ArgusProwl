@@ -687,6 +687,8 @@ class TelemetryEvidenceService:
         This operation is deliberately capability-based: only storage adapters
         that implement the atomic retention contract can perform durable deletion.
         """
+        if not self._retention_enabled:
+            raise RuntimeError("Durable telemetry evidence retention is disabled.")
         if cutoff.tzinfo is None or cutoff.utcoffset() is None:
             raise ValueError("Evidence retention cutoff must be timezone-aware.")
         purge = getattr(self._storage, "purge_expired_telemetry_evidence", None)
