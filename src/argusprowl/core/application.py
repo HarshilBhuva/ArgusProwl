@@ -217,7 +217,7 @@ class Application:
                 # Preserve the container and running state. A later shutdown()
                 # call can finish teardown after the worker exits.
                 self._logger.error(
-                    "Application teardown deferred because the processing worker is still active"
+                    "Application teardown deferred because a background worker is still active"
                 )
             else:
                 # Persistence must outlive the processing worker: queued events
