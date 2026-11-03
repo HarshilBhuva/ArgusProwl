@@ -119,7 +119,12 @@ class AuditLog:
         """Chain pre-existing rows once, in immutable insertion order."""
         previous_hash = _GENESIS_HASH
         rows = connection.execute(
-            f"SELECT {', '.join(_EVENT_FIELDS)} FROM api_audit_events ORDER BY id ASC"
+            """
+            SELECT id, timestamp, event_type, actor_id, role, method, path,
+                   status_code, request_id, client_ip
+            FROM api_audit_events
+            ORDER BY id ASC
+            """
         ).fetchall()
         for row in rows:
             event = dict(row)
@@ -203,8 +208,12 @@ class AuditLog:
         """Verify every row and link from the genesis hash to the current tail."""
         with self._lock, self._connection() as connection:
             rows = connection.execute(
-                f"SELECT {', '.join(_EVENT_FIELDS)}, previous_hash, event_hash "
-                "FROM api_audit_events ORDER BY id ASC"
+                """
+                SELECT id, timestamp, event_type, actor_id, role, method, path,
+                       status_code, request_id, client_ip, previous_hash, event_hash
+                FROM api_audit_events
+                ORDER BY id ASC
+                """
             ).fetchall()
             expected_previous = _GENESIS_HASH
             for index, row in enumerate(rows):
