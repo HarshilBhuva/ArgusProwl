@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+
 from dataclasses import dataclass
 
 
