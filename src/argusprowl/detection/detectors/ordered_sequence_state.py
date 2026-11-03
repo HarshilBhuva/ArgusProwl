@@ -270,7 +270,7 @@ class OrderedSequenceState:
         raw_watermark = snapshot.get("max_event_time")
         if raw_watermark is not None and not isinstance(raw_watermark, str):
             raise ValueError("Ordered-sequence snapshot watermark is invalid.")
-        watermark = datetime.fromisoformat(raw_watermark) if raw_watermark else None
+        watermark = datetime.fromisoformat(raw_watermark) if raw_watermark is not None else None
         if watermark is not None and watermark.tzinfo is None:
             raise ValueError("Ordered-sequence snapshot watermark must be timezone-aware.")
         if watermark is not None and any(
@@ -303,6 +303,20 @@ class OrderedSequenceState:
             raise ValueError("Ordered-sequence snapshot completion is incomplete.")
         if triggered and (raw_trigger_id is None or completed is None):
             raise ValueError("Triggered ordered-sequence state requires completion evidence.")
+        if not triggered and (raw_trigger_id is not None or completed is not None):
+            raise ValueError("Untriggered ordered-sequence state cannot retain trigger evidence.")
+        trigger_id = UUID(raw_trigger_id) if raw_trigger_id is not None else None
+        if completed is not None:
+            if trigger_id != completed.steps[-1].event.event_id:
+                raise ValueError("Ordered-sequence trigger identity does not match completion.")
+            if watermark is None or completed.last_event_time > watermark:
+                raise ValueError("Ordered-sequence completion exceeds its watermark.")
+            if not any(
+                [step.event.event_id for step in sequence.steps]
+                == [step.event.event_id for step in completed.steps]
+                for sequence in sequences
+            ):
+                raise ValueError("Ordered-sequence completion is absent from retained state.")
 
         state = cls(
             group_key=tuple(group_key),
@@ -314,7 +328,7 @@ class OrderedSequenceState:
         state._max_event_time = watermark
         state._late_event_count = late_count
         state._triggered = triggered
-        state._trigger_event_id = UUID(raw_trigger_id) if raw_trigger_id is not None else None
+        state._trigger_event_id = trigger_id
         state._completed_sequence = completed
         return state
 
