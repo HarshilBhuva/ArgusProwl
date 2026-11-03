@@ -42,6 +42,10 @@ def test_api_auth_settings_can_be_overridden_by_deployment_environment(
     monkeypatch.setenv("TH_API__HOST", "0.0.0.0")
     monkeypatch.setenv("TH_API__PORT", "8181")
     monkeypatch.setenv("TH_API__AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "ARGUSPROWL_API_KEY",
+        "argusprowl-config-test-key-0123456789abcdef0123456789abcdef",
+    )
     monkeypatch.setenv("TH_API__AUTH_HEADER_NAME", "X-Deployment-Key")
 
     config = ConfigManager().load(config_file)
