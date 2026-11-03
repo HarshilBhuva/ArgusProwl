@@ -294,6 +294,94 @@ class SQLiteAdapter(Storage):
             "next_cursor": next_cursor,
         }
 
+    def purge_expired_telemetry_evidence(
+        self,
+        cutoff: datetime,
+        *,
+        batch_size: int,
+    ) -> list[UUID]:
+        """Atomically delete one bounded batch of evidence older than cutoff.
+
+        The authoritative JSON record and derived search-index row are removed
+        in the same transaction. The caller schedules subsequent batches.
+        """
+        if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+            raise ValueError("Evidence retention cutoff must be timezone-aware.")
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or not 1 <= batch_size <= 10_000:
+            raise ValueError("Evidence retention batch_size must be between 1 and 10000.")
+        cutoff_value = cutoff.astimezone(UTC).isoformat()
+        try:
+            with self._lock, self._connection:
+                rows = self._connection.execute(
+                    """SELECT event_id FROM telemetry_evidence_index
+                    WHERE timestamp < ?
+                    ORDER BY timestamp ASC, event_id ASC
+                    LIMIT ?""",
+                    (cutoff_value, batch_size),
+                ).fetchall()
+                event_ids = [UUID(str(row[0])) for row in rows]
+                if event_ids:
+                    values = [(self._EVIDENCE_COLLECTION, str(event_id)) for event_id in event_ids]
+                    self._connection.executemany(
+                        "DELETE FROM records WHERE collection=? AND record_id=?",
+                        values,
+                    )
+                    self._connection.executemany(
+                        "DELETE FROM telemetry_evidence_index WHERE event_id=?",
+                        [(str(event_id),) for event_id in event_ids],
+                    )
+            return event_ids
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            raise StorageError(
+                "Unable to apply telemetry evidence retention batch",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
+
+    def checkpoint_wal(self) -> tuple[int, int, int]:
+        """Run a non-blocking passive WAL checkpoint and return SQLite counters."""
+        try:
+            with self._lock:
+                row = self._connection.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+            return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
+        except sqlite3.Error as exc:
+            raise StorageError(
+                "Unable to checkpoint telemetry evidence WAL",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
+
+    def get_storage_metrics(self) -> dict[str, int]:
+        """Return inexpensive SQLite file and durable evidence size metrics."""
+        database_bytes = self._path.stat().st_size if self._path.exists() else 0
+        wal_path = Path(f"{self._path}-wal")
+        wal_bytes = wal_path.stat().st_size if wal_path.exists() else 0
+        try:
+            with self._lock:
+                row = self._connection.execute(
+                    "SELECT COUNT(*) FROM telemetry_evidence_index"
+                ).fetchone()
+            return {
+                "database_bytes": database_bytes,
+                "wal_bytes": wal_bytes,
+                "durable_events": int(row[0]) if row else 0,
+            }
+        except sqlite3.Error as exc:
+            raise StorageError(
+                "Unable to read SQLite storage metrics",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
+
+    def check_integrity(self) -> str:
+        """Run SQLite quick_check and return its integrity status."""
+        try:
+            with self._lock:
+                row = self._connection.execute("PRAGMA quick_check").fetchone()
+            return str(row[0]) if row else "unknown"
+        except sqlite3.Error as exc:
+            raise StorageError(
+                "Unable to check SQLite storage integrity",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
+
     def count_telemetry_evidence(self) -> int:
         """Return the durable evidence row count, independent of the hot cache."""
         try:

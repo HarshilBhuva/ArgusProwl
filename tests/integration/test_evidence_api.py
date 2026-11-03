@@ -140,10 +140,24 @@ class TestTelemetryEvidenceApi:
             "max_retained_events": 1000,
             "eviction_count": 0,
             "capacity_used_pct": 5.0,
+            "retention_enabled": True,
+            "retention_days": 90,
+            "retention_last_run_at": "2026-11-03T08:00:00+00:00",
+            "retention_last_deleted_count": 25,
+            "retention_runs_failed": 1,
+            "retention_last_error": "synthetic failure",
+            "storage_metrics": {"database_bytes": 4096, "wal_bytes": 1024, "durable_events": 50},
         }
         res = api_client.get("/api/v1/evidence/stats")
         assert res.status_code == 200
         assert res.json()["retained_events"] == 50
+        assert res.json()["retention_enabled"] is True
+        assert res.json()["retention_days"] == 90
+        assert res.json()["retention_last_deleted_count"] == 25
+        assert res.json()["retention_runs_failed"] == 1
+        assert res.json()["retention_last_error"] == "synthetic failure"
+        assert res.json()["database_bytes"] == 4096
+        assert res.json()["wal_bytes"] == 1024
 
     def test_service_unavailable(self, evidence_service: MagicMock) -> None:
         container = ServiceContainer.get_instance()

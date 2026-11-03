@@ -53,6 +53,7 @@ class ConfigValidator:
         self._validate_analyst_annotations_section(config.get("analyst_annotations", {}))
         self._validate_alert_persistence_section(config.get("alert_persistence", {}))
         self._validate_attck_section(config.get("attck", {}))
+        self._validate_telemetry_evidence_section(config.get("telemetry_evidence", {}))
         self._validate_api_section(config.get("api", {}))
 
     def _validate_app_section(self, config: dict[str, Any]) -> None:
@@ -130,6 +131,24 @@ class ConfigValidator:
             storage_cfg.get("database_path")
         ):
             raise ValidationError("storage.database_path must be a non-empty string for sqlite.")
+
+    def _validate_telemetry_evidence_section(self, evidence_cfg: Any) -> None:
+        if not isinstance(evidence_cfg, dict):
+            raise ValidationError("telemetry_evidence section must be a dictionary.")
+        for key in ("enabled", "retention_enabled"):
+            if not isinstance(evidence_cfg.get(key, key == "enabled"), bool):
+                raise ValidationError(f"telemetry_evidence.{key} must be a boolean.")
+        for key, default in (
+            ("max_retained_events", 100_000),
+            ("retention_days", 365),
+            ("cleanup_interval_seconds", 3600),
+            ("cleanup_batch_size", 1000),
+        ):
+            value = evidence_cfg.get(key, default)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValidationError(f"telemetry_evidence.{key} must be a positive integer.")
+            if key == "cleanup_batch_size" and value > 10_000:
+                raise ValidationError("telemetry_evidence.cleanup_batch_size must not exceed 10000.")
 
     def _validate_events_section(self, events_cfg: Any) -> None:
         if not isinstance(events_cfg, dict):

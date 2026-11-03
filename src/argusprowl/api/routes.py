@@ -2031,6 +2031,14 @@ async def get_evidence_stats() -> dict[str, Any]:
         persistence_writes_succeeded=stats.get("persistence_writes_succeeded", 0),
         persistence_writes_failed=stats.get("persistence_writes_failed", 0),
         persistence_operations_failed=stats.get("persistence_operations_failed", 0),
+        retention_enabled=stats.get("retention_enabled", False),
+        retention_days=stats.get("retention_days"),
+        retention_last_run_at=stats.get("retention_last_run_at"),
+        retention_last_deleted_count=stats.get("retention_last_deleted_count", 0),
+        retention_runs_failed=stats.get("retention_runs_failed", 0),
+        retention_last_error=stats.get("retention_last_error"),
+        database_bytes=(stats.get("storage_metrics") or {}).get("database_bytes"),
+        wal_bytes=(stats.get("storage_metrics") or {}).get("wal_bytes"),
     ).model_dump()
 
 

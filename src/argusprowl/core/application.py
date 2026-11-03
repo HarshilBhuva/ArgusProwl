@@ -7,7 +7,7 @@ adapter directly.
 
 import contextlib
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any
@@ -70,6 +70,7 @@ class Application:
         self._logger = LoggerFactory.get_logger(LogName.CORE)
         self._processing_thread: Thread | None = None
         self._collector_threads: list[Thread] = []
+        self._retention_thread: Thread | None = None
         self._shutdown_event = Event()
         # Bounded ingestion buffer — registered after config is loaded below.
         self._event_queue: BoundedIngestionBuffer[NormalizedEvent] | None = None
@@ -107,6 +108,7 @@ class Application:
                 )
             self._start_processing_loop()
             self._start_collectors()
+            self._start_evidence_retention()
             if start_api:
                 self._start_api_server()
             else:
@@ -159,6 +161,15 @@ class Application:
         try:
             # Stop accepting new source events, then let collector workers exit.
             self._shutdown_event.set()
+            retention_thread = self._retention_thread
+            if retention_thread is not None and retention_thread.is_alive():
+                retention_thread.join(timeout=5.0)
+                if retention_thread.is_alive():
+                    self._logger.error(
+                        "Evidence retention worker did not stop; retaining storage dependencies"
+                    )
+                    return
+            self._retention_thread = None
             try:
                 collector_manager = self._container.resolve(CollectorManager)
                 collector_manager.stop_all()
@@ -199,11 +210,14 @@ class Application:
 
         finally:
             self._stop_api_server()
-            if self._processing_thread is not None and self._processing_thread.is_alive():
+            if (
+                (self._processing_thread is not None and self._processing_thread.is_alive())
+                or (self._retention_thread is not None and self._retention_thread.is_alive())
+            ):
                 # Preserve the container and running state. A later shutdown()
                 # call can finish teardown after the worker exits.
                 self._logger.error(
-                    "Application teardown deferred because the processing worker is still active"
+                    "Application teardown deferred because a background worker is still active"
                 )
             else:
                 # Persistence must outlive the processing worker: queued events
@@ -224,6 +238,55 @@ class Application:
                 self._running = False
                 self._safe_clear()
                 self._logger.info("Application shutdown complete")
+
+    def _start_evidence_retention(self) -> None:
+        """Start the opt-in bounded durable evidence retention worker."""
+        assert self._config is not None
+        evidence_cfg = self._config.telemetry_evidence
+        if not evidence_cfg.enabled or not evidence_cfg.retention_enabled:
+            return
+        if self._config.storage.backend.lower() != "sqlite":
+            self._logger.warning(
+                "Evidence retention is enabled but backend %s has no retention implementation; "
+                "scheduled cleanup will not start",
+                self._config.storage.backend,
+            )
+            return
+
+        def run() -> None:
+            from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
+
+            while not self._shutdown_event.is_set():
+                try:
+                    service = self._container.resolve(TelemetryEvidenceService)
+                    cutoff = datetime.now(UTC) - timedelta(days=evidence_cfg.retention_days)
+                    result = service.run_retention(
+                        cutoff,
+                        batch_size=evidence_cfg.cleanup_batch_size,
+                    )
+                    if result["deleted_count"]:
+                        self._logger.info(
+                            "Evidence retention removed %d records older than %s",
+                            result["deleted_count"],
+                            cutoff.isoformat(),
+                        )
+                except Exception:
+                    self._logger.exception("Scheduled telemetry evidence retention failed")
+                if self._shutdown_event.wait(evidence_cfg.cleanup_interval_seconds):
+                    break
+
+        self._retention_thread = Thread(
+            target=run,
+            name="evidence-retention",
+            daemon=True,
+        )
+        self._retention_thread.start()
+        self._logger.info(
+            "Evidence retention enabled: age=%d days interval=%d seconds batch=%d",
+            evidence_cfg.retention_days,
+            evidence_cfg.cleanup_interval_seconds,
+            evidence_cfg.cleanup_batch_size,
+        )
 
     def _start_api_server(self) -> None:
         """Start the HTTP API server if enabled in configuration."""
@@ -634,6 +697,8 @@ class Application:
                 lambda: TelemetryEvidenceService(
                     max_retained_events=evidence_cfg.max_retained_events,
                     storage=self._container.resolve(Storage),
+                    retention_enabled=evidence_cfg.retention_enabled,
+                    retention_days=evidence_cfg.retention_days,
                     metrics_collector=self._container.resolve(MetricsCollector),
                 ),
             )

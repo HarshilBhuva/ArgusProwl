@@ -58,3 +58,31 @@ def test_application_lifecycle(temp_dir: Path):
     assert app_instance.is_running is False
     assert uvicorn_server.should_exit is True
     assert not api_thread.is_alive(), "Uvicorn API thread should terminate during shutdown"
+
+
+def test_application_starts_and_stops_opt_in_evidence_retention_worker(temp_dir: Path) -> None:
+    cfg_file = temp_dir / "retention_app.yaml"
+    cfg_file.write_text(
+        "app_name: 'Retention Test'\n"
+        "api:\n  enabled: false\n"
+        "storage:\n  backend: sqlite\n"
+        f"  database_path: {temp_dir / 'retention.db'}\n"
+        "telemetry_evidence:\n"
+        "  enabled: true\n"
+        "  retention_enabled: true\n"
+        "  retention_days: 30\n"
+        "  cleanup_interval_seconds: 60\n"
+        "  cleanup_batch_size: 10\n"
+    )
+
+    app_instance = Application(config_path=cfg_file)
+    app_instance.startup(start_api=False)
+    worker = app_instance._retention_thread
+
+    assert worker is not None
+    assert worker.is_alive()
+
+    app_instance.shutdown()
+
+    assert app_instance._retention_thread is None
+    assert not worker.is_alive()

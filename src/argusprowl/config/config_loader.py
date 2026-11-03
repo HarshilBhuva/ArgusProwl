@@ -57,6 +57,14 @@ class ConfigLoader:
                 "base_path": str(ProjectPath.DATA_DIR),
                 "database_path": str(ProjectPath.DATA_DIR / "argusprowl.db"),
             },
+            "telemetry_evidence": {
+                "enabled": True,
+                "max_retained_events": 100_000,
+                "retention_enabled": False,
+                "retention_days": 365,
+                "cleanup_interval_seconds": 3600,
+                "cleanup_batch_size": 1000,
+            },
             "events": {
                 "queue_size": 1000,
                 "async_dispatch": False,

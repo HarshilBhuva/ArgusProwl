@@ -347,10 +347,18 @@ class TelemetryEvidenceConfig:
     Attributes:
         enabled: Whether the evidence store is active.
         max_retained_events: Maximum number of events to retain in memory.
+        retention_enabled: Whether scheduled durable evidence retention is enabled.
+        retention_days: Age in days after which evidence is eligible for deletion.
+        cleanup_interval_seconds: Interval between bounded cleanup batches.
+        cleanup_batch_size: Maximum evidence rows deleted per cleanup run.
     """
 
     enabled: bool = True
     max_retained_events: int = 100_000
+    retention_enabled: bool = False
+    retention_days: int = 365
+    cleanup_interval_seconds: int = 3600
+    cleanup_batch_size: int = 1000
 
 
 @dataclass(slots=True)
