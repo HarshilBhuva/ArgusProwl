@@ -1,13 +1,11 @@
 """Unit tests for executing persistent hunt query versions."""
-from datetime import UTC, datetime
-from uuid import uuid4
 from unittest.mock import MagicMock
 
 from argusprowl.hunting.hunt_service import HuntService
 from argusprowl.models.normalized_event import NormalizedEvent
 from argusprowl.services.hunt_query_execution_service import HuntQueryExecutionService
-from argusprowl.storage.sqlite_storage import SQLiteAdapter
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def test_executes_saved_query_attaches_only_durable_matches_and_survives_restart(tmp_path):
