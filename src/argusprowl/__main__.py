@@ -242,7 +242,7 @@ def main() -> int:
                 print(f"[!] Storage diagnostic failed: {exc}", file=sys.stderr)
                 return ExitCode.RUNTIME_ERROR
 
-            print("\\n=== argusprowl SQLite Storage ===")
+            print("\n=== argusprowl SQLite Storage ===")
             print(f"Database:         {diagnostics.database_path}")
             print(f"Database size:    {diagnostics.database_bytes} bytes")
             print(f"WAL size:         {diagnostics.wal_bytes} bytes")
@@ -256,7 +256,7 @@ def main() -> int:
                 print(f"Quick check:      {diagnostics.integrity_status}")
                 if diagnostics.integrity_status != "ok":
                     return ExitCode.RUNTIME_ERROR
-            print("=================================\\n")
+            print("=================================\n")
             return ExitCode.SUCCESS
 
         if command == "backup":
