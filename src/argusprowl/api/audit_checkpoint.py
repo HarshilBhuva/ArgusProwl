@@ -52,8 +52,8 @@ class AuditCheckpointManager:
         return hashlib.sha256(previous_hash.encode("ascii") + b"\n" + canonical).hexdigest()
 
     def _read_verified_chain(
-        self, database_path: str | Path
-    ) -> tuple[int, int | None, str]:
+        self, database_path: str | Path, anchor_event_id: int | None = None
+    ) -> tuple[int, int | None, str, str | None, int]:
         path = Path(database_path).expanduser().resolve()
         if not path.is_file():
             raise AuditCheckpointError(f"Audit database does not exist: {path}")
@@ -78,6 +78,8 @@ class AuditCheckpointManager:
                     """
                 ).fetchall()
                 previous_hash = _GENESIS_HASH
+                anchor_hash = None
+                anchor_count = 0
                 for row in rows:
                     event = {field: row[field] for field in _EVENT_FIELDS}
                     expected_hash = self._event_hash(event, previous_hash)
@@ -86,8 +88,12 @@ class AuditCheckpointManager:
                             f"Audit chain integrity failure at event ID {event['id']}."
                         )
                     previous_hash = expected_hash
+                    if anchor_event_id is not None and event["id"] <= anchor_event_id:
+                        anchor_count += 1
+                    if anchor_event_id is not None and event["id"] == anchor_event_id:
+                        anchor_hash = expected_hash
                 last_id = int(rows[-1]["id"]) if rows else None
-                return len(rows), last_id, previous_hash
+                return len(rows), last_id, previous_hash, anchor_hash, anchor_count
         except sqlite3.Error as exc:
             raise AuditCheckpointError(f"Unable to read audit database: {exc}") from exc
 
@@ -95,7 +101,7 @@ class AuditCheckpointManager:
         self, database_path: str | Path, checkpoint_path: str | Path
     ) -> dict[str, object]:
         """Verify the full chain and publish a signed checkpoint without overwrite."""
-        event_count, last_event_id, last_event_hash = self._read_verified_chain(database_path)
+        event_count, last_event_id, last_event_hash, _, _ = self._read_verified_chain(database_path)
         payload: dict[str, object] = {
             "format_version": _FORMAT_VERSION,
             "created_at": datetime.now(UTC).isoformat(),
@@ -178,26 +184,16 @@ class AuditCheckpointManager:
         ):
             raise AuditCheckpointError("Checkpoint anchor values are invalid.")
 
-        current_count, current_id, current_hash = self._read_verified_chain(database_path)
+        current_count, current_id, current_hash, anchor_hash, anchor_count = (\n            self._read_verified_chain(database_path, last_id)\n        )
         if current_count < count:
             raise AuditCheckpointError("Audit database was truncated before the checkpoint anchor.")
         if count == 0:
             if last_hash != _GENESIS_HASH:
                 raise AuditCheckpointError("Empty checkpoint has an invalid genesis hash.")
-        else:
-            path_obj = Path(database_path).expanduser().resolve()
-            uri = f"file:{quote(str(path_obj))}?mode=ro"
-            try:
-                with sqlite3.connect(uri, uri=True, timeout=5.0) as connection:
-                    row = connection.execute(
-                        "SELECT event_hash FROM api_audit_events WHERE id = ?", (last_id,)
-                    ).fetchone()
-            except sqlite3.Error as exc:
-                raise AuditCheckpointError(f"Unable to verify checkpoint anchor: {exc}") from exc
-            if row is None or row[0] != last_hash:
-                raise AuditCheckpointError("Audit database no longer contains the checkpoint anchor.")
-            if current_id is None or current_id < last_id:
-                raise AuditCheckpointError("Audit database tail precedes the checkpoint anchor.")
+        elif anchor_hash != last_hash or anchor_count != count:
+            raise AuditCheckpointError("Audit database no longer contains the checkpoint anchor.")
+        if count > 0 and (current_id is None or current_id < last_id):
+            raise AuditCheckpointError("Audit database tail precedes the checkpoint anchor.")
         return {
             "valid": True,
             "checkpoint_event_count": count,
