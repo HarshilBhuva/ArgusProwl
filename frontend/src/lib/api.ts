@@ -85,6 +85,12 @@ function extractDetail(payload: unknown): string | null {
   return null;
 }
 
+let browserSessionActive = false;
+
+export function setBrowserSessionActive(active: boolean): void {
+  browserSessionActive = active;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${getApiBaseUrl()}${path}`;
 
@@ -99,7 +105,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     });
 
     if (!response.ok) {
-      if (response.status === 401 && !path.startsWith('/api/v1/auth/')) {
+      if (response.status === 401 && browserSessionActive && !path.startsWith('/api/v1/auth/')) {
         window.dispatchEvent(new Event('argusprowl:session-expired'));
       }
       let payload: unknown = null;
