@@ -350,25 +350,38 @@ class SQLiteAdapter(Storage):
                 {"collection": self._EVIDENCE_COLLECTION},
             ) from exc
 
-    def get_storage_metrics(self) -> dict[str, int | str]:
-        """Return SQLite file sizes and an integrity-check result."""
+    def get_storage_metrics(self) -> dict[str, int]:
+        """Return inexpensive SQLite file and durable evidence size metrics."""
         database_bytes = self._path.stat().st_size if self._path.exists() else 0
         wal_path = Path(f"{self._path}-wal")
         wal_bytes = wal_path.stat().st_size if wal_path.exists() else 0
         try:
             with self._lock:
+                row = self._connection.execute(
+                    "SELECT COUNT(*) FROM telemetry_evidence_index"
+                ).fetchone()
+            return {
+                "database_bytes": database_bytes,
+                "wal_bytes": wal_bytes,
+                "durable_events": int(row[0]) if row else 0,
+            }
+        except sqlite3.Error as exc:
+            raise StorageError(
+                "Unable to read SQLite storage metrics",
+                {"collection": self._EVIDENCE_COLLECTION},
+            ) from exc
+
+    def check_integrity(self) -> str:
+        """Run SQLite quick_check and return its integrity status."""
+        try:
+            with self._lock:
                 row = self._connection.execute("PRAGMA quick_check").fetchone()
-            integrity = str(row[0]) if row else "unknown"
+            return str(row[0]) if row else "unknown"
         except sqlite3.Error as exc:
             raise StorageError(
                 "Unable to check SQLite storage integrity",
                 {"collection": self._EVIDENCE_COLLECTION},
             ) from exc
-        return {
-            "database_bytes": database_bytes,
-            "wal_bytes": wal_bytes,
-            "integrity_status": integrity,
-        }
 
     def count_telemetry_evidence(self) -> int:
         """Return the durable evidence row count, independent of the hot cache."""
