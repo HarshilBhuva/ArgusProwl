@@ -7,10 +7,10 @@ from uuid import uuid4
 import pytest
 
 from argusprowl.detection.detectors.port_scan import PortScanDetector
-from argusprowl.models.normalized_event import NormalizedEvent
-from argusprowl.storage.sqlite_storage import SQLiteAdapter
 from argusprowl.detection.rule_loader import RuleLoader
 from argusprowl.exceptions.exceptions import DetectionError
+from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def test_rule_loader_wires_storage_into_temporal_detectors(tmp_path: Path) -> None:
