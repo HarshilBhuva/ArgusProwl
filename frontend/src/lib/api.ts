@@ -234,6 +234,7 @@ export const api = {
     if (params.domain) qs.set('domain', params.domain);
     if (params.event_type) qs.set('event_type', params.event_type);
     if (params.source_type) qs.set('source_type', params.source_type);
+    if (params.cursor) qs.set('cursor', params.cursor);
     const query = qs.toString();
     return request<EvidenceSearchResponse>(`/api/v1/evidence${query ? `?${query}` : ''}`);
   },
