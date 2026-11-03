@@ -396,3 +396,110 @@ export interface IocInvestigationResponse {
   inspected_alert_count: number;
   observation_note: string;
 }
+
+
+export type HuntStatus = 'draft' | 'active' | 'completed' | 'archived';
+export type HuntEvidenceRole = 'supporting' | 'contradicting' | 'context';
+export type HuntDisposition = 'supports' | 'contradicts' | 'inconclusive';
+
+export interface HuntScope {
+  start_time: string | null;
+  end_time: string | null;
+  hosts: string[];
+  users: string[];
+  sources: string[];
+}
+
+export interface HuntQuery {
+  query_id: string;
+  name: string;
+  definition: Record<string, unknown>;
+  version: number;
+  created_at: string;
+}
+
+export interface HuntExecution {
+  execution_id: string;
+  query_id: string;
+  query_version: number;
+  started_at: string;
+  completed_at: string;
+  result_count: number;
+  data_sources: string[];
+  evidence_event_ids: string[];
+  status: 'complete' | 'partial' | 'degraded' | 'failed';
+  error: string | null;
+  truncated: boolean;
+}
+
+export interface HuntEvidenceReference {
+  event_id: string;
+  role: HuntEvidenceRole;
+  added_by: string;
+  note: string;
+  added_at: string;
+}
+
+export interface HuntFinding {
+  finding_id: string;
+  title: string;
+  description: string;
+  disposition: HuntDisposition;
+  author: string;
+  evidence_event_ids: string[];
+  created_at: string;
+}
+
+export interface HuntConclusion {
+  summary: string;
+  disposition: HuntDisposition;
+  confidence: number;
+  author: string;
+  updated_at: string;
+}
+
+export interface HuntAuditEntry {
+  entry_id: string;
+  action: string;
+  actor: string;
+  timestamp: string;
+  details: Record<string, unknown>;
+}
+
+export interface Hunt {
+  hunt_id: string;
+  title: string;
+  hypothesis: string;
+  created_by: string;
+  status: HuntStatus;
+  scope: HuntScope;
+  queries: HuntQuery[];
+  executions: HuntExecution[];
+  evidence_references: HuntEvidenceReference[];
+  findings: HuntFinding[];
+  conclusion: HuntConclusion | null;
+  audit_history: HuntAuditEntry[];
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
+export interface HuntListResponse {
+  hunts: Hunt[];
+  total_count: number;
+  returned_count: number;
+  truncated: boolean;
+}
+
+export interface HuntQueryExecutionResponse {
+  hunt: Hunt;
+  execution: HuntExecution;
+}
+
+export interface HuntScopeRequest {
+  start_time: string | null;
+  end_time: string | null;
+  hosts: string[];
+  users: string[];
+  sources: string[];
+}
