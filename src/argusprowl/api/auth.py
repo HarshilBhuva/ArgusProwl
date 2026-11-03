@@ -66,7 +66,7 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
 def _role_allows(role: str, method: str, path: str) -> bool:
     """Apply deny-by-default authorization for protected API operations."""
     method = method.upper()
-    if path == "/api/v1/audit":
+    if path == "/api/v1/audit" or path.startswith("/api/v1/audit/"):
         return role == "admin" and method in {"GET", "HEAD"}
     if role == "admin":
         return True
@@ -189,7 +189,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                     headers={"X-Request-ID": request_id},
                 )
         else:
-            if path == "/api/v1/audit":
+            if path == "/api/v1/audit" or path.startswith("/api/v1/audit/"):
                 return JSONResponse(status_code=403, content={"detail": "Forbidden"})
             principal = AuthPrincipal(subject="anonymous", role="anonymous", key_id="anonymous")
 
