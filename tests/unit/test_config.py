@@ -15,6 +15,7 @@ def test_config_loader_defaults():
     defaults = loader.get_default_config()
     assert defaults["app_name"] == "argusprowl"
     assert defaults["logging"]["level"] == "INFO"
+    assert defaults["telemetry_evidence"]["retention_enabled"] is False
 
 
 def test_config_loader_env_overrides(monkeypatch):
