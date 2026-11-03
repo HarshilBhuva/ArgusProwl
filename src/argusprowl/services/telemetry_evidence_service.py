@@ -400,6 +400,9 @@ class TelemetryEvidenceService:
         """
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        for name, value in (("start_time", start_time), ("end_time", end_time)):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"{name} must be timezone-aware.")
 
         indexed_search = getattr(self._storage, "search_telemetry_evidence", None)
         if callable(indexed_search):
