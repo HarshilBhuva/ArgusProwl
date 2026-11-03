@@ -459,7 +459,7 @@ def test_docker_container_boots_and_serves(docker_image):
         assert "<" in root_body, "GET / did not return HTML"
 
         # Unknown /api/v1/ path returns JSON 404/405, not SPA HTML.
-        api_headers = {"X-API-Key": "argusprowl-ci-test-key-0123456789abcdef0123456789abcdef"}
+        api_headers = {"X-ArgusProwl-Key": "argusprowl-ci-test-key-0123456789abcdef0123456789abcdef"}
         api_status, api_body = _http_request(
             port, "/api/v1/nonexistent", headers=api_headers
         )
