@@ -53,6 +53,22 @@ def test_indexed_search_pages_all_durable_records_after_cache_eviction(tmp_path)
     storage.close()
 
 
+def test_historical_contributing_event_remains_available_after_cache_eviction(tmp_path) -> None:
+    storage = SQLiteAdapter(tmp_path / "evidence.db")
+    service = TelemetryEvidenceService(max_retained_events=1, storage=storage)
+    first = _event(0)
+    service.record_event(first, "DETECTION_SOURCE")
+    service.record_event(_event(1))
+
+    detail = service.get_detail(first.event_id)
+    assert detail is not None
+    assert detail.status == "AVAILABLE"
+    assert detail.event is not None
+    assert detail.record is not None
+    assert service.resolve_referenced_status((first.event_id,))[first.event_id] == "AVAILABLE"
+    storage.close()
+
+
 def test_indexed_search_applies_filters_and_inclusive_time_bounds(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
     service = TelemetryEvidenceService(storage=storage)
