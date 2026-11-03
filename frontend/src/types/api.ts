@@ -295,6 +295,8 @@ export interface EvidenceStatsResponse {
   retention_last_deleted_count?: number;
   retention_runs_failed?: number;
   retention_last_error?: string | null;
+  database_bytes?: number | null;
+  wal_bytes?: number | null;
 }
 
 export interface AttckTechniqueSummary {
