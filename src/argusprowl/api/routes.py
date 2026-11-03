@@ -2035,6 +2035,8 @@ async def get_evidence_stats() -> dict[str, Any]:
         retention_last_deleted_count=stats.get("retention_last_deleted_count", 0),
         retention_runs_failed=stats.get("retention_runs_failed", 0),
         retention_last_error=stats.get("retention_last_error"),
+        database_bytes=(stats.get("storage_metrics") or {}).get("database_bytes"),
+        wal_bytes=(stats.get("storage_metrics") or {}).get("wal_bytes"),
     ).model_dump()
 
 
