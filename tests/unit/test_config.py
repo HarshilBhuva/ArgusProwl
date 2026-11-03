@@ -81,6 +81,7 @@ def test_config_manager_loads_explicit_evidence_retention_policy(tmp_path: Path)
         ("retention_days", 0),
         ("cleanup_interval_seconds", -1),
         ("cleanup_batch_size", True),
+        ("cleanup_batch_size", 10001),
     ],
 )
 def test_config_rejects_invalid_evidence_retention_settings(key, value) -> None:
