@@ -50,6 +50,7 @@ def test_viewer_can_read_but_cannot_write(tmp_path) -> None:
         headers=headers,
     )
     assert denied.status_code == 403
+    assert client.get("/api/v1/audit/integrity", headers=headers).status_code == 403
     ServiceContainer.reset_instance()
 
 
@@ -63,6 +64,7 @@ def test_analyst_can_reach_investigation_write_routes_but_not_audit_reader(tmp_p
     )
     assert allowed.status_code != 403
     assert client.get("/api/v1/audit", headers=headers).status_code == 403
+    assert client.get("/api/v1/audit/integrity", headers=headers).status_code == 403
     ServiceContainer.reset_instance()
 
 
