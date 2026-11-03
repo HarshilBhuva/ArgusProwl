@@ -483,6 +483,12 @@ class EvidenceStatsResponse(BaseModel):
     persistence_operations_failed: int = Field(
         default=0, description="Failed recovery, lookup, or retention operations."
     )
+    retention_enabled: bool = Field(
+        default=False, description="Whether scheduled durable evidence retention is enabled."
+    )
+    retention_days: int | None = Field(
+        default=None, description="Configured event-age threshold for durable retention."
+    )
     retention_last_run_at: str | None = Field(
         default=None, description="UTC timestamp of the last durable retention batch."
     )
