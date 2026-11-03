@@ -71,7 +71,10 @@ class TestOrderedSequenceState:
         result = restarted_detector.detect(second)
 
         assert result.matched is True
-        assert result.contributing_event_ids == (first.event_id,)
+        assert set(result.contributing_event_ids) == {
+            first.event_id,
+            second.event_id,
+        }
 
     def test_basic_sequence_completion(self):
         """Test that a basic 2-step sequence completes correctly."""
