@@ -148,10 +148,37 @@ class SQLiteBackupManager:
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise SQLiteBackupError("Backup manifest is missing or invalid.") from exc
 
-        if manifest.format_version != self.FORMAT_VERSION:
+        if (
+            not isinstance(manifest.format_version, int)
+            or isinstance(manifest.format_version, bool)
+            or manifest.format_version != self.FORMAT_VERSION
+        ):
             raise SQLiteBackupError("Unsupported backup manifest format.")
-        if manifest.database_file != backup.name:
+        if (
+            not isinstance(manifest.database_file, str)
+            or manifest.database_file != backup.name
+        ):
             raise SQLiteBackupError("Backup manifest filename does not match.")
+        if (
+            not isinstance(manifest.application_version, str)
+            or not manifest.application_version.strip()
+            or not isinstance(manifest.schema_version, int)
+            or isinstance(manifest.schema_version, bool)
+            or manifest.schema_version < 0
+            or not isinstance(manifest.database_size_bytes, int)
+            or isinstance(manifest.database_size_bytes, bool)
+            or manifest.database_size_bytes < 0
+            or not isinstance(manifest.sha256, str)
+            or len(manifest.sha256) != 64
+            or any(character not in "0123456789abcdef" for character in manifest.sha256)
+        ):
+            raise SQLiteBackupError("Backup manifest fields are invalid.")
+        try:
+            created_at = datetime.fromisoformat(manifest.created_at.replace("Z", "+00:00"))
+            if created_at.tzinfo is None:
+                raise ValueError("Backup timestamp must include a timezone.")
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise SQLiteBackupError("Backup manifest timestamp is invalid.") from exc
         if not backup.is_file() or backup.stat().st_size != manifest.database_size_bytes:
             raise SQLiteBackupError("Backup database size does not match its manifest.")
         if not hmac.compare_digest(self._sha256(backup), manifest.sha256):
