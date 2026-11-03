@@ -111,6 +111,7 @@ def create_parser() -> argparse.ArgumentParser:
     backup_parser.add_argument(
         "--config",
         type=str,
+        default=argparse.SUPPRESS,
         help="Path to YAML configuration file (required for create and restore).",
     )
     backup_subparsers = backup_parser.add_subparsers(dest="backup_action", required=True)
