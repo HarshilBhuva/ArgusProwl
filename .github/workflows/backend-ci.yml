@@ -92,6 +92,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build and start product container
+        env:
+          TH_API__AUTH_ENABLED: "true"
+          ARGUSPROWL_API_KEY: argusprowl-ci-test-key-0123456789abcdef0123456789abcdef
         run: docker compose up -d --build
 
       - name: Wait for API health endpoint
