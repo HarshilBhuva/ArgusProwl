@@ -158,6 +158,70 @@ class EntityListResponse(BaseModel):
     total_count: int = Field(..., description="Total count of entities returned.")
 
 
+class EntityIntelligenceItemResponse(BaseModel):
+    """Durable entity identity summary."""
+
+    entity_type: str
+    entity_id: str
+    display_value: str
+    first_seen: str
+    last_seen: str
+    observation_count: int
+
+
+class EntityIntelligenceListResponse(BaseModel):
+    """Bounded list of entities indexed from durable telemetry."""
+
+    entities: list[EntityIntelligenceItemResponse] = Field(default_factory=list)
+    returned_count: int
+
+
+class EntityEvidenceReferenceResponse(BaseModel):
+    """Evidence reference with explicit durable-availability state."""
+
+    event_id: str
+    observed_at: str
+    provenance: str
+    available: bool
+
+
+class EntityEvidenceListResponse(BaseModel):
+    """Evidence references for one entity."""
+
+    entity_type: str
+    entity_id: str
+    evidence_refs: list[EntityEvidenceReferenceResponse] = Field(default_factory=list)
+    returned_count: int
+
+
+class EntityRelationshipResponse(BaseModel):
+    """Directed entity relationship with provenance and supporting evidence."""
+
+    relationship_id: str
+    source_entity_type: str
+    source_entity_id: str
+    target_entity_type: str
+    target_entity_id: str
+    relationship_type: str
+    evidence_kind: str
+    confidence: float
+    provenance: str
+    first_seen: str
+    last_seen: str
+    observation_count: int
+    evidence_refs: list[EntityEvidenceReferenceResponse] = Field(default_factory=list)
+
+
+class EntityRelationshipListResponse(BaseModel):
+    """Bounded entity pivot response."""
+
+    entity_type: str
+    entity_id: str
+    direction: str
+    relationships: list[EntityRelationshipResponse] = Field(default_factory=list)
+    returned_count: int
+
+
 class EntityDetailResponse(BaseModel):
     """Response for entity detail endpoint preserving identity vs correlation key separation."""
 

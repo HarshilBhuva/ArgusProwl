@@ -99,6 +99,18 @@ argusprowl is designed following **Clean Architecture** principles. The core dom
 
 17. **Plugins**: Plugin framework removed in Phase 4.2S. No dynamic plugin loading infrastructure exists.
 
+## Entity intelligence
+
+Entity intelligence is a relational, evidence-backed projection over canonical `NormalizedEvent` records. It deliberately uses indexed SQLite tables rather than introducing a graph database.
+
+- Entity identities cover hostnames, users, processes, IP addresses, domains, files, and file hashes. Process identities are scoped by host and prefer a source process GUID, then PID, then process name.
+- Direct relationships are stored as `OBSERVED` with confidence `1.0` and source/event provenance. Supported pivots include host/user/process associations, process ancestry, network destinations, domains, files, and hashes.
+- `INFERRED` relationships are a separate evidence kind. They require an explicit confidence, provenance, and durable supporting event references; they are never silently mixed with direct observations.
+- Entity, relationship, and event-reference indexes are updated in the same SQLite transaction as the authoritative telemetry evidence record. Unique `(entity, event)` and `(relationship, event)` references make repeated delivery idempotent.
+- Evidence references survive telemetry retention as tombstones. API responses report `available=false` when the referenced event payload has been removed, rather than presenting an unavailable event as current evidence.
+- The API exposes bounded entity listing, inbound/outbound relationship pivots, and evidence-reference queries. Results carry first/last-seen timestamps, observation counts, confidence, provenance, and observed-versus-inferred classification.
+
+The projection is derived and rebuildable from durable telemetry evidence. It does not change the canonical event schema or detection ownership.
 ## Data Flow
 
 The complete detection pipeline flows as follows:
