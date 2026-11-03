@@ -503,3 +503,16 @@ export interface HuntScopeRequest {
   users: string[];
   sources: string[];
 }
+
+
+export interface AuthStatusResponse {
+  auth_enabled: boolean;
+  session_ttl_seconds: number;
+}
+
+export interface AuthPrincipalResponse {
+  authenticated: boolean;
+  subject: string;
+  role: string;
+  key_id: string;
+}
