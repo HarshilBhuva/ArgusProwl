@@ -8,6 +8,8 @@ correlation patterns.
 
 from __future__ import annotations
 
+import json
+
 import re
 from collections import OrderedDict
 from datetime import timedelta
@@ -16,9 +18,11 @@ from threading import Lock
 from typing import Any, ClassVar
 
 from argusprowl.constants.severity import Severity
+from argusprowl.detection.correlation_state_repository import CorrelationStateRepository
 from argusprowl.detection.detectors.cardinality_state import CardinalityState
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
+from argusprowl.interfaces.storage import Storage
 from argusprowl.models.detection_result import DetectionResult
 from argusprowl.models.normalized_event import NormalizedEvent
 
@@ -114,6 +118,7 @@ class CardinalityCorrelationDetector(Detector):
         enabled: bool = True,
         config: dict[str, Any] | None = None,
         name: str = "cardinality_correlation",
+        storage: Storage | None = None,
     ) -> None:
         """Initialize cardinality correlation detector.
 
@@ -144,6 +149,25 @@ class CardinalityCorrelationDetector(Detector):
         self._config = config or {}
         self._name = name
         self._detections_count = 0
+        state_identity = json.dumps(
+            {
+                "version": version,
+                "cardinality_field": cardinality_field,
+                "threshold": threshold,
+                "timespan_seconds": timespan.total_seconds(),
+                "group_by": self._group_by,
+                "filter_config": self._filter_config,
+                "max_observations_per_key": max_observations_per_key,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        self._state_repository = (
+            CorrelationStateRepository(storage, name, state_identity)
+            if storage is not None
+            else None
+        )
 
         # Bounded state storage
         self._state: OrderedDict[tuple[str, ...], CardinalityState] = OrderedDict()
@@ -236,17 +260,30 @@ class CardinalityCorrelationDetector(Detector):
             state = self._state.get(group_key)
             if state is None:
                 if len(self._state) >= self._max_keys:
-                    self._state.popitem(last=False)
-                state = CardinalityState(
-                    group_key=group_key,
-                    window_duration=self._timespan,
-                    max_observations=self._max_observations_per_key,
+                    evicted_key, _ = self._state.popitem(last=False)
+                    if self._state_repository is not None:
+                        self._state_repository.delete(evicted_key)
+                snapshot = (
+                    self._state_repository.load(group_key)
+                    if self._state_repository is not None
+                    else None
+                )
+                state = (
+                    CardinalityState.from_dict(snapshot)
+                    if snapshot is not None
+                    else CardinalityState(
+                        group_key=group_key,
+                        window_duration=self._timespan,
+                        max_observations=self._max_observations_per_key,
+                    )
                 )
                 self._state[group_key] = state
             else:
                 self._state.move_to_end(group_key)
 
         state.add(event, cardinality_value)
+        if self._state_repository is not None:
+            self._state_repository.save(group_key, state.to_dict())
 
     def detect(self, event: NormalizedEvent) -> DetectionResult:
         """Evaluate the event against the cardinality threshold.
@@ -286,6 +323,14 @@ class CardinalityCorrelationDetector(Detector):
 
         with self._lock:
             state = self._state.get(group_key)
+            if state is None and self._state_repository is not None:
+                snapshot = self._state_repository.load(group_key)
+                if snapshot is not None:
+                    if len(self._state) >= self._max_keys:
+                        evicted_key, _ = self._state.popitem(last=False)
+                        self._state_repository.delete(evicted_key)
+                    state = CardinalityState.from_dict(snapshot)
+                    self._state[group_key] = state
 
         if state is None:
             return DetectionResult(
@@ -296,6 +341,8 @@ class CardinalityCorrelationDetector(Detector):
             )
 
         triggered, unique_count, trigger_event_id = state.check_threshold(self._threshold, event)
+        if self._state_repository is not None:
+            self._state_repository.save(group_key, state.to_dict())
 
         if not triggered or trigger_event_id != event.event_id:
             return DetectionResult(
