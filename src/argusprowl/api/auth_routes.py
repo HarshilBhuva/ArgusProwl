@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from argusprowl.api.auth import ApiKeyAuthService, AuthPrincipal, _origin_matches_request
+from argusprowl.api.auth import (
+    ApiKeyAuthService,
+    AuthPrincipal,
+    _origin_matches_request,
+    _request_is_secure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +130,7 @@ async def create_session(payload: SessionCreateRequest, request: Request) -> JSO
         value=token,
         max_age=service.session_ttl_seconds,
         path="/api",
-        secure=request.url.scheme == "https",
+        secure=_request_is_secure(request),
         httponly=True,
         samesite="strict",
     )
