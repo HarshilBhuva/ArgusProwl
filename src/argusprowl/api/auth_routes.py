@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +10,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from argusprowl.api.auth import ApiKeyAuthService, AuthPrincipal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
@@ -123,8 +126,9 @@ async def delete_session(request: Request) -> JSONResponse:
                 principal=principal,
                 status_code=200,
             )
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail="Audit service unavailable.") from exc
+        except Exception:
+            # Logout must clear the browser credential even if audit storage is down.
+            logger.exception("Could not persist browser session termination event")
     response = JSONResponse({"authenticated": False})
     response.delete_cookie(
         key=service.cookie_name,
