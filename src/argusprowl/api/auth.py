@@ -381,9 +381,12 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                     status_code=401, content={"detail": "Unauthorized"},
                     headers={"X-Request-ID": request_id},
                 )
-            if authenticated_via_session and method not in {"GET", "HEAD", "OPTIONS"}:
-                if not _origin_matches_request(request, request.headers.get("origin")):
-                    try:
+            if (
+                authenticated_via_session
+                and method not in {"GET", "HEAD", "OPTIONS"}
+                and not _origin_matches_request(request, request.headers.get("origin"))
+            ):
+                try:
                         self._audit(
                             event_type="CSRF_ORIGIN_REJECTED", principal=principal,
                             method=method, path=path, status_code=403,
