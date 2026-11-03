@@ -7,9 +7,9 @@
 #   docker compose up --build
 #   -> product UI + API at http://localhost:8080
 #
-# Security: bind to loopback by default. If you intentionally expose the
-# service through a reverse proxy or public interface, enable API-key auth
-# (api.auth_enabled: true) and set ARGUSPROWL_API_KEY in the service environment.
+# Security: the API binds to 0.0.0.0 inside the container so Docker can publish
+# the port. Authentication is therefore enabled by default. Set a unique
+# ARGUSPROWL_API_KEY (at least 32 ASCII characters) before starting Compose.
 
 services:
   argusprowl:
@@ -25,7 +25,7 @@ services:
       # bind all interfaces inside the container so the port mapping works).
       - TH_API__HOST=0.0.0.0
       - TH_API__PORT=8080
-      - TH_API__AUTH_ENABLED=${TH_API__AUTH_ENABLED:-false}
+      - TH_API__AUTH_ENABLED=${TH_API__AUTH_ENABLED:-true}
       - ARGUSPROWL_API_KEY=${ARGUSPROWL_API_KEY:-}
       - ARGUSPROWL_API_KEYS=${ARGUSPROWL_API_KEYS:-}
       - ARGUSPROWL_AUDIT_DB_PATH=${ARGUSPROWL_AUDIT_DB_PATH:-data/audit.db}
