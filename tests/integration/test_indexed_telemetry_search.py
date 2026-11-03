@@ -226,6 +226,23 @@ def test_retention_delete_failure_rolls_back_records_and_index(tmp_path) -> None
     storage.close()
 
 
+def test_retention_cannot_run_when_policy_is_disabled(tmp_path) -> None:
+    storage = SQLiteAdapter(tmp_path / "evidence.db")
+    service = TelemetryEvidenceService(storage=storage, retention_enabled=False)
+    event = _event(0)
+    service.record_event(event)
+
+    try:
+        service.run_retention(datetime(2025, 1, 1, 0, 1, tzinfo=UTC), batch_size=10)
+    except RuntimeError as exc:
+        assert "disabled" in str(exc)
+    else:
+        raise AssertionError("disabled retention policy was bypassed")
+
+    assert storage.load("telemetry_evidence", event.event_id) is not None
+    storage.close()
+
+
 def test_retention_rejects_naive_cutoff_and_invalid_batch_size(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
     service = TelemetryEvidenceService(storage=storage, retention_enabled=True, retention_days=365)
