@@ -53,6 +53,7 @@ def test_browser_login_issues_httponly_session_and_logout_clears_it(tmp_path) ->
 
     current = client.get("/api/v1/auth/me")
     assert current.status_code == 200
+    assert current.headers["cache-control"] == "no-store"
     assert current.json()["subject"] == "analyst-operator"
     assert current.json()["role"] == "analyst"
 
