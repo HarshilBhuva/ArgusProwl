@@ -258,11 +258,17 @@ def test_malformed_persisted_record_marks_recovery_degraded(tmp_path) -> None:
     storage = SQLiteAdapter(tmp_path / "evidence.db")
     malformed_id = uuid4()
     valid = _event()
-    storage.save(
-        "telemetry_evidence",
-        malformed_id,
-        {"event": {"not": "a normalized event"}, "provenance": "INVALID"},
+    # Inject a corrupt legacy row below the Storage contract so startup
+    # recovery can prove it degrades rather than synthesizing an index entry.
+    storage._connection.execute(
+        "INSERT INTO records(collection, record_id, payload) VALUES (?, ?, ?)",
+        (
+            "telemetry_evidence",
+            str(malformed_id),
+            '{"event":{"not":"a normalized event"},"provenance":"INVALID"}',
+        ),
     )
+    storage._connection.commit()
     storage.save(
         "telemetry_evidence",
         valid.event_id,
