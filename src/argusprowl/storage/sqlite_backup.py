@@ -7,6 +7,7 @@ is deliberately an offline operation: callers must stop application writers firs
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import sqlite3
@@ -70,7 +71,6 @@ class SQLiteBackupManager:
             finally:
                 os.close(descriptor)
         except OSError:
-            # Some platforms/filesystems do not support directory fsync.
             return
 
     def create_backup(
@@ -121,7 +121,7 @@ class SQLiteBackupManager:
             )
             with temporary_manifest.open("x", encoding="utf-8") as stream:
                 json.dump(asdict(manifest), stream, sort_keys=True, separators=(",", ":"))
-                stream.write("\\n")
+                stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
             with temporary_database.open("rb") as stream:
@@ -154,7 +154,7 @@ class SQLiteBackupManager:
             raise SQLiteBackupError("Backup manifest filename does not match.")
         if not backup.is_file() or backup.stat().st_size != manifest.database_size_bytes:
             raise SQLiteBackupError("Backup database size does not match its manifest.")
-        if not hashlib.compare_digest(self._sha256(backup), manifest.sha256):
+        if not hmac.compare_digest(self._sha256(backup), manifest.sha256):
             raise SQLiteBackupError("Backup SHA-256 checksum mismatch.")
 
         try:
