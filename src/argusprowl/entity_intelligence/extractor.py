@@ -7,11 +7,11 @@ an explicit, separately recorded operation.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import hashlib
 import ipaddress
 import re
-
-from dataclasses import dataclass
 
 
 _ENTITY_TYPE_ALIASES = {
