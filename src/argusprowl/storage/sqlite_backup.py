@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,8 +104,8 @@ class SQLiteBackupManager:
         temporary_database = Path(temporary_name)
         temporary_manifest = Path(f"{temporary_database}.manifest")
         try:
-            with sqlite3.connect(source) as source_connection:
-                with sqlite3.connect(temporary_database) as backup_connection:
+            with closing(sqlite3.connect(source)) as source_connection:
+                with closing(sqlite3.connect(temporary_database)) as backup_connection:
                     source_connection.backup(backup_connection)
                     self._quick_check(backup_connection)
                     schema_version = self._schema_version(backup_connection)
@@ -185,7 +186,9 @@ class SQLiteBackupManager:
             raise SQLiteBackupError("Backup SHA-256 checksum mismatch.")
 
         try:
-            with sqlite3.connect(f"file:{backup.resolve()}?mode=ro", uri=True) as connection:
+            with closing(
+                sqlite3.connect(f"file:{backup.resolve()}?mode=ro", uri=True)
+            ) as connection:
                 self._quick_check(connection)
                 if self._schema_version(connection) != manifest.schema_version:
                     raise SQLiteBackupError("Backup schema version does not match its manifest.")
@@ -219,8 +222,10 @@ class SQLiteBackupManager:
         os.close(fd)
         staged = Path(temporary_name)
         try:
-            with sqlite3.connect(f"file:{backup.resolve()}?mode=ro", uri=True) as source:
-                with sqlite3.connect(staged) as target:
+            with closing(
+                sqlite3.connect(f"file:{backup.resolve()}?mode=ro", uri=True)
+            ) as source:
+                with closing(sqlite3.connect(staged)) as target:
                     source.backup(target)
                     self._quick_check(target)
                     if self._schema_version(target) != manifest.schema_version:
