@@ -287,6 +287,7 @@ export interface EvidenceDetailResponse {
 
 export interface EvidenceStatsResponse {
   retained_events: number;
+  durable_events: number | null;
   max_retained_events: number;
   eviction_count: number;
   capacity_used_pct: number;
