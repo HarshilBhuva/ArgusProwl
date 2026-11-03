@@ -7,11 +7,11 @@ an explicit, separately recorded operation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import hashlib
 import ipaddress
 import re
+
+from dataclasses import dataclass
 
 
 _ENTITY_TYPE_ALIASES = {
@@ -89,7 +89,7 @@ def normalize_entity_value(entity_type: str, value: str) -> str:
 
 def entity_identifier(entity_type: str, normalized_value: str) -> str:
     """Create a stable opaque identifier for an entity identity."""
-    material = f"{entity_type}\0{normalized_value}".encode()
+    material = f"{entity_type}\\0{normalized_value}".encode()
     return hashlib.sha256(material).hexdigest()
 
 
