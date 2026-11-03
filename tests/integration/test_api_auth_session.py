@@ -108,6 +108,7 @@ def test_browser_session_respects_role_authorization(tmp_path) -> None:
     denied = client.post(
         "/api/v1/hunts",
         json={"title": "Not allowed", "hypothesis": "Viewer must not create hunts."},
+        headers={"Origin": "http://testserver"},
     )
 
     assert denied.status_code == 403
