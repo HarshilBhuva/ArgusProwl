@@ -82,7 +82,9 @@ def test_admin_can_read_persisted_audit_events(tmp_path) -> None:
     reader = client.get("/api/v1/audit", headers=headers)
     assert reader.status_code == 200
     assert reader.json()["total_count"] >= 3
-    assert reader.json()["integrity"]["valid"] is True
+    integrity = client.get("/api/v1/audit/integrity", headers=headers)
+    assert integrity.status_code == 200
+    assert integrity.json()["valid"] is True
     ServiceContainer.reset_instance()
 
 
