@@ -68,19 +68,38 @@ class HuntQueryExecutionService:
             requested = params.get("source_type")
             if requested is not None and requested not in scope.sources:
                 raise ValueError("Query source_type is outside the hunt scope.")
-            if requested is None and len(scope.sources) == 1:
+            if requested is None:
+                if len(scope.sources) != 1:
+                    raise ValueError(
+                        "A source_type filter is required when the hunt scope contains multiple sources."
+                    )
                 params["source_type"] = scope.sources[0]
+
+        if scope.hosts and scope.users:
+            raise ValueError(
+                "The current evidence search cannot enforce host and user scope simultaneously."
+            )
         if scope.hosts:
-            requested_host = params.get("entity_id") if params.get("entity_type") == "hostname" else None
+            entity_type = str(params.get("entity_type", "")).lower()
+            requested_host = params.get("entity_id") if entity_type in {"hostname", "host"} else None
             if requested_host is not None and requested_host not in scope.hosts:
                 raise ValueError("Query hostname is outside the hunt scope.")
-            if requested_host is None and len(scope.hosts) == 1:
+            if requested_host is None:
+                if len(scope.hosts) != 1:
+                    raise ValueError(
+                        "A hostname entity filter is required when the hunt scope contains multiple hosts."
+                    )
                 params["entity_type"], params["entity_id"] = "hostname", scope.hosts[0]
         if scope.users:
-            requested_user = params.get("entity_id") if params.get("entity_type") == "user" else None
+            entity_type = str(params.get("entity_type", "")).lower()
+            requested_user = params.get("entity_id") if entity_type == "user" else None
             if requested_user is not None and requested_user not in scope.users:
                 raise ValueError("Query user is outside the hunt scope.")
-            if requested_user is None and len(scope.users) == 1:
+            if requested_user is None:
+                if len(scope.users) != 1:
+                    raise ValueError(
+                        "A user entity filter is required when the hunt scope contains multiple users."
+                    )
                 params["entity_type"], params["entity_id"] = "user", scope.users[0]
         if params.get("start_time") and params.get("end_time") and params["start_time"] > params["end_time"]:
             raise ValueError("Query time range does not intersect the hunt scope.")
