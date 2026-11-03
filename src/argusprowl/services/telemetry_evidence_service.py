@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
 from uuid import UUID
@@ -134,6 +134,10 @@ class TelemetryEvidenceService:
         # This is bounded by the same configured capacity and never stores telemetry.
         self._evicted_contributing_records: OrderedDict[UUID, EvidenceRecord] = OrderedDict()
         self._eviction_count: int = 0
+        self._retention_last_run_at: str | None = None
+        self._retention_last_deleted_count = 0
+        self._retention_runs_failed = 0
+        self._retention_last_error: str | None = None
         if self._storage is not None:
             self._load_persisted_records()
 
@@ -666,6 +670,49 @@ class TelemetryEvidenceService:
                     status[eid] = "EVICTED"
         return status
 
+    def run_retention(self, cutoff: datetime, *, batch_size: int) -> dict[str, Any]:
+        """Delete one bounded batch of durable evidence older than cutoff.
+
+        This operation is deliberately capability-based: only storage adapters
+        that implement the atomic retention contract can perform durable deletion.
+        """
+        if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+            raise ValueError("Evidence retention cutoff must be timezone-aware.")
+        purge = getattr(self._storage, "purge_expired_telemetry_evidence", None)
+        if not callable(purge):
+            raise RuntimeError("Configured storage backend does not support durable evidence retention.")
+
+        with self._lock:
+            try:
+                deleted_ids = purge(cutoff, batch_size=batch_size)
+            except Exception as exc:
+                self._persistence_operations_failed.increment()
+                self._retention_runs_failed += 1
+                self._retention_last_error = str(exc)[:500]
+                self._retention_last_run_at = datetime.now(UTC).isoformat()
+                logger.exception("Telemetry evidence retention batch failed")
+                raise
+
+            for event_id in deleted_ids:
+                self._events.pop(event_id, None)
+                self._records.pop(event_id, None)
+                self._evicted_contributing_records.pop(event_id, None)
+            self._retention_last_run_at = datetime.now(UTC).isoformat()
+            self._retention_last_deleted_count = len(deleted_ids)
+            self._retention_last_error = None
+            checkpoint = getattr(self._storage, "checkpoint_wal", None)
+            if callable(checkpoint):
+                try:
+                    checkpoint()
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception("WAL checkpoint after evidence retention failed")
+            return {
+                "deleted_count": len(deleted_ids),
+                "event_ids": tuple(deleted_ids),
+                "last_run_at": self._retention_last_run_at,
+            }
+
     def get_stats(self) -> dict[str, Any]:
         """Return store statistics for health reporting."""
         with self._lock:
@@ -689,6 +736,10 @@ class TelemetryEvidenceService:
                 "persistence_writes_succeeded": self._persistence_writes_succeeded.get_value(),
                 "persistence_writes_failed": self._persistence_writes_failed.get_value(),
                 "persistence_operations_failed": self._persistence_operations_failed.get_value(),
+                "retention_last_run_at": self._retention_last_run_at,
+                "retention_last_deleted_count": self._retention_last_deleted_count,
+                "retention_runs_failed": self._retention_runs_failed,
+                "retention_last_error": self._retention_last_error,
             }
 
     # ------------------------------------------------------------------
