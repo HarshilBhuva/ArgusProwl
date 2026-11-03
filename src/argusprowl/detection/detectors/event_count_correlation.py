@@ -17,11 +17,11 @@ from threading import Lock
 from typing import Any, ClassVar
 
 from argusprowl.constants.severity import Severity
-from argusprowl.detection.detectors.event_count_state import EventCountState
 from argusprowl.detection.correlation_state_repository import CorrelationStateRepository
-from argusprowl.interfaces.storage import Storage
+from argusprowl.detection.detectors.event_count_state import EventCountState
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
+from argusprowl.interfaces.storage import Storage
 from argusprowl.models.detection_result import DetectionResult
 from argusprowl.models.normalized_event import NormalizedEvent
 
