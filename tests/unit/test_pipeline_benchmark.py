@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from scripts.benchmark_pipeline import BenchmarkConfig, run_benchmark
 
 
