@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, TypeVar
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import NAMESPACE_URL, uuid5
 
 from argusprowl.detection.detection_manager import DetectionManager
 from argusprowl.detection.detectors.failed_connections import FailedConnectionsDetector
