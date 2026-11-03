@@ -697,6 +697,8 @@ class Application:
                 lambda: TelemetryEvidenceService(
                     max_retained_events=evidence_cfg.max_retained_events,
                     storage=self._container.resolve(Storage),
+                    retention_enabled=evidence_cfg.retention_enabled,
+                    retention_days=evidence_cfg.retention_days,
                     metrics_collector=self._container.resolve(MetricsCollector),
                 ),
             )
