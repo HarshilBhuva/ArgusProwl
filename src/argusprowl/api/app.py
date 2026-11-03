@@ -71,7 +71,7 @@ def create_api_app(
     auth_enabled: bool = False,
     auth_header_name: str = "X-ArgusProwl-Key",
     api_key: str = "",
-    api_keys: dict[str, dict[str, str]] | None = None,
+    api_keys: dict[str, dict[str, Any]] | None = None,
     audit_db_path: str = "data/audit.db",
 ) -> FastAPI:
     """Create and configure the FastAPI application.

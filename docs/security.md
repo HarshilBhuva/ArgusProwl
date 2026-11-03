@@ -16,7 +16,9 @@ must be a JSON object keyed by a non-secret key ID:
   "soc-viewer-01": {
     "secret": "replace-with-a-random-secret-of-at-least-32-characters",
     "subject": "soc-viewer",
-    "role": "viewer"
+    "role": "viewer",
+    "enabled": true,
+    "expires_at": "2027-01-01T00:00:00Z"
   },
   "soc-analyst-01": {
     "secret": "use-a-different-random-secret-of-at-least-32-characters",
@@ -34,6 +36,17 @@ must be a JSON object keyed by a non-secret key ID:
 Pass the same value into the container environment; do not commit real secrets
 to YAML, source control, CI logs, or issue reports. Secrets are compared using
 constant-time comparison and are never included in audit events or responses.
+Named keys may set `enabled: false` to revoke a credential at the next process
+start, and may set `expires_at` to an ISO-8601 timestamp with an explicit
+UTC marker or offset. Expired and disabled keys are rejected on every request;
+expiry is checked at authentication time, not only at startup. Keys without
+these fields retain the existing enabled/no-expiry behavior.
+
+For zero-downtime rotation, add a new key ID and secret alongside the old key,
+deploy the updated configuration, switch clients to the new credential, then
+disable or remove the old key and redeploy. Configuration-based revocation
+requires a configuration deployment/restart; a remote management API and
+persistent runtime revocation store are not implemented.
 
 ## Role boundaries
 
@@ -153,6 +166,8 @@ api:
       secret: REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS
       subject: analyst-1
       role: analyst
+      enabled: true
+      expires_at: "2027-01-01T00:00:00Z"
 ```
 
 Alternatively, supply the legacy administrator key through

@@ -4,6 +4,7 @@ Defines typed configuration for the HTTP API layer.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -31,5 +32,5 @@ class ApiConfig:
     auth_enabled: bool = False
     auth_header_name: str = "X-ArgusProwl-Key"
     api_key: str = ""
-    api_keys: dict[str, dict[str, str]] = field(default_factory=dict)
+    api_keys: dict[str, dict[str, Any]] = field(default_factory=dict)
     audit_db_path: str = "data/audit.db"

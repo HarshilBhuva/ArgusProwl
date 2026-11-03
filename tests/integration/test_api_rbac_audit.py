@@ -13,7 +13,9 @@ from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.services.alert_search_service import AlertSearchService
 
 
-def _build_client(tmp_path, role: str) -> tuple[TestClient, str]:
+def _build_client(
+    tmp_path, role: str, key_options: dict[str, object] | None = None
+) -> tuple[TestClient, str]:
     ServiceContainer.reset_instance()
     service = MagicMock(spec=AlertSearchService)
     result = MagicMock()
@@ -26,15 +28,15 @@ def _build_client(tmp_path, role: str) -> tuple[TestClient, str]:
 
     secret = f"{role}-test-secret-that-is-at-least-32-characters"
     audit_path = tmp_path / f"{role}-audit.db"
+    definition: dict[str, object] = {
+        "secret": secret,
+        "subject": f"{role}-operator",
+        "role": role,
+    }
+    definition.update(key_options or {})
     app = create_api_app(
         auth_enabled=True,
-        api_keys={
-            f"{role}-key": {
-                "secret": secret,
-                "subject": f"{role}-operator",
-                "role": role,
-            }
-        },
+        api_keys={f"{role}-key": definition},
         audit_db_path=str(audit_path),
     )
     return TestClient(app), str(audit_path)
@@ -212,3 +214,37 @@ def test_concurrent_audit_writers_preserve_a_single_chain(tmp_path) -> None:
         "checked_count": 32,
         "first_invalid_id": None,
     }
+
+
+def test_disabled_named_api_key_is_rejected(tmp_path) -> None:
+    client, _ = _build_client(tmp_path, "viewer", {"enabled": False})
+    response = client.get(
+        "/api/v1/alerts",
+        headers={"X-ArgusProwl-Key": "viewer-test-secret-that-is-at-least-32-characters"},
+    )
+    assert response.status_code == 401
+    ServiceContainer.reset_instance()
+
+
+def test_expired_named_api_key_is_rejected(tmp_path) -> None:
+    client, _ = _build_client(
+        tmp_path, "viewer", {"expires_at": "2000-01-01T00:00:00Z"}
+    )
+    response = client.get(
+        "/api/v1/alerts",
+        headers={"X-ArgusProwl-Key": "viewer-test-secret-that-is-at-least-32-characters"},
+    )
+    assert response.status_code == 401
+    ServiceContainer.reset_instance()
+
+
+def test_unexpired_named_api_key_is_accepted(tmp_path) -> None:
+    client, _ = _build_client(
+        tmp_path, "viewer", {"expires_at": "2999-01-01T00:00:00Z"}
+    )
+    response = client.get(
+        "/api/v1/alerts",
+        headers={"X-ArgusProwl-Key": "viewer-test-secret-that-is-at-least-32-characters"},
+    )
+    assert response.status_code == 200
+    ServiceContainer.reset_instance()
