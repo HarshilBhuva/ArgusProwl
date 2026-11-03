@@ -321,15 +321,14 @@ class SQLiteAdapter(Storage):
                 ).fetchall()
                 event_ids = [UUID(str(row[0])) for row in rows]
                 if event_ids:
-                    placeholders = ",".join("?" for _ in event_ids)
-                    values = [str(event_id) for event_id in event_ids]
-                    self._connection.execute(
-                        f"DELETE FROM records WHERE collection=? AND record_id IN ({placeholders})",  # nosec B608
-                        [self._EVIDENCE_COLLECTION, *values],
-                    )
-                    self._connection.execute(
-                        f"DELETE FROM telemetry_evidence_index WHERE event_id IN ({placeholders})",  # nosec B608
+                    values = [(self._EVIDENCE_COLLECTION, str(event_id)) for event_id in event_ids]
+                    self._connection.executemany(
+                        "DELETE FROM records WHERE collection=? AND record_id=?",
                         values,
+                    )
+                    self._connection.executemany(
+                        "DELETE FROM telemetry_evidence_index WHERE event_id=?",
+                        [(str(event_id),) for event_id in event_ids],
                     )
             return event_ids
         except (sqlite3.Error, ValueError, TypeError) as exc:
