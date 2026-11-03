@@ -476,7 +476,7 @@ class ConfigValidator:
             externally_reachable = not ipaddress.ip_address(normalized_host).is_loopback
         except ValueError:
             externally_reachable = normalized_host != "localhost"
-        if externally_reachable:
+        if api.get("enabled", False) and externally_reachable:
             if not auth_enabled:
                 raise ValidationError(
                     "api.auth_enabled must be true when api.host is not a loopback address."
