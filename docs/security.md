@@ -83,12 +83,50 @@ The chain is tamper-evident against modification that does not also recompute
 every subsequent link. It is not a digital signature or an external trust
 anchor: an attacker able to rewrite the database and recompute the complete
 chain can forge a new history, and truncation of the newest tail cannot be
-detected without an independently retained checkpoint. Export or anchor chain
-checkpoints in a separately controlled system for stronger assurance. The
-integrity endpoint is administrator-only. Automatic retention, rotation, and
-external archival are not implemented; monitor database growth and define an
-operator-managed retention/backup policy. Protect the SQLite file, backups, and
-host filesystem permissions.
+detected without an independently retained checkpoint. The integrity endpoint
+is administrator-only.
+
+### External audit-chain checkpoints
+
+Operators can create an independently authenticated checkpoint and retain it
+outside the host/database:
+
+```bash
+export ARGUSPROWL_AUDIT_CHECKPOINT_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+
+# Create a new checkpoint; existing files are never overwritten.
+argusprowl audit-checkpoint create --output /secure-export/audit-2026-11-03.json
+
+# Verify later using the same key and configured audit database.
+argusprowl audit-checkpoint verify /secure-export/audit-2026-11-03.json
+```
+
+The key must be at least 32 bytes and must be managed separately from both the
+audit database and checkpoint file. Do not place it in source control, the
+database directory, command-line arguments, or logs. Store checkpoint files in
+a separately controlled system (for example, an access-restricted backup
+destination or external evidence repository). A checkpoint is HMAC-SHA-256
+authenticated; it is not a public-key signature and requires the same secret
+for verification.
+
+Checkpoint creation first verifies the complete current chain, then anchors its
+event count, last event ID, and last event hash. Verification authenticates the
+checkpoint and confirms the database still contains that exact prefix while
+also validating the current chain. Appends after the checkpoint are permitted.
+A checkpoint detects rewrites or truncation at/before its anchor; it cannot
+detect loss or rewriting of events appended after the most recent checkpoint.
+Create and export checkpoints at an operationally appropriate cadence, and
+retain multiple historical checkpoints independently. The checkpoint file is
+created with restrictive permissions and is never overwritten.
+
+Automatic scheduling, remote checkpoint transport, key rotation, and key
+recovery are not implemented. Losing the signing key makes the checkpoint
+unverifiable. A compromised signing key permits an attacker to forge a
+replacement checkpoint.
+
+Automatic retention, rotation, and external archival are not implemented;
+monitor database growth and define an operator-managed retention/backup policy.
+Protect the SQLite file, backups, and host filesystem permissions.
 
 ## Deployment notes
 

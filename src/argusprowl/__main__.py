@@ -6,12 +6,14 @@ and verifying configuration.
 """
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import argusprowl
+from argusprowl.api.audit_checkpoint import AuditCheckpointError, AuditCheckpointManager
 from argusprowl.attck.knowledge_service import AttckKnowledgeService
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.exit_codes import ExitCode
@@ -155,6 +157,36 @@ def create_parser() -> argparse.ArgumentParser:
         "--confirm-offline",
         action="store_true",
         help="Confirm ArgusProwl and all writers are stopped before offline restore.",
+    )
+
+    # Signed, independently retained checkpoints for the API audit chain.
+    audit_checkpoint_parser = subparsers.add_parser(
+        "audit-checkpoint",
+        help="Create or verify an HMAC-authenticated external audit-chain checkpoint.",
+    )
+    audit_checkpoint_parser.add_argument(
+        "--config",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Path to YAML configuration file.",
+    )
+    audit_checkpoint_subparsers = audit_checkpoint_parser.add_subparsers(
+        dest="audit_checkpoint_action", required=True
+    )
+    audit_checkpoint_create = audit_checkpoint_subparsers.add_parser(
+        "create", help="Verify the current chain and create a signed checkpoint."
+    )
+    audit_checkpoint_create.add_argument(
+        "--output",
+        required=True,
+        type=str,
+        help="New checkpoint file; existing files are never overwritten.",
+    )
+    audit_checkpoint_verify = audit_checkpoint_subparsers.add_parser(
+        "verify", help="Verify checkpoint authenticity and the database's anchored history."
+    )
+    audit_checkpoint_verify.add_argument(
+        "checkpoint_file", type=str, help="Previously exported checkpoint file."
     )
 
     # 'server' subcommand
@@ -306,6 +338,41 @@ def main() -> int:
             print(f"    Database: {database_path}")
             print(f"    Backup created: {manifest.created_at}")
             return ExitCode.SUCCESS
+
+        if command == "audit-checkpoint":
+            signing_key = os.environ.get("ARGUSPROWL_AUDIT_CHECKPOINT_KEY")
+            if not signing_key or len(signing_key.encode("utf-8")) < 32:
+                print(
+                    "[!] Set ARGUSPROWL_AUDIT_CHECKPOINT_KEY to an independently managed "
+                    "secret of at least 32 bytes.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+            app_config = ConfigManager().load(config_path)
+            database_path = app_config.api.audit_db_path
+            try:
+                checkpoint_manager = AuditCheckpointManager(signing_key)
+                if args.audit_checkpoint_action == "create":
+                    payload = checkpoint_manager.create_checkpoint(
+                        database_path, args.output
+                    )
+                    print("[+] Signed audit checkpoint created.")
+                    print(f"    Checkpoint: {args.output}")
+                    print(f"    Events anchored: {payload['event_count']}")
+                    print(f"    Last event ID: {payload['last_event_id']}")
+                    print(f"    Last event hash: {payload['last_event_hash']}")
+                else:
+                    result = checkpoint_manager.verify_checkpoint(
+                        database_path, args.checkpoint_file
+                    )
+                    print("[+] Audit checkpoint verified.")
+                    print(f"    Checkpoint events: {result['checkpoint_event_count']}")
+                    print(f"    Current events: {result['current_event_count']}")
+                    print(f"    Current last event ID: {result['current_last_event_id']}")
+                return ExitCode.SUCCESS
+            except AuditCheckpointError as exc:
+                print(f"[!] Audit checkpoint operation failed: {exc}", file=sys.stderr)
+                return ExitCode.RUNTIME_ERROR
 
         if command == "validate-config":
             ConfigManager().load(config_path)
