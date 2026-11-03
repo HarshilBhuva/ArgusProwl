@@ -19,7 +19,8 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 from uuid import NAMESPACE_URL, uuid5
 
 from argusprowl.detection.detection_manager import DetectionManager
