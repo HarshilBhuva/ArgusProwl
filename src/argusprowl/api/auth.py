@@ -75,6 +75,31 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
     return "text/html" in accept.lower() and "." not in normalized.rsplit("/", 1)[-1]
 
 
+
+def _origin_matches_request(request: Request, origin: str | None) -> bool:
+    """Validate a browser Origin against the externally visible request origin."""
+    if not origin or origin == "null":
+        return False
+    try:
+        origin_parts = urlsplit(origin)
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        scheme = (
+            forwarded_proto.split(",", 1)[0].strip()
+            if forwarded_proto
+            else request.url.scheme
+        )
+        host = request.headers.get("host", request.url.netloc).split(",", 1)[0].strip()
+        return (
+            not origin_parts.path
+            and not origin_parts.query
+            and not origin_parts.fragment
+            and origin_parts.scheme.lower() == scheme.lower()
+            and origin_parts.netloc.lower() == host.lower()
+        )
+    except ValueError:
+        return False
+
+
 def _parse_key_expiry(value: Any) -> datetime | None:
     """Parse an optional timezone-aware ISO-8601 expiry timestamp."""
     if value is None:
@@ -357,27 +382,19 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                     headers={"X-Request-ID": request_id},
                 )
             if authenticated_via_session and method not in {"GET", "HEAD", "OPTIONS"}:
-                origin = request.headers.get("origin")
-                origin_parts = urlsplit(origin) if origin else None
-                request_parts = urlsplit(str(request.base_url))
-                if (
-                    origin_parts is None
-                    or origin == "null"
-                    or origin_parts.scheme.lower() != request_parts.scheme.lower()
-                    or origin_parts.netloc.lower() != request_parts.netloc.lower()
-                ):
-                        try:
-                            self._audit(
-                                event_type="CSRF_ORIGIN_REJECTED", principal=principal,
-                                method=method, path=path, status_code=403,
-                                request_id=request_id, client_ip=client_ip,
-                            )
-                        except Exception:
-                            logger.exception("Could not persist CSRF rejection audit event")
-                        return JSONResponse(
-                            status_code=403, content={"detail": "Forbidden"},
-                            headers={"X-Request-ID": request_id},
+                if not _origin_matches_request(request, request.headers.get("origin")):
+                    try:
+                        self._audit(
+                            event_type="CSRF_ORIGIN_REJECTED", principal=principal,
+                            method=method, path=path, status_code=403,
+                            request_id=request_id, client_ip=client_ip,
                         )
+                    except Exception:
+                        logger.exception("Could not persist CSRF rejection audit event")
+                    return JSONResponse(
+                        status_code=403, content={"detail": "Forbidden"},
+                        headers={"X-Request-ID": request_id},
+                    )
             if not _role_allows(principal.role, method, path):
                 try:
                     self._audit(
