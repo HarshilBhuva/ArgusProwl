@@ -184,10 +184,12 @@ class HealthService:
             "evidence_persistence_errors",
         )
         try:
-            counts = {
-                name: int(self._metrics_collector.get_counter(name).get_value())
-                for name in metric_names
-            }
+            counts = {}
+            for name in metric_names:
+                try:
+                    counts[name] = int(self._metrics_collector.get_counter(name).get_value())
+                except KeyError:
+                    counts[name] = 0
         except KeyError:
             counts = {name: 0 for name in metric_names}
         except Exception as exc:
