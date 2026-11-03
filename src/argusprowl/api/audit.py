@@ -144,6 +144,7 @@ class AuditLog:
     ) -> int:
         """Append an event and its chain link in one SQLite transaction."""
         with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             latest = connection.execute(
                 "SELECT event_hash FROM api_audit_events ORDER BY id DESC LIMIT 1"
             ).fetchone()
