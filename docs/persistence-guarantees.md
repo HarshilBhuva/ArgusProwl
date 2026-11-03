@@ -53,3 +53,15 @@ The evidence and alert stores remain independently committed. A future transacti
 - Scheduled cleanup is only wired for SQLite. Other configured storage backends are not silently treated as retention-capable; the application logs and skips the worker.
 - Retention removes evidence records and their search-index rows. It does not rewrite alerts, incidents, hunt records, or historical references to the removed event IDs. Those references remain and resolve as unavailable/evicted through existing evidence lookup behavior.
 - Backups remain an operator responsibility. A valid backup must capture the SQLite database consistently (for example, through SQLite's backup API or after a coordinated checkpoint); copying only the main database file while WAL writes are active is not a supported backup procedure.
+
+
+## SQLite backup, verification, and restore
+
+- `SQLiteBackupManager.create_backup()` uses Python's SQLite online backup API. SQLite coordinates the snapshot with active transactions and includes committed WAL content; operators must not substitute a raw copy of the main database file while the application is writing.
+- Each backup consists of a SQLite database file and a companion `.manifest.json` file. The manifest records its format version, UTC creation time, application version supplied by the operator, SQLite `user_version`, database filename, byte size, and SHA-256 checksum.
+- Backup publication uses temporary files in the destination directory and atomic file replacement. The manifest is published last and acts as the completion marker. Existing backup destinations are rejected rather than overwritten; use a new unique backup filename for each run.
+- `SQLiteBackupManager.verify_backup()` validates manifest structure and format, filename, byte size, SHA-256, SQLite `quick_check`, and schema version. A backup is not considered restorable until verification succeeds.
+- `SQLiteBackupManager.restore_backup()` verifies first, copies the backup into a staging database, checks integrity and schema version again, then atomically replaces the destination database file. A failed verification or staging step leaves the existing destination file unchanged.
+- Restore is an **offline operation**. Stop ArgusProwl and all processes that can write to the target database before restoring. The manager refuses to proceed when target `-wal` or `-shm` sidecars exist; it does not attempt to terminate processes or remove sidecars automatically.
+- The manifest checksum detects accidental corruption or tampering only when the manifest itself is trusted. It is not a digital signature, does not provide authenticity against an attacker who can replace both files, and does not encrypt backup contents.
+- This capability creates and verifies local backup files on demand. It does not schedule backups, upload them offsite, implement retention of backup generations, encrypt backups, or guarantee a particular RPO/RTO. Operators remain responsible for protected off-host copies, access controls, backup cadence, and periodic restore drills.
