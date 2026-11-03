@@ -254,7 +254,7 @@ class SQLiteAdapter(Storage):
             # nosec B608: SQL fragments above are fixed literals/allowlisted column names;
             # every user-supplied value is passed separately through SQLite placeholders.
             total_row = self._connection.execute(
-                "SELECT COUNT(*) FROM telemetry_evidence_index i" + where, values
+                "SELECT COUNT(*) FROM telemetry_evidence_index i" + where, values  # nosec B608
             ).fetchone()
             total_count = int(total_row[0]) if total_row else 0
             page_clauses = list(clauses)
@@ -269,7 +269,7 @@ class SQLiteAdapter(Storage):
                 """SELECT r.payload, i.timestamp, i.event_id
                 FROM telemetry_evidence_index i
                 JOIN records r ON r.collection=? AND r.record_id=i.event_id"""
-                + page_where
+                + page_where  # nosec B608
                 + " ORDER BY i.timestamp ASC, i.event_id ASC LIMIT ?",
                 [self._EVIDENCE_COLLECTION, *page_values, limit + 1],
             ).fetchall()
