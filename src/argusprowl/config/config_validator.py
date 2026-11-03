@@ -7,6 +7,7 @@ import ipaddress
 import math
 import os
 import re
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 from argusprowl.exceptions.exceptions import ValidationError
@@ -529,6 +530,46 @@ class ConfigValidator:
             if secret in seen_secrets:
                 raise ValidationError("api.api_keys must not contain duplicate secrets.")
             seen_secrets.add(secret)
+
+            enabled = definition.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise ValidationError(f"api.api_keys.{key_id}.enabled must be a boolean.")
+            expires_at = definition.get("expires_at")
+            if expires_at is not None:
+                if not isinstance(expires_at, str) or not expires_at.strip():
+                    raise ValidationError(
+                        f"api.api_keys.{key_id}.expires_at must be a timezone-aware ISO-8601 timestamp."
+                    )
+                normalized_expiry = expires_at[:-1] + "+00:00" if expires_at.endswith("Z") else expires_at
+                try:
+                    parsed_expiry = datetime.fromisoformat(normalized_expiry)
+                except ValueError as exc:
+                    raise ValidationError(
+                        f"api.api_keys.{key_id}.expires_at must be a valid ISO-8601 timestamp."
+                    ) from exc
+                if parsed_expiry.tzinfo is None or parsed_expiry.utcoffset() is None:
+                    raise ValidationError(
+                        f"api.api_keys.{key_id}.expires_at must include a timezone offset."
+                    )
+
+        if api.get("enabled", True) and externally_reachable and not configured_legacy_key:
+            now = datetime.now(UTC)
+            has_active_named_key = any(
+                definition.get("enabled", True)
+                and (
+                    definition.get("expires_at") is None
+                    or datetime.fromisoformat(
+                        definition["expires_at"][:-1] + "+00:00"
+                        if definition["expires_at"].endswith("Z")
+                        else definition["expires_at"]
+                    ).astimezone(UTC) > now
+                )
+                for definition in api_keys.values()
+            )
+            if not has_active_named_key:
+                raise ValidationError(
+                    "A remote API listener requires at least one enabled, unexpired named API credential."
+                )
 
     def _validate_event_count_correlation_section(self, event_count_corr: Any) -> None:
         if not isinstance(event_count_corr, dict):
