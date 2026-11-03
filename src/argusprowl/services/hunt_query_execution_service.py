@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntService
-from argusprowl.models.hunt import EvidenceRole, HuntExecution, HuntEvidenceReference
+from argusprowl.models.hunt import EvidenceRole, HuntEvidenceReference, HuntExecution
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 
 
@@ -56,8 +56,10 @@ class HuntQueryExecutionService:
             if value is not None and (not isinstance(value,str) or not value.strip() or len(value)>max_len):
                 raise ValueError(f"{key} must be a non-empty string of at most {max_len} characters.")
         if "event_id" in params:
-            try: params["event_id"] = UUID(str(params["event_id"]))
-            except ValueError as exc: raise ValueError("event_id must be a UUID.") from exc
+            try:
+                params["event_id"] = UUID(str(params["event_id"]))
+            except ValueError as exc:
+                raise ValueError("event_id must be a UUID.") from exc
         if scope.start_time:
             params["start_time"] = max(params.get("start_time", scope.start_time), scope.start_time)
         if scope.end_time:
