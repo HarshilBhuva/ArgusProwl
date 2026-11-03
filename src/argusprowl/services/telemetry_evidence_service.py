@@ -581,7 +581,7 @@ class TelemetryEvidenceService:
                 )
 
             record = self._evicted_contributing_records.get(event_id)
-            if record is None and self._storage is not None:
+            if self._storage is not None:
                 try:
                     payload = self._storage.load("telemetry_evidence", event_id)
                     if payload is not None:
@@ -649,8 +649,18 @@ class TelemetryEvidenceService:
 
         with self._lock:
             for eid in event_ids:
-                if eid in self._events or self._recovery_status != "AVAILABLE":
+                if eid in self._events:
                     status[eid] = self._recovery_status
+                elif self._recovery_status != "AVAILABLE":
+                    status[eid] = self._recovery_status
+                elif self._storage is not None:
+                    try:
+                        persisted = self._storage.load("telemetry_evidence", eid)
+                        status[eid] = "AVAILABLE" if persisted is not None else "EVICTED"
+                    except Exception:
+                        self._persistence_operations_failed.increment()
+                        logger.exception("Unable to resolve referenced evidence event_id=%s", eid)
+                        status[eid] = "UNAVAILABLE"
                 else:
                     status[eid] = "EVICTED"
         return status
