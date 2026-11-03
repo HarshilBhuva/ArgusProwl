@@ -19,6 +19,10 @@ from argusprowl.constants.paths import ProjectPath
 from argusprowl.core.application import Application
 from argusprowl.exceptions.exceptions import ThreatHunterError
 from argusprowl.storage.sqlite_backup import SQLiteBackupManager
+from argusprowl.storage.sqlite_diagnostics import (
+    SQLiteDiagnosticsError,
+    SQLiteDiagnosticsService,
+)
 
 
 def _validate_stix_url(url: str) -> str:
@@ -103,6 +107,24 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("validate-config", help="Load and validate configuration, then exit.")
+
+    # Read-only storage diagnostics; these commands never start the application.
+    storage_parser = subparsers.add_parser(
+        "storage", help="Inspect configured storage without starting the application."
+    )
+    storage_parser.add_argument(
+        "--config",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Path to YAML configuration file.",
+    )
+    storage_subparsers = storage_parser.add_subparsers(dest="storage_action", required=True)
+    storage_subparsers.add_parser(
+        "check", help="Run SQLite quick_check and report durable storage metrics."
+    )
+    storage_subparsers.add_parser(
+        "stats", help="Report SQLite capacity and record metrics without an integrity scan."
+    )
 
     # Explicit operator workflow for local SQLite backup lifecycle.
     backup_parser = subparsers.add_parser(
@@ -201,6 +223,42 @@ def main() -> int:
     application: Application | None = None
 
     try:
+
+        if command == "storage":
+            app_config = ConfigManager().load(config_path)
+            if app_config.storage.backend.lower() != "sqlite":
+                print(
+                    "[!] Storage diagnostics currently require storage.backend=sqlite.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+
+            try:
+                diagnostics = SQLiteDiagnosticsService().inspect(
+                    app_config.storage.database_path,
+                    check_integrity=args.storage_action == "check",
+                )
+            except SQLiteDiagnosticsError as exc:
+                print(f"[!] Storage diagnostic failed: {exc}", file=sys.stderr)
+                return ExitCode.RUNTIME_ERROR
+
+            print("\n=== argusprowl SQLite Storage ===")
+            print(f"Database:         {diagnostics.database_path}")
+            print(f"Database size:    {diagnostics.database_bytes} bytes")
+            print(f"WAL size:         {diagnostics.wal_bytes} bytes")
+            print(f"Pages:            {diagnostics.page_count}")
+            print(f"Free pages:       {diagnostics.freelist_count}")
+            print(f"Schema version:   {diagnostics.schema_version}")
+            print(f"Durable records:  {diagnostics.durable_records}")
+            if diagnostics.durable_evidence is not None:
+                print(f"Durable evidence: {diagnostics.durable_evidence}")
+            if diagnostics.integrity_status is not None:
+                print(f"Quick check:      {diagnostics.integrity_status}")
+                if diagnostics.integrity_status != "ok":
+                    return ExitCode.RUNTIME_ERROR
+            print("=================================\n")
+            return ExitCode.SUCCESS
+
         if command == "backup":
             backup_manager = SQLiteBackupManager()
 

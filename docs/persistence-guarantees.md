@@ -87,3 +87,22 @@ python -m argusprowl backup restore backups/argusprowl-2026-11-03.db --confirm-o
 - Restore refuses to run unless the operator supplies `--confirm-offline`. This is an explicit operator acknowledgement, not an automated proof that writers have stopped. The backup manager also rejects existing target WAL/SHM sidecars.
 - Backup output paths are unique: an existing database or manifest is never overwritten.
 - These commands remain local and on-demand. They do not schedule jobs, upload backups, or guarantee that operators have performed a restore drill.
+
+
+### Read-only SQLite storage diagnostics
+
+The operator CLI can inspect the configured SQLite database without starting ingestion, collectors, or the API:
+
+```bash
+# Run SQLite quick_check and report storage/evidence metrics
+python -m argusprowl storage check
+
+# Report capacity and durable record metrics without an integrity scan
+python -m argusprowl storage stats
+```
+
+- Both commands open the configured database in SQLite read-only mode and require `storage.backend: sqlite`.
+- `check` runs `PRAGMA quick_check`; a non-`ok` result returns a non-zero runtime exit code.
+- `stats` skips the integrity scan and reports page count, free pages, database/WAL file sizes, schema version, durable record count, and evidence-index count when that index exists.
+- Diagnostics do not initialize schema, run migrations, checkpoint the WAL, repair corruption, or modify database contents.
+- These are point-in-time local diagnostics, not continuous monitoring or a guarantee that the storage device is healthy.
