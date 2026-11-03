@@ -30,8 +30,8 @@ from argusprowl.models.configuration import (
     StorageConfig,
     SuricataConfig,
     SysmonConfig,
-    TemporalConfig,
     TelemetryEvidenceConfig,
+    TemporalConfig,
     WindowsEventLogConfig,
     ZeekConfig,
 )
