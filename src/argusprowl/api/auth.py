@@ -76,18 +76,28 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
 
 
 
+def _request_scheme(request: Request) -> str:
+    """Return the external scheme, honoring the reverse proxy's forwarded protocol."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    return (
+        forwarded_proto.split(",", 1)[0].strip().lower()
+        if forwarded_proto
+        else request.url.scheme.lower()
+    )
+
+
+def _request_is_secure(request: Request) -> bool:
+    """Determine whether the browser-facing connection uses HTTPS."""
+    return _request_scheme(request) == "https"
+
+
 def _origin_matches_request(request: Request, origin: str | None) -> bool:
     """Validate a browser Origin against the externally visible request origin."""
     if not origin or origin == "null":
         return False
     try:
         origin_parts = urlsplit(origin)
-        forwarded_proto = request.headers.get("x-forwarded-proto", "")
-        scheme = (
-            forwarded_proto.split(",", 1)[0].strip()
-            if forwarded_proto
-            else request.url.scheme
-        )
+        scheme = _request_scheme(request)
         host = request.headers.get("host", request.url.netloc).split(",", 1)[0].strip()
         return (
             not origin_parts.path
