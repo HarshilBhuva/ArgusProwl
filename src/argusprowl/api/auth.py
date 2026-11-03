@@ -387,17 +387,17 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                 and not _origin_matches_request(request, request.headers.get("origin"))
             ):
                 try:
-                        self._audit(
-                            event_type="CSRF_ORIGIN_REJECTED", principal=principal,
-                            method=method, path=path, status_code=403,
-                            request_id=request_id, client_ip=client_ip,
-                        )
-                    except Exception:
-                        logger.exception("Could not persist CSRF rejection audit event")
-                    return JSONResponse(
-                        status_code=403, content={"detail": "Forbidden"},
-                        headers={"X-Request-ID": request_id},
+                    self._audit(
+                        event_type="CSRF_ORIGIN_REJECTED", principal=principal,
+                        method=method, path=path, status_code=403,
+                        request_id=request_id, client_ip=client_ip,
                     )
+                except Exception:
+                    logger.exception("Could not persist CSRF rejection audit event")
+                return JSONResponse(
+                    status_code=403, content={"detail": "Forbidden"},
+                    headers={"X-Request-ID": request_id},
+                )
             if not _role_allows(principal.role, method, path):
                 try:
                     self._audit(
