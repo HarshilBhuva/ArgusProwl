@@ -179,3 +179,55 @@ def test_remote_listener_rejects_only_expired_or_disabled_named_keys(
 
     with pytest.raises(ValidationError, match="enabled, unexpired"):
         ConfigManager().load(config_file)
+
+
+def test_named_api_key_rejects_non_boolean_enabled_field(tmp_path, monkeypatch) -> None:
+    import json
+    import pytest
+
+    from argusprowl.exceptions.exceptions import ValidationError
+
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text("app_name: TestApp\\napi:\\n  auth_enabled: true\\n", encoding="utf-8")
+    monkeypatch.setenv(
+        "ARGUSPROWL_API_KEYS",
+        json.dumps({
+            "bad-key": {
+                "secret": "a-random-secret-value-longer-than-32-characters",
+                "subject": "operator",
+                "role": "viewer",
+                "enabled": "false",
+            }
+        }),
+    )
+
+    with pytest.raises(ValidationError, match="enabled must be a boolean"):
+        ConfigManager().load(config_file)
+
+
+def test_remote_listener_rejects_disabled_named_credentials(tmp_path, monkeypatch) -> None:
+    import json
+    import pytest
+
+    from argusprowl.exceptions.exceptions import ValidationError
+
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text(
+        "app_name: TestApp\\napi:\\n  enabled: true\\n  host: 0.0.0.0\\n  auth_enabled: true\\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("ARGUSPROWL_API_KEY", raising=False)
+    monkeypatch.setenv(
+        "ARGUSPROWL_API_KEYS",
+        json.dumps({
+            "disabled": {
+                "secret": "a-random-secret-value-longer-than-32-characters",
+                "subject": "operator",
+                "role": "admin",
+                "enabled": False,
+            }
+        }),
+    )
+
+    with pytest.raises(ValidationError, match="enabled, unexpired"):
+        ConfigManager().load(config_file)
