@@ -8,6 +8,7 @@ import os
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -63,6 +64,22 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
     return "text/html" in accept.lower() and "." not in normalized.rsplit("/", 1)[-1]
 
 
+def _parse_key_expiry(value: Any) -> datetime | None:
+    """Parse an optional timezone-aware ISO-8601 expiry timestamp."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("API key expires_at must be a non-empty ISO-8601 timestamp.")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("API key expires_at must be a valid ISO-8601 timestamp.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("API key expires_at must include a timezone offset.")
+    return parsed.astimezone(UTC)
+
+
 def _role_allows(role: str, method: str, path: str) -> bool:
     """Apply deny-by-default authorization for protected API operations."""
     method = method.upper()
@@ -95,7 +112,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         *,
         auth_enabled: bool = False,
         api_key: str = "",
-        api_keys: dict[str, dict[str, str]] | None = None,
+        api_keys: dict[str, dict[str, Any]] | None = None,
         auth_header_name: str = "X-ArgusProwl-Key",
         audit_log: Any | None = None,
     ) -> None:
@@ -106,26 +123,37 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         self._audit_log = audit_log
         self._api_keys: dict[str, AuthPrincipal] = {}
         self._api_secrets: dict[str, str] = {}
+        self._api_key_enabled: dict[str, bool] = {}
+        self._api_key_expires_at: dict[str, datetime | None] = {}
         for key_id, definition in (api_keys or {}).items():
             secret = definition.get("secret", "")
             subject = definition.get("subject", key_id)
             role = definition.get("role", "")
+            enabled = definition.get("enabled", True)
+            expires_at = _parse_key_expiry(definition.get("expires_at"))
             if (
                 not isinstance(secret, str) or not secret or not secret.isascii()
                 or not isinstance(subject, str) or not subject
                 or not isinstance(role, str) or role not in _VALID_ROLES
+                or not isinstance(enabled, bool)
             ):
                 raise ValueError(f"Invalid API key definition for key ID {key_id!r}")
             self._api_secrets[key_id] = secret
             self._api_keys[key_id] = AuthPrincipal(subject=subject, role=role, key_id=key_id)
+            self._api_key_enabled[key_id] = enabled
+            self._api_key_expires_at[key_id] = expires_at
         if auth_enabled and not (api_key or self._api_keys or os.environ.get("ARGUSPROWL_API_KEY")):
             logger.warning("API auth is enabled but no API key is configured; protected routes fail closed.")
 
     def _authenticate(self, supplied_key: str | None) -> AuthPrincipal | None:
         if not supplied_key or not supplied_key.isascii():
             return None
+        now = datetime.now(UTC)
         for key_id, secret in self._api_secrets.items():
             if hmac.compare_digest(supplied_key, secret):
+                expires_at = self._api_key_expires_at[key_id]
+                if not self._api_key_enabled[key_id] or (expires_at is not None and now >= expires_at):
+                    return None
                 return self._api_keys[key_id]
         legacy_key = self._config_key or os.environ.get("ARGUSPROWL_API_KEY", "")
         if legacy_key and legacy_key.isascii() and hmac.compare_digest(supplied_key, legacy_key):
