@@ -69,7 +69,7 @@ class SQLiteAdapter(Storage):
             rows = self._connection.execute(
                 "SELECT record_id, payload FROM records WHERE collection=?",
                 (self._EVIDENCE_COLLECTION,),
-            ).fetchall()
+            )
             for record_id, raw_payload in rows:
                 try:
                     payload = json.loads(raw_payload)
