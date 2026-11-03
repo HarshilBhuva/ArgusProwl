@@ -2021,6 +2021,7 @@ async def get_evidence_stats() -> dict[str, Any]:
 
     return EvidenceStatsResponse(
         retained_events=stats["retained_events"],
+        durable_events=stats.get("durable_events"),
         max_retained_events=stats["max_retained_events"],
         eviction_count=stats["eviction_count"],
         capacity_used_pct=stats["capacity_used_pct"],
