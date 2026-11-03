@@ -25,7 +25,6 @@ import type {
   RuleListResponse,
   TimelineResponse,
   Hunt,
-  HuntConclusion,
   HuntDisposition,
   HuntEvidenceRole,
   HuntListResponse,
