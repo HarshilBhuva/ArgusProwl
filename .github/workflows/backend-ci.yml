@@ -57,6 +57,17 @@ jobs:
       - name: Run full test suite
         run: uv run pytest -q --maxfail=1
 
+      - name: Run performance baseline smoke
+        run: uv run python scripts/benchmark_pipeline.py --events 1000 --warmup 100 --repeats 3 --output benchmark-results.json
+
+      - name: Upload performance baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-benchmark-${{ github.sha }}
+          path: benchmark-results.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Validate config (no external services)
         run: uv run python -m argusprowl validate-config
 
