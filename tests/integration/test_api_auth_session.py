@@ -69,6 +69,22 @@ def test_browser_login_issues_httponly_session_and_logout_clears_it(tmp_path) ->
     assert secret not in str(events)
 
 
+
+def test_logout_clears_cookie_even_if_audit_storage_fails(tmp_path, monkeypatch) -> None:
+    client, secret, _audit_path = _client(tmp_path, "analyst")
+    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+
+    def fail_audit(**_kwargs):
+        raise OSError("audit store unavailable")
+
+    monkeypatch.setattr(client.app.state.audit_log, "append", fail_audit)
+    logout = client.delete("/api/v1/auth/session")
+
+    assert logout.status_code == 200
+    assert "Max-Age=0" in logout.headers["set-cookie"]
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
 def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
     client, _secret, audit_path = _client(tmp_path)
 
