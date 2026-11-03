@@ -273,7 +273,7 @@ class ApiKeyAuthService:
             if principal.subject != subject or principal.role != role:
                 return None
             return principal
-        except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError):
             return None
 
 
