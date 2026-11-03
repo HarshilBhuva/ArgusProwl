@@ -189,7 +189,9 @@ class AuditCheckpointManager:
         ):
             raise AuditCheckpointError("Checkpoint anchor values are invalid.")
 
-        current_count, current_id, current_hash, anchor_hash, anchor_count = (\n            self._read_verified_chain(database_path, last_id)\n        )
+        current_count, current_id, current_hash, anchor_hash, anchor_count = (
+            self._read_verified_chain(database_path, last_id)
+        )
         if current_count < count:
             raise AuditCheckpointError("Audit database was truncated before the checkpoint anchor.")
         if count == 0:
