@@ -30,16 +30,21 @@ def _make_event(
     timestamp: datetime | None = None,
     source_record_id: str | None = None,
     attributes: dict[str, Any] | None = None,
+    process_name: str | None = None,
+    pid: int | None = None,
+    source_type: str = "sysmon",
 ) -> NormalizedEvent:
     """Create a minimal NormalizedEvent for event-count testing."""
     return NormalizedEvent(
-        source_type="sysmon",
+        source_type=source_type,
         event_type=event_type,
         timestamp=timestamp or datetime.now(UTC),
         src_ip=src_ip,
         dst_ip=dst_ip,
         hostname=hostname,
         username=username,
+        process_name=process_name,
+        pid=pid,
         source_record_id=source_record_id,
         attributes=attributes or {},
     )
@@ -422,6 +427,42 @@ class TestEventCountCorrelationDetector:
         # alice should trigger, bob should not
         result_alice = detector.detect(events[-1])
         assert result_alice.matched is True
+
+    def test_grouping_by_process_identity_across_sources(self) -> None:
+        """Events from different sources correlate on the same host/process key."""
+        detector = EventCountCorrelationDetector(
+            count=2,
+            timespan=timedelta(minutes=5),
+            group_by=["hostname", "pid"],
+        )
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = _make_event(
+            hostname="workstation-01",
+            process_name="powershell.exe",
+            pid=4242,
+            source_type="sysmon",
+            timestamp=base,
+        )
+        second = _make_event(
+            hostname="workstation-01",
+            process_name="powershell.exe",
+            pid=4242,
+            source_type="linux_audit",
+            timestamp=base + timedelta(seconds=1),
+        )
+        other_process = _make_event(
+            hostname="workstation-01",
+            process_name="explorer.exe",
+            pid=900,
+            source_type="sysmon",
+            timestamp=base + timedelta(seconds=2),
+        )
+
+        for event in (first, second, other_process):
+            detector.observe(event)
+
+        assert detector.detect(second).matched is True
+        assert detector.detect(other_process).matched is False
 
     def test_event_filtering(self) -> None:
         detector = EventCountCorrelationDetector(

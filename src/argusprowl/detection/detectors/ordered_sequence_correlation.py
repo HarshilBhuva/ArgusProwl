@@ -41,6 +41,8 @@ class OrderedSequenceDetector(Detector):
         "dst_ip",
         "hostname",
         "username",
+        "process_name",
+        "pid",
         "event_type",
     }
 

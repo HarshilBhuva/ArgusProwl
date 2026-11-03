@@ -42,6 +42,8 @@ class EventCountCorrelationDetector(Detector):
         "dst_ip",
         "hostname",
         "username",
+        "process_name",
+        "pid",
         "event_type",
     }
 
