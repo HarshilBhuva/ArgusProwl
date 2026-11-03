@@ -93,6 +93,7 @@ describe('HuntsPage', () => {
   });
 
   it('lists saved hunts and opens the investigation workspace', async () => {
+    mockApi.hunt.mockResolvedValue(hunt);
     mockApi.hunts.mockResolvedValue({
       hunts: [hunt],
       total_count: 1,
