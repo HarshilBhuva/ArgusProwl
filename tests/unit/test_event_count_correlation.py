@@ -170,6 +170,25 @@ class TestEventCountState:
             event.event_id for event in events
         }
 
+    def test_persistent_state_isolated_by_rule_configuration(self, tmp_path: Path) -> None:
+        storage = SQLiteAdapter(tmp_path / "correlation-config.db")
+        events = _make_events(2)
+        first_detector = EventCountCorrelationDetector(
+            count=2,
+            name="config-sensitive-rule",
+            storage=storage,
+        )
+        first_detector.observe(events[0])
+
+        changed_detector = EventCountCorrelationDetector(
+            count=3,
+            name="config-sensitive-rule",
+            storage=storage,
+        )
+        changed_detector.observe(events[1])
+
+        assert changed_detector.detect(events[1]).matched is False
+
     def test_threshold_not_reached(self) -> None:
         state = EventCountState(
             group_key=("192.168.1.1",),
