@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from argusprowl.detection.detectors.cardinality_correlation import CardinalityCorrelationDetector
 from argusprowl.detection.detectors.cardinality_state import CardinalityState
-from argusprowl.storage.sqlite_storage import SQLiteAdapter
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def create_event(
