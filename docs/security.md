@@ -84,8 +84,10 @@ not written to localStorage, sessionStorage, or returned in the login response.
 Session tokens are stateless HMAC-SHA-256 tokens signed with the associated API
 key secret. The API rechecks the credential's enabled and expiry state on every
 request. Browser login and unsafe cookie-authenticated requests require a
-same-origin Origin header; missing or mismatched origins are rejected. Logout
-clears the current browser cookie; a copied token cannot be
+same-origin Origin header; missing or mismatched origins are rejected. When
+deployed behind a TLS reverse proxy, preserve the external Host header and set
+`X-Forwarded-Proto` to the browser-facing scheme so Origin validation and the
+Secure cookie attribute use the public origin. Logout clears the current browser cookie; a copied token cannot be
 individually revoked and remains valid until expiry or credential revocation.
 Cross-origin browser clients should use a separately designed authentication
 boundary; browser sessions are intentionally same-origin only.
