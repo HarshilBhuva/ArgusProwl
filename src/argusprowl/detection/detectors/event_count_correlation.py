@@ -8,7 +8,6 @@ and other threshold-based correlation patterns.
 from __future__ import annotations
 
 import json
-
 import re
 from collections import OrderedDict
 from datetime import timedelta
