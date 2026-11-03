@@ -213,6 +213,49 @@ class TestTemporalBucket:
         # Old observation should be expired
         assert len(bucket) == 1
 
+    def test_out_of_order_observation_is_inserted_in_event_time_order(self) -> None:
+        bucket = TemporalBucket(
+            key=("1.2.3.4", 443),
+            window_duration=timedelta(minutes=5),
+        )
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        observations = [
+            TemporalObservation(uuid4(), start + timedelta(seconds=offset), "1.2.3.4", 443)
+            for offset in (0, 20, 10)
+        ]
+
+        assert bucket.add(observations[0])
+        assert bucket.add(observations[1])
+        assert bucket.add(observations[2])
+
+        assert [item.timestamp for item in bucket.observations] == [
+            start,
+            start + timedelta(seconds=10),
+            start + timedelta(seconds=20),
+        ]
+        assert bucket.get_interval_seconds() == [10.0, 10.0]
+
+    def test_too_late_observation_does_not_evict_newer_observations(self) -> None:
+        bucket = TemporalBucket(
+            key=("1.2.3.4", 443),
+            window_duration=timedelta(seconds=30),
+        )
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        recent = [
+            TemporalObservation(uuid4(), start + timedelta(seconds=offset), "1.2.3.4", 443)
+            for offset in (40, 50)
+        ]
+        assert bucket.add(recent[0])
+        assert bucket.add(recent[1])
+
+        too_late = TemporalObservation(
+            uuid4(), start, "1.2.3.4", 443
+        )
+        assert not bucket.add(too_late)
+        assert [item.event_id for item in bucket.observations] == [
+            item.event_id for item in recent
+        ]
+
     def test_max_observation_bound(self) -> None:
         bucket = TemporalBucket(
             key=("1.2.3.4", 443),
