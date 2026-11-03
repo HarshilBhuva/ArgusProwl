@@ -31,6 +31,7 @@ from argusprowl.models.configuration import (
     SuricataConfig,
     SysmonConfig,
     TemporalConfig,
+    TelemetryEvidenceConfig,
     WindowsEventLogConfig,
     ZeekConfig,
 )
@@ -269,6 +270,17 @@ class ConfigManager:
             max_alerts=int(alert_persistence_data.get("max_alerts", 10_000)),
         )
 
+        # Telemetry evidence retention configuration.
+        evidence_data = raw.get("telemetry_evidence", {})
+        evidence_cfg = TelemetryEvidenceConfig(
+            enabled=evidence_data.get("enabled", True),
+            max_retained_events=int(evidence_data.get("max_retained_events", 100_000)),
+            retention_enabled=evidence_data.get("retention_enabled", False),
+            retention_days=int(evidence_data.get("retention_days", 365)),
+            cleanup_interval_seconds=int(evidence_data.get("cleanup_interval_seconds", 3600)),
+            cleanup_batch_size=int(evidence_data.get("cleanup_batch_size", 1000)),
+        )
+
         # ATT&CK knowledge configuration (Phase 6.1)
         attck_data = raw.get("attck", {})
         attck_cfg = AttckConfig(
@@ -337,6 +349,7 @@ class ConfigManager:
             behavior_persistence=persistence_cfg,
             analyst_annotations=annotation_cfg,
             alert_persistence=alert_persistence_cfg,
+            telemetry_evidence=evidence_cfg,
             zeek=zeek_cfg,
             suricata=suricata_cfg,
             sysmon=sysmon_cfg,
