@@ -135,3 +135,18 @@ def test_backup_restore_targets_configured_database_after_confirmation(monkeypat
         "snapshot.db",
         "/var/lib/argusprowl.db",
     )
+
+
+def test_backup_config_option_works_before_or_after_subcommand():
+    from argusprowl.__main__ import create_parser
+
+    parser = create_parser()
+    before = parser.parse_args(
+        ["--config", "custom.yaml", "backup", "create", "--output", "snapshot.db"]
+    )
+    after = parser.parse_args(
+        ["backup", "--config", "custom.yaml", "create", "--output", "snapshot.db"]
+    )
+
+    assert before.config == "custom.yaml"
+    assert after.config == "custom.yaml"
