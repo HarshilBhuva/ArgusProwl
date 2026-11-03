@@ -298,7 +298,8 @@ class EnvironmentPrevalenceTracker:
                     while bucket and bucket[0].timestamp < cutoff:
                         bucket.popleft()
                     for obs in bucket:
-                        dest_hosts.add(obs.src_host)
+                        if cutoff <= obs.timestamp <= now:
+                            dest_hosts.add(obs.src_host)
 
             dest_host_count = len(dest_hosts)
 
@@ -312,7 +313,8 @@ class EnvironmentPrevalenceTracker:
                         while bucket and bucket[0].timestamp < cutoff:
                             bucket.popleft()
                         for obs in bucket:
-                            process_hosts.add(obs.src_host)
+                            if cutoff <= obs.timestamp <= now:
+                                process_hosts.add(obs.src_host)
 
             process_dest_count = len(process_hosts)
 
