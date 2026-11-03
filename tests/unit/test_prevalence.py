@@ -1,7 +1,7 @@
 """Unit tests for Environmental Prevalence Tracker (Phase 4.6B)."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -242,3 +242,175 @@ def test_clear_and_validation() -> None:
 
     with pytest.raises(ValueError, match="min_observations"):
         EnvironmentPrevalenceTracker(min_observations=-1)
+
+
+def test_out_of_order_events_preserve_event_time_expiration() -> None:
+    """Late in-window events must not sit behind newer entries and evade expiry."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="HostA", dst_ip="203.0.113.77", process_name="agent",
+        timestamp=base + timedelta(minutes=10),
+    )
+    tracker.record_connection(
+        hostname="HostB", dst_ip="203.0.113.77", process_name="agent",
+        timestamp=base + timedelta(minutes=5),
+    )
+
+    # At T+25, the T+10 and T+5 observations have both expired.
+    tracker.record_connection(
+        hostname="HostC", dst_ip="203.0.113.77", process_name="agent",
+        timestamp=base + timedelta(minutes=20),
+    )
+    result = tracker.get_prevalence(
+        dst_ip="203.0.113.77",
+        process_name="agent",
+        timestamp=base + timedelta(minutes=25),
+    )
+
+    assert result.dest_host_count == 1
+    assert result.process_dest_count == 1
+
+
+def test_observations_older_than_retained_window_are_ignored() -> None:
+    """A stale late arrival must not contaminate or displace current prevalence."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="CurrentHost", dst_ip="203.0.113.88",
+        timestamp=base + timedelta(minutes=20),
+    )
+    tracker.record_connection(
+        hostname="StaleHost", dst_ip="203.0.113.88",
+        timestamp=base + timedelta(minutes=5),
+    )
+
+    result = tracker.get_prevalence(
+        dst_ip="203.0.113.88",
+        timestamp=base + timedelta(minutes=20),
+    )
+    assert result.dest_host_count == 1
+
+
+def test_historical_query_excludes_future_observations() -> None:
+    """Historical assessments must not see telemetry from later event times."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=30),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="EarlierHost", dst_ip="203.0.113.99", process_name="agent",
+        timestamp=base + timedelta(minutes=10),
+    )
+    tracker.record_connection(
+        hostname="FutureHost", dst_ip="203.0.113.99", process_name="agent",
+        timestamp=base + timedelta(minutes=20),
+    )
+
+    result = tracker.get_prevalence(
+        dst_ip="203.0.113.99",
+        process_name="agent",
+        timestamp=base + timedelta(minutes=15),
+    )
+
+    assert result.dest_host_count == 1
+    assert result.process_dest_count == 1
+
+
+def test_duplicate_and_too_late_events_do_not_advance_warmup_count() -> None:
+    """Warm-up counts accepted observations, not duplicate or rejected deliveries."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=2,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    first_id = UUID("00000000-0000-0000-0000-000000000001")
+    duplicate_id = first_id
+    stale_id = UUID("00000000-0000-0000-0000-000000000002")
+    second_id = UUID("00000000-0000-0000-0000-000000000003")
+
+    tracker.record_connection(
+        hostname="HostA",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=20),
+        event_id=first_id,
+    )
+    tracker.record_connection(
+        hostname="HostA",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=20),
+        event_id=duplicate_id,
+    )
+    tracker.record_connection(
+        hostname="StaleHost",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=5),
+        event_id=stale_id,
+    )
+
+    assert tracker.total_observations == 1
+
+    tracker.record_connection(
+        hostname="HostB",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=15),
+        event_id=second_id,
+    )
+    assert tracker.total_observations == 2
+
+
+def test_event_with_multiple_destination_keys_counts_once() -> None:
+    """An accepted event indexed under IP and domain is one observation."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=1,
+        window_duration=timedelta(minutes=10),
+    )
+    tracker.record_connection(
+        hostname="HostA",
+        dst_ip="203.0.113.112",
+        domain="example.test",
+        timestamp=datetime(2026, 10, 1, 12, 0, tzinfo=UTC),
+        event_id=UUID("00000000-0000-0000-0000-000000000004"),
+    )
+    assert tracker.total_observations == 1
+
+
+def test_historical_query_does_not_reset_event_time_watermark() -> None:
+    """A query past the window must not make a stale late arrival acceptable."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="CurrentHost",
+        dst_ip="203.0.113.120",
+        timestamp=base + timedelta(minutes=20),
+        event_id=UUID("00000000-0000-0000-0000-000000000120"),
+    )
+
+    # This historical query is beyond the retained window. It must not erase
+    # the ingestion watermark used to reject subsequently delivered old events.
+    tracker.get_prevalence(
+        dst_ip="203.0.113.120",
+        timestamp=base + timedelta(minutes=40),
+    )
+    tracker.record_connection(
+        hostname="StaleHost",
+        dst_ip="203.0.113.120",
+        timestamp=base + timedelta(minutes=5),
+        event_id=UUID("00000000-0000-0000-0000-000000000121"),
+    )
+
+    assert tracker.total_observations == 1

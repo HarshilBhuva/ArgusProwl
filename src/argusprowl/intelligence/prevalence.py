@@ -170,12 +170,16 @@ class EnvironmentPrevalenceTracker:
             return
 
         with self._lock:
-            self._total_observations += 1
+            accepted = False
             for dest_key in keys_to_record:
-                self._record_key_obs_unlocked(dest_key, obs)
+                accepted = self._record_key_obs_unlocked(dest_key, obs) or accepted
                 if process_name and process_name.strip():
                     p_name = process_name.strip().lower()
-                    self._record_proc_key_obs_unlocked((p_name, dest_key), obs)
+                    accepted = (
+                        self._record_proc_key_obs_unlocked((p_name, dest_key), obs) or accepted
+                    )
+            if accepted:
+                self._total_observations += 1
 
     def record_event(self, event: NormalizedEvent) -> None:
         """Convenience method to record connection telemetry from NormalizedEvent."""
@@ -199,47 +203,53 @@ class EnvironmentPrevalenceTracker:
             source_record_id=event.source_record_id,
         )
 
-    def _record_key_obs_unlocked(self, dest_key: str, obs: PrevalenceObservation) -> None:
-        cutoff = obs.timestamp - self._window_duration
+    def _insert_observation_unlocked(
+        self, bucket: deque[PrevalenceObservation], obs: PrevalenceObservation
+    ) -> bool:
+        """Insert by event time while retaining only the newest bounded window."""
+        watermark = bucket[-1].timestamp if bucket else obs.timestamp
+        cutoff = watermark - self._window_duration
+        while bucket and bucket[0].timestamp < cutoff:
+            bucket.popleft()
 
+        # An event older than the retained event-time window cannot affect
+        # current prevalence and must not be allowed to displace newer evidence.
+        if obs.timestamp < cutoff or self._is_duplicate_unlocked(bucket, obs):
+            return False
+
+        insert_at = len(bucket)
+        for index, existing in enumerate(bucket):
+            if existing.timestamp > obs.timestamp:
+                insert_at = index
+                break
+        bucket.insert(insert_at, obs)
+        while len(bucket) > self._max_hosts_per_key:
+            bucket.popleft()
+        return True
+
+    def _record_key_obs_unlocked(self, dest_key: str, obs: PrevalenceObservation) -> bool:
         if dest_key in self._destinations:
             bucket = self._destinations[dest_key]
-            while bucket and bucket[0].timestamp < cutoff:
-                bucket.popleft()
-            if self._is_duplicate_unlocked(bucket, obs):
-                self._destinations.move_to_end(dest_key)
-                return
-            bucket.append(obs)
-            while len(bucket) > self._max_hosts_per_key:
-                bucket.popleft()
+            inserted = self._insert_observation_unlocked(bucket, obs)
             self._destinations.move_to_end(dest_key)
-        else:
-            if len(self._destinations) >= self._max_destinations:
-                self._destinations.popitem(last=False)
-            bucket = deque([obs])
-            self._destinations[dest_key] = bucket
+            return inserted
+        if len(self._destinations) >= self._max_destinations:
+            self._destinations.popitem(last=False)
+        self._destinations[dest_key] = deque([obs])
+        return True
 
     def _record_proc_key_obs_unlocked(
         self, key: tuple[str, str], obs: PrevalenceObservation
-    ) -> None:
-        cutoff = obs.timestamp - self._window_duration
-
+    ) -> bool:
         if key in self._process_destinations:
             bucket = self._process_destinations[key]
-            while bucket and bucket[0].timestamp < cutoff:
-                bucket.popleft()
-            if self._is_duplicate_unlocked(bucket, obs):
-                self._process_destinations.move_to_end(key)
-                return
-            bucket.append(obs)
-            while len(bucket) > self._max_hosts_per_key:
-                bucket.popleft()
+            inserted = self._insert_observation_unlocked(bucket, obs)
             self._process_destinations.move_to_end(key)
-        else:
-            if len(self._process_destinations) >= self._max_process_destinations:
-                self._process_destinations.popitem(last=False)
-            bucket = deque([obs])
-            self._process_destinations[key] = bucket
+            return inserted
+        if len(self._process_destinations) >= self._max_process_destinations:
+            self._process_destinations.popitem(last=False)
+        self._process_destinations[key] = deque([obs])
+        return True
 
     def _is_duplicate_unlocked(
         self, bucket: deque[PrevalenceObservation], obs: PrevalenceObservation
@@ -291,10 +301,12 @@ class EnvironmentPrevalenceTracker:
             for key in keys_to_query:
                 if key in self._destinations:
                     bucket = self._destinations[key]
-                    while bucket and bucket[0].timestamp < cutoff:
-                        bucket.popleft()
+                    # Queries must not mutate the retained event-time watermark.
+                    # Pruning here could empty the bucket and let a later stale
+                    # arrival establish a new, incorrectly old watermark.
                     for obs in bucket:
-                        dest_hosts.add(obs.src_host)
+                        if cutoff <= obs.timestamp <= now:
+                            dest_hosts.add(obs.src_host)
 
             dest_host_count = len(dest_hosts)
 
@@ -305,10 +317,10 @@ class EnvironmentPrevalenceTracker:
                     proc_key = (p_name, dest_key)
                     if proc_key in self._process_destinations:
                         bucket = self._process_destinations[proc_key]
-                        while bucket and bucket[0].timestamp < cutoff:
-                            bucket.popleft()
+                        # Keep the bucket intact so ingestion retains its watermark.
                         for obs in bucket:
-                            process_hosts.add(obs.src_host)
+                            if cutoff <= obs.timestamp <= now:
+                                process_hosts.add(obs.src_host)
 
             process_dest_count = len(process_hosts)
 
