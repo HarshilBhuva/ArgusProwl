@@ -97,6 +97,16 @@ function AuthGate({ children }: { children: ReactNode }) {
     void checkAuthentication();
   }, [checkAuthentication]);
 
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setPrincipal(null);
+      setPhase("login");
+      setError("Your session expired or the API key was revoked. Sign in again.");
+    };
+    window.addEventListener("argusprowl:session-expired", handleSessionExpired);
+    return () => window.removeEventListener("argusprowl:session-expired", handleSessionExpired);
+  }, []);
+
   const signIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!apiKey.trim()) return;
