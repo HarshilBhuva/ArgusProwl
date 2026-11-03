@@ -658,8 +658,17 @@ class TelemetryEvidenceService:
     def get_stats(self) -> dict[str, Any]:
         """Return store statistics for health reporting."""
         with self._lock:
+            durable_count = None
+            count_durable = getattr(self._storage, "count_telemetry_evidence", None)
+            if callable(count_durable):
+                try:
+                    durable_count = count_durable()
+                except Exception:
+                    self._persistence_operations_failed.increment()
+                    logger.exception("Unable to count durable telemetry evidence")
             return {
                 "retained_events": len(self._events),
+                "durable_events": durable_count,
                 "max_retained_events": self._max_retained,
                 "eviction_count": self._eviction_count,
                 "capacity_used_pct": round(len(self._events) / self._max_retained * 100, 2),
