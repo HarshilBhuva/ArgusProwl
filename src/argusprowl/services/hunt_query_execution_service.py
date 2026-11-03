@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from argusprowl.hunting.hunt_service import HuntConflictError, HuntNotFoundError, HuntService
-from argusprowl.models.hunt import HuntExecution, HuntEvidenceReference, EvidenceRole
+from argusprowl.models.hunt import EvidenceRole, HuntExecution, HuntEvidenceReference
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 
 
@@ -79,15 +79,15 @@ class HuntQueryExecutionService:
         except ValueError as exc:
             finished = datetime.now(UTC)
             failed = HuntExecution(query_id=query_id, query_version=version, started_at=started, completed_at=finished, result_count=0, status="failed", error=str(exc)[:2000])
-            hunts.record_execution(hunt_id, failed, actor)
-            raise
+            updated = hunts.record_execution(hunt_id, failed, actor)
+            return HuntQueryExecutionResult(updated, failed)
         status, error, truncated, ids, sources = "complete", None, False, (), ()
         try:
             found = self._evidence.search(**params)
             ids = tuple(found.events.keys())
             truncated = found.truncated
             sources = tuple(sorted({event.source_type for event in found.events.values()}))
-            status = ("degraded" if found.status != "AVAILABLE" else "complete")
+            status = "failed" if found.status == "UNAVAILABLE" else ("degraded" if found.status != "AVAILABLE" else "complete")
             if truncated and status == "complete":
                 status = "partial"
             error = found.reason if found.status != "AVAILABLE" else ("Result limit reached; additional matches may exist." if truncated else None)
@@ -107,7 +107,8 @@ class HuntQueryExecutionService:
                         error = detail.reason or "Evidence storage unavailable during verification."
                         break
                     if detail.status != "AVAILABLE":
-                        status = "degraded"
+                        if status == "complete":
+                            status = "degraded"
                         error = error or detail.reason or "Evidence recovery is degraded."
                         continue
                     verified.append(event_id)
