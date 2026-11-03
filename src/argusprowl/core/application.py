@@ -415,6 +415,12 @@ class Application:
         self._container.register_singleton(
             Storage, lambda: SQLiteAdapter(self._config.storage.database_path)
         )
+        # Persistent hunt aggregates share the configured transactional store.
+        from argusprowl.hunting.hunt_service import HuntService
+
+        self._container.register_singleton(
+            HuntService, lambda: HuntService(self._container.resolve(Storage))
+        )
         self._container.register_singleton(
             HealthService,
             lambda: HealthService(
