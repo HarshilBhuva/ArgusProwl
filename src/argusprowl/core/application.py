@@ -450,6 +450,12 @@ class Application:
         assert self._config is not None
         self._container.register_singleton(ConfigManager, self._config_manager)
         metrics = MetricsCollector()
+        for metric_name in (
+            "beaconing_detector_errors",
+            "correlation_detector_errors",
+            "evidence_persistence_errors",
+        ):
+            metrics.register_counter(metric_name)
         self._container.register_singleton(MetricsCollector, metrics)
         reliability = self._config.reliability
         # Create the bounded ingestion buffer here so Application holds the
@@ -924,11 +930,7 @@ class Application:
         """Increment a bounded operational counter without affecting event processing."""
         try:
             metrics = self._container.resolve(MetricsCollector)
-            try:
-                counter = metrics.get_counter(name)
-            except KeyError:
-                counter = metrics.register_counter(name)
-            counter.increment()
+            metrics.get_counter(name).increment()
         except Exception:
             self._logger.exception("Unable to increment operational metric %s", name)
 
@@ -973,30 +975,32 @@ class Application:
 
             # Detection via NormalizedEvent-based detectors (temporal/correlation)
             # These operate on the raw event, not aggregated features
-            try:
-                beaconing_detector = self._container.resolve(BeaconingDetector)
-                if beaconing_detector.is_enabled():
-                    result = beaconing_detector.detect(event)
-                    if result.matched:
-                        detection_results.append(result)
-            except Exception:
-                self._logger.exception("Beaconing detector failed")
-                self._increment_metric_counter("beaconing_detector_errors")
+            if self._container.is_registered(BeaconingDetector):
+                try:
+                    beaconing_detector = self._container.resolve(BeaconingDetector)
+                    if beaconing_detector.is_enabled():
+                        result = beaconing_detector.detect(event)
+                        if result.matched:
+                            detection_results.append(result)
+                except Exception:
+                    self._logger.exception("Beaconing detector failed")
+                    self._increment_metric_counter("beaconing_detector_errors")
 
-            try:
-                correlation_detector = self._container.resolve(CorrelationDetector)
-                if correlation_detector.is_enabled():
-                    result = correlation_detector.detect(event)
-                    self._logger.debug(
-                        "CorrelationDetector result: %s, matched: %s",
-                        result.rule_id,
-                        result.matched,
-                    )
-                    if result.matched:
-                        detection_results.append(result)
-            except Exception as exc:
-                self._logger.error("Error in correlation detector: %s", exc, exc_info=True)
-                self._increment_metric_counter("correlation_detector_errors")
+            if self._container.is_registered(CorrelationDetector):
+                try:
+                    correlation_detector = self._container.resolve(CorrelationDetector)
+                    if correlation_detector.is_enabled():
+                        result = correlation_detector.detect(event)
+                        self._logger.debug(
+                            "CorrelationDetector result: %s, matched: %s",
+                            result.rule_id,
+                            result.matched,
+                        )
+                        if result.matched:
+                            detection_results.append(result)
+                except Exception as exc:
+                    self._logger.error("Error in correlation detector: %s", exc, exc_info=True)
+                    self._increment_metric_counter("correlation_detector_errors")
 
             # Decision and alerting
             for result in detection_results:
