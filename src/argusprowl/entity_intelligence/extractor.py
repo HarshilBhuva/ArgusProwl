@@ -88,7 +88,7 @@ def normalize_entity_value(entity_type: str, value: str) -> str:
 
 def entity_identifier(entity_type: str, normalized_value: str) -> str:
     """Create a stable opaque identifier for an entity identity."""
-    material = f"{entity_type}\0{normalized_value}".encode("utf-8")
+    material = f"{entity_type}\0{normalized_value}".encode()
     return hashlib.sha256(material).hexdigest()
 
 
