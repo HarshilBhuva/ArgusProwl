@@ -91,7 +91,7 @@ describe('ArgusProwl Frontend', () => {
 
     expect(await screen.findByText('soc-analyst')).toBeInTheDocument();
     await waitFor(() => expect(mockApi.createSession).toHaveBeenCalledWith('one-time-secret'));
-    expect(screen.getByLabelText(/API key/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument();
 
     window.dispatchEvent(new Event('argusprowl:session-expired'));
     expect(await screen.findByRole('heading', { name: /Sign in/i })).toBeInTheDocument();
