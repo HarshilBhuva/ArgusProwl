@@ -242,3 +242,59 @@ def test_clear_and_validation() -> None:
 
     with pytest.raises(ValueError, match="min_observations"):
         EnvironmentPrevalenceTracker(min_observations=-1)
+
+
+def test_out_of_order_events_preserve_event_time_expiration() -> None:
+    """Late in-window events must not sit behind newer entries and evade expiry."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="HostA", dst_ip="203.0.113.77", process_name="agent",
+        timestamp=base + timedelta(minutes=10),
+    )
+    tracker.record_connection(
+        hostname="HostB", dst_ip="203.0.113.77", process_name="agent",
+        timestamp=base + timedelta(minutes=5),
+    )
+
+    # At T+20, only the T+10 observation remains in the sliding window.
+    tracker.record_connection(
+        hostname="HostC", dst_ip="203.0.113.77", process_name="agent",
+        timestamp=base + timedelta(minutes=20),
+    )
+    result = tracker.get_prevalence(
+        dst_ip="203.0.113.77",
+        process_name="agent",
+        timestamp=base + timedelta(minutes=20),
+    )
+
+    assert result.dest_host_count == 1
+    assert result.process_dest_count == 1
+
+
+def test_observations_older_than_retained_window_are_ignored() -> None:
+    """A stale late arrival must not contaminate or displace current prevalence."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=0,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+
+    tracker.record_connection(
+        hostname="CurrentHost", dst_ip="203.0.113.88",
+        timestamp=base + timedelta(minutes=20),
+    )
+    tracker.record_connection(
+        hostname="StaleHost", dst_ip="203.0.113.88",
+        timestamp=base + timedelta(minutes=5),
+    )
+
+    result = tracker.get_prevalence(
+        dst_ip="203.0.113.88",
+        timestamp=base + timedelta(minutes=20),
+    )
+    assert result.dest_host_count == 1
