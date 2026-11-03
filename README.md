@@ -208,6 +208,7 @@ Further implementation details:
 - [Architecture](docs/architecture.md)
 - [Replay](docs/replay.md)
 - [Testing](docs/testing.md)
+- [Performance baseline](docs/performance.md)
 - [Security and API access](docs/security.md)
 - [Contributing](CONTRIBUTING.md)
 
