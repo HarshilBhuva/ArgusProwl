@@ -16,6 +16,8 @@ from typing import Any, ClassVar
 
 from argusprowl.constants.severity import Severity
 from argusprowl.detection.detectors.event_count_state import EventCountState
+from argusprowl.detection.correlation_state_repository import CorrelationStateRepository
+from argusprowl.interfaces.storage import Storage
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
 from argusprowl.models.detection_result import DetectionResult
@@ -115,6 +117,7 @@ class EventCountCorrelationDetector(Detector):
         enabled: bool = True,
         config: dict[str, Any] | None = None,
         name: str = "event_count_correlation",
+        storage: Storage | None = None,
     ) -> None:
         """Initialize event-count correlation detector.
 
@@ -143,6 +146,9 @@ class EventCountCorrelationDetector(Detector):
         self._config = config or {}
         self._name = name
         self._detections_count = 0
+        self._state_repository = (
+            CorrelationStateRepository(storage, name) if storage is not None else None
+        )
 
         # Bounded state storage
         self._state: OrderedDict[tuple[str, ...], EventCountState] = OrderedDict()
@@ -233,22 +239,33 @@ class EventCountCorrelationDetector(Detector):
         group_key = self._build_group_key(event)
 
         with self._lock:
-            if group_key in self._state:
-                state = self._state[group_key]
-                state.add(event)
-                # Move to end for LRU
-                self._state.move_to_end(group_key)
-            else:
+            state = self._state.get(group_key)
+            if state is None:
                 if len(self._state) >= self._max_keys:
-                    # Evict least recently used
-                    self._state.popitem(last=False)
-                state = EventCountState(
-                    group_key=group_key,
-                    window_duration=self._timespan,
-                    max_observations=self._max_observations_per_key,
+                    evicted_key, _ = self._state.popitem(last=False)
+                    if self._state_repository is not None:
+                        self._state_repository.delete(evicted_key)
+                snapshot = (
+                    self._state_repository.load(group_key)
+                    if self._state_repository is not None
+                    else None
                 )
-                state.add(event)
+                state = (
+                    EventCountState.from_dict(snapshot)
+                    if snapshot is not None
+                    else EventCountState(
+                        group_key=group_key,
+                        window_duration=self._timespan,
+                        max_observations=self._max_observations_per_key,
+                    )
+                )
                 self._state[group_key] = state
+            else:
+                self._state.move_to_end(group_key)
+
+            state.add(event)
+            if self._state_repository is not None:
+                self._state_repository.save(group_key, state.to_dict())
 
     def detect(self, event: NormalizedEvent) -> DetectionResult:
         """Evaluate an event for event-count correlation.
@@ -268,10 +285,20 @@ class EventCountCorrelationDetector(Detector):
 
         with self._lock:
             state = self._state.get(group_key)
+            if state is None and self._state_repository is not None:
+                snapshot = self._state_repository.load(group_key)
+                if snapshot is not None:
+                    if len(self._state) >= self._max_keys:
+                        evicted_key, _ = self._state.popitem(last=False)
+                        self._state_repository.delete(evicted_key)
+                    state = EventCountState.from_dict(snapshot)
+                    self._state[group_key] = state
             if state is None:
                 return self._no_match(event)
 
             triggered, count, trigger_event_id = state.check_threshold(self._count, event)
+            if self._state_repository is not None:
+                self._state_repository.save(group_key, state.to_dict())
 
         if triggered:
             self._detections_count += 1
