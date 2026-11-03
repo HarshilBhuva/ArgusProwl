@@ -52,7 +52,7 @@ jobs:
         run: uv run python -m compileall -q src tests scripts
 
       - name: Lint (ruff) - check
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts/benchmark_pipeline.py
 
       - name: Run full test suite
         run: uv run pytest -q --maxfail=1
