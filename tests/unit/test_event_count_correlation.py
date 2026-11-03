@@ -15,6 +15,7 @@ from argusprowl.detection.detectors.event_count_state import EventCountState
 from argusprowl.detection.rule_loader import RuleLoader
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -141,6 +142,52 @@ class TestEventCountState:
         assert triggered is True
         assert count == 5
         assert trigger_id == events[-1].event_id
+
+    def test_persistent_state_restores_after_detector_restart(self, tmp_path: Path) -> None:
+        storage = SQLiteAdapter(tmp_path / "correlation-state.db")
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        events = _make_events(3, start_time=base)
+        first_detector = EventCountCorrelationDetector(
+            count=3,
+            timespan=timedelta(minutes=5),
+            name="persistent-login-burst",
+            storage=storage,
+        )
+        first_detector.observe(events[0])
+        first_detector.observe(events[1])
+
+        restarted_detector = EventCountCorrelationDetector(
+            count=3,
+            timespan=timedelta(minutes=5),
+            name="persistent-login-burst",
+            storage=storage,
+        )
+        restarted_detector.observe(events[2])
+        result = restarted_detector.detect(events[2])
+
+        assert result.matched is True
+        assert set(result.contributing_event_ids) == {
+            event.event_id for event in events
+        }
+
+    def test_persistent_state_isolated_by_rule_configuration(self, tmp_path: Path) -> None:
+        storage = SQLiteAdapter(tmp_path / "correlation-config.db")
+        events = _make_events(2)
+        first_detector = EventCountCorrelationDetector(
+            count=2,
+            name="config-sensitive-rule",
+            storage=storage,
+        )
+        first_detector.observe(events[0])
+
+        changed_detector = EventCountCorrelationDetector(
+            count=3,
+            name="config-sensitive-rule",
+            storage=storage,
+        )
+        changed_detector.observe(events[1])
+
+        assert changed_detector.detect(events[1]).matched is False
 
     def test_threshold_not_reached(self) -> None:
         state = EventCountState(
