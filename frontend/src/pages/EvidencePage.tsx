@@ -164,7 +164,7 @@ export function EvidencePage() {
         </ul>
         {evidenceQuery.data.truncated && (
           <div className="border-t border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Showing {evidenceQuery.data.returned_count} of {evidenceQuery.data.total_count} matching events. Increase the result limit or narrow the time range; this result is incomplete.
+            Showing {evidenceQuery.data.returned_count} of {evidenceQuery.data.total_count} matching events on this page. Continue to the next page to inspect remaining matches.
           </div>
         )}
       </div>
@@ -180,7 +180,7 @@ export function EvidencePage() {
         <div>
           <h1 className="text-lg font-bold text-foreground uppercase tracking-tight">Event Explorer</h1>
           <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">
-            {evidenceQuery.data?.total_count ?? 0} matching retained events · {activeFilterCount} active filters
+            {evidenceQuery.data?.total_count ?? 0} matching events · {activeFilterCount} active filters
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
