@@ -241,14 +241,9 @@ class TestTemporalEquivalence:
         assert analysis is not None
         assert analysis["count"] == 3
 
-        # Check intervals - current behavior maintains insertion order
+        # Intervals are calculated in event-time order, not delivery order.
         intervals = analysis["intervals"]
-        assert len(intervals) == 2
-        # Current behavior: intervals are calculated in insertion order
-        # T1 -> T3: 120s, T3 -> T2: -60s (negative interval)
-        # This test documents the current behavior
-        assert intervals[0] == 120.0  # T1 to T3
-        assert intervals[1] == -60.0  # T3 to T2 (negative interval)
+        assert intervals == [60.0, 60.0]  # T1 -> T2 -> T3
 
     def test_replay_preserves_source_record_id(self, tmp_path: Path) -> None:
         """Replay must preserve source_record_id from the Zeek UID.

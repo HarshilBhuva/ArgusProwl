@@ -96,14 +96,35 @@ class TemporalBucket:
             True if the observation was accepted, False if it was a duplicate.
         """
         with self.lock:
-            cutoff = observation.timestamp - self.window_duration
-            while self.observations and self.observations[0].timestamp < cutoff:
-                self.observations.popleft()
+            # Use the greatest event timestamp as the watermark. A late event
+            # must not move the active window backwards or evict newer data.
+            watermark = max(
+                (item.timestamp for item in self.observations),
+                default=observation.timestamp,
+            )
+            watermark = max(watermark, observation.timestamp)
+            cutoff = watermark - self.window_duration
+
+            retained = [
+                item for item in self.observations if item.timestamp >= cutoff
+            ]
+            self.observations = deque(retained)
+
+            # Events older than the active window are explicitly rejected.
+            if observation.timestamp < cutoff:
+                return False
             if self._is_duplicate_unlocked(observation):
                 return False
-            self.observations.append(observation)
-            while len(self.observations) > self.max_observations:
-                self.observations.popleft()
+
+            # Keep event-time order so interval calculations and replay are
+            # independent of delivery order for events inside the window.
+            ordered = sorted(
+                (*self.observations, observation),
+                key=lambda item: (item.timestamp, str(item.event_id)),
+            )
+            self.observations = deque(
+                ordered[-self.max_observations :],
+            )
             return True
 
     def _is_duplicate_unlocked(self, observation: TemporalObservation) -> bool:
