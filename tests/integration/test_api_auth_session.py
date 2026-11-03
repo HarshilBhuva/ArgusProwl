@@ -125,6 +125,18 @@ def test_browser_session_rejects_cross_origin_state_changes(tmp_path) -> None:
     assert denied.status_code == 403
 
 
+
+def test_browser_session_rejects_state_changes_without_origin(tmp_path) -> None:
+    client, secret, _audit_path = _client(tmp_path, "analyst")
+    assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
+
+    denied = client.post(
+        "/api/v1/hunts",
+        json={"title": "Missing Origin", "hypothesis": "Cookie mutations require an origin."},
+    )
+
+    assert denied.status_code == 403
+
 def test_rotating_api_key_invalidates_existing_browser_sessions(tmp_path) -> None:
     client, secret, _audit_path = _client(tmp_path, "analyst")
     assert client.post("/api/v1/auth/session", json={"api_key": secret}).status_code == 200
