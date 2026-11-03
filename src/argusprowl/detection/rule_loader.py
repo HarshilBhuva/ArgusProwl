@@ -29,6 +29,7 @@ from argusprowl.detection.detectors.syn_scan import SynScanDetector
 from argusprowl.detection.detectors.vertical_scan import VerticalScanDetector
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
+from argusprowl.interfaces.storage import Storage
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +66,13 @@ class RuleLoader:
         "VerticalScanDetector": VerticalScanDetector,
     }
 
-    def __init__(self, rules_dir: str | Path = ProjectPath.RULES_DIR) -> None:
+    def __init__(
+        self,
+        rules_dir: str | Path = ProjectPath.RULES_DIR,
+        storage: Storage | None = None,
+    ) -> None:
         self._rules_dir = Path(rules_dir)
+        self._storage = storage
 
     def load_rules(self) -> list[RuleDefinition]:
         """Load every ``*.yaml`` rule in deterministic filename order."""
@@ -173,6 +179,7 @@ class RuleLoader:
                     config=rule.parameters,
                     confidence=rule.confidence,
                     version=rule.version,
+                    storage=self._storage,
                     **params,
                 )
             elif detector_class is CardinalityCorrelationDetector:
@@ -193,6 +200,7 @@ class RuleLoader:
                     config=rule.parameters,
                     confidence=rule.confidence,
                     version=rule.version,
+                    storage=self._storage,
                     **params,
                 )
             else:
