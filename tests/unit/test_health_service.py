@@ -9,7 +9,6 @@ from argusprowl.reliability.buffer import BoundedIngestionBuffer
 from argusprowl.services.health_service import HealthService
 
 
-
 def test_ingestion_queue_reports_healthy_while_idle() -> None:
     queue = BoundedIngestionBuffer[int](max_size=10)
     component = HealthService(event_queue=queue)._check_processing_queue()
