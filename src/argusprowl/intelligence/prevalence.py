@@ -170,12 +170,16 @@ class EnvironmentPrevalenceTracker:
             return
 
         with self._lock:
-            self._total_observations += 1
+            accepted = False
             for dest_key in keys_to_record:
-                self._record_key_obs_unlocked(dest_key, obs)
+                accepted = self._record_key_obs_unlocked(dest_key, obs) or accepted
                 if process_name and process_name.strip():
                     p_name = process_name.strip().lower()
-                    self._record_proc_key_obs_unlocked((p_name, dest_key), obs)
+                    accepted = (
+                        self._record_proc_key_obs_unlocked((p_name, dest_key), obs) or accepted
+                    )
+            if accepted:
+                self._total_observations += 1
 
     def record_event(self, event: NormalizedEvent) -> None:
         """Convenience method to record connection telemetry from NormalizedEvent."""
@@ -223,27 +227,29 @@ class EnvironmentPrevalenceTracker:
             bucket.popleft()
         return True
 
-    def _record_key_obs_unlocked(self, dest_key: str, obs: PrevalenceObservation) -> None:
+    def _record_key_obs_unlocked(self, dest_key: str, obs: PrevalenceObservation) -> bool:
         if dest_key in self._destinations:
             bucket = self._destinations[dest_key]
-            self._insert_observation_unlocked(bucket, obs)
+            inserted = self._insert_observation_unlocked(bucket, obs)
             self._destinations.move_to_end(dest_key)
-        else:
-            if len(self._destinations) >= self._max_destinations:
-                self._destinations.popitem(last=False)
-            self._destinations[dest_key] = deque([obs])
+            return inserted
+        if len(self._destinations) >= self._max_destinations:
+            self._destinations.popitem(last=False)
+        self._destinations[dest_key] = deque([obs])
+        return True
 
     def _record_proc_key_obs_unlocked(
         self, key: tuple[str, str], obs: PrevalenceObservation
-    ) -> None:
+    ) -> bool:
         if key in self._process_destinations:
             bucket = self._process_destinations[key]
-            self._insert_observation_unlocked(bucket, obs)
+            inserted = self._insert_observation_unlocked(bucket, obs)
             self._process_destinations.move_to_end(key)
-        else:
-            if len(self._process_destinations) >= self._max_process_destinations:
-                self._process_destinations.popitem(last=False)
-            self._process_destinations[key] = deque([obs])
+            return inserted
+        if len(self._process_destinations) >= self._max_process_destinations:
+            self._process_destinations.popitem(last=False)
+        self._process_destinations[key] = deque([obs])
+        return True
 
     def _is_duplicate_unlocked(
         self, bucket: deque[PrevalenceObservation], obs: PrevalenceObservation

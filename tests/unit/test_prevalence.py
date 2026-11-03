@@ -1,7 +1,7 @@
 """Unit tests for Environmental Prevalence Tracker (Phase 4.6B)."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -325,3 +325,61 @@ def test_historical_query_excludes_future_observations() -> None:
 
     assert result.dest_host_count == 1
     assert result.process_dest_count == 1
+
+
+def test_duplicate_and_too_late_events_do_not_advance_warmup_count() -> None:
+    """Warm-up counts accepted observations, not duplicate or rejected deliveries."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=2,
+        window_duration=timedelta(minutes=10),
+    )
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    first_id = UUID("00000000-0000-0000-0000-000000000001")
+    duplicate_id = first_id
+    stale_id = UUID("00000000-0000-0000-0000-000000000002")
+    second_id = UUID("00000000-0000-0000-0000-000000000003")
+
+    tracker.record_connection(
+        hostname="HostA",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=20),
+        event_id=first_id,
+    )
+    tracker.record_connection(
+        hostname="HostA",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=20),
+        event_id=duplicate_id,
+    )
+    tracker.record_connection(
+        hostname="StaleHost",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=5),
+        event_id=stale_id,
+    )
+
+    assert tracker.total_observations == 1
+
+    tracker.record_connection(
+        hostname="HostB",
+        dst_ip="203.0.113.111",
+        timestamp=base + timedelta(minutes=15),
+        event_id=second_id,
+    )
+    assert tracker.total_observations == 2
+
+
+def test_event_with_multiple_destination_keys_counts_once() -> None:
+    """An accepted event indexed under IP and domain is one observation."""
+    tracker = EnvironmentPrevalenceTracker(
+        min_observations=1,
+        window_duration=timedelta(minutes=10),
+    )
+    tracker.record_connection(
+        hostname="HostA",
+        dst_ip="203.0.113.112",
+        domain="example.test",
+        timestamp=datetime(2026, 10, 1, 12, 0, tzinfo=UTC),
+        event_id=UUID("00000000-0000-0000-0000-000000000004"),
+    )
+    assert tracker.total_observations == 1
