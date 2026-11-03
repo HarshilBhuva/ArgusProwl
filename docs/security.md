@@ -130,6 +130,36 @@ Protect the SQLite file, backups, and host filesystem permissions.
 
 ## Deployment notes
 
+The API may run without authentication only when its enabled listener binds to
+a loopback address (`127.0.0.1`, `::1`, or `localhost`). Configuration
+validation rejects non-loopback binds unless API-key authentication is enabled
+and at least one credential is configured. A legacy single API key used for a
+remote listener must contain at least 32 ASCII characters; named role-based
+credentials are validated individually. Hostnames other than the literal
+`localhost` are treated as remotely reachable without DNS resolution, so
+configuration fails closed rather than relying on mutable DNS answers.
+
+For a remote deployment, configure authentication and credentials before
+changing the bind address:
+
+```yaml
+api:
+  enabled: true
+  host: 0.0.0.0
+  auth_enabled: true
+  auth_header_name: X-ArgusProwl-Key
+  api_keys:
+    analyst-1:
+      secret: REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS
+      subject: analyst-1
+      role: analyst
+```
+
+Alternatively, supply the legacy administrator key through
+`ARGUSPROWL_API_KEY`. Keep secrets in deployment secret management, not in
+YAML committed to source control. Terminate TLS at a trusted reverse proxy or
+use an appropriately secured transport boundary.
+
 - Keep the service behind TLS when traffic crosses an untrusted network.
 - Use separate random secrets per operator or service identity.
 - Store secrets in deployment secret management, not in the repository.
