@@ -6,8 +6,8 @@ grouped by configurable fields. Used by EventCountCorrelationDetector.
 
 from __future__ import annotations
 
-from collections import deque
 import math
+from collections import deque
 from datetime import timedelta
 from threading import Lock
 from typing import Any
@@ -92,8 +92,9 @@ class EventCountState:
         if (
             not isinstance(duration, (int, float))
             or isinstance(duration, bool)
-            or not math.isfinite(float(duration))
             or duration <= 0
+            or duration > 31_536_000
+            or not math.isfinite(float(duration))
         ):
             raise ValueError("Event-count state snapshot window duration is invalid.")
         if (
