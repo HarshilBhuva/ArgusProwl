@@ -30,6 +30,8 @@ import type {
   HuntListResponse,
   HuntQueryExecutionResponse,
   HuntScopeRequest,
+  AuthStatusResponse,
+  AuthPrincipalResponse,
 } from '../types/api';
 
 export class ApiClientError extends Error {
@@ -89,6 +91,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     const response = await fetch(url, {
       ...options,
+      credentials: 'same-origin',
       headers: {
         Accept: 'application/json',
         ...options.headers,
@@ -159,6 +162,17 @@ function buildAlertQuery(params: AlertSearchParams = {}): string {
 
 export const api = {
   health: () => request<HealthResponse>('/api/v1/health'),
+  authStatus: () => request<AuthStatusResponse>('/api/v1/auth/status'),
+  authMe: () => request<AuthPrincipalResponse>('/api/v1/auth/me'),
+  createSession: (apiKey: string) =>
+    request<AuthPrincipalResponse>('/api/v1/auth/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  logout: () =>
+    request<{ authenticated: boolean }>('/api/v1/auth/session', { method: 'DELETE' }),
+
   hunts: () => request<HuntListResponse>('/api/v1/hunts'),
   hunt: (huntId: string) =>
     request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}`),
