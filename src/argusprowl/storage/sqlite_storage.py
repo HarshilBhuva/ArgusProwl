@@ -401,27 +401,47 @@ class SQLiteAdapter(Storage):
                     return []
                 entity_id = str(entity_row[0])
                 if direction == "outbound":
-                    predicate = "r.source_entity_id=?"
-                    values: list[object] = [entity_id]
+                    rows = self._connection.execute(
+                        """SELECT r.relationship_id, s.entity_type, s.normalized_value,
+                                  t.entity_type, t.normalized_value, r.relationship_type,
+                                  r.evidence_kind, r.confidence, r.provenance,
+                                  r.first_seen, r.last_seen, r.observation_count
+                           FROM entity_intelligence_relationships r
+                           JOIN entity_intelligence_entities s ON s.entity_id=r.source_entity_id
+                           JOIN entity_intelligence_entities t ON t.entity_id=r.target_entity_id
+                           WHERE r.source_entity_id=?
+                           ORDER BY r.last_seen DESC, r.relationship_id ASC
+                           LIMIT ?""",
+                        (entity_id, limit),
+                    ).fetchall()
                 elif direction == "inbound":
-                    predicate = "r.target_entity_id=?"
-                    values = [entity_id]
+                    rows = self._connection.execute(
+                        """SELECT r.relationship_id, s.entity_type, s.normalized_value,
+                                  t.entity_type, t.normalized_value, r.relationship_type,
+                                  r.evidence_kind, r.confidence, r.provenance,
+                                  r.first_seen, r.last_seen, r.observation_count
+                           FROM entity_intelligence_relationships r
+                           JOIN entity_intelligence_entities s ON s.entity_id=r.source_entity_id
+                           JOIN entity_intelligence_entities t ON t.entity_id=r.target_entity_id
+                           WHERE r.target_entity_id=?
+                           ORDER BY r.last_seen DESC, r.relationship_id ASC
+                           LIMIT ?""",
+                        (entity_id, limit),
+                    ).fetchall()
                 else:
-                    predicate = "(r.source_entity_id=? OR r.target_entity_id=?)"
-                    values = [entity_id, entity_id]
-                rows = self._connection.execute(
-                    """SELECT r.relationship_id, s.entity_type, s.normalized_value,
-                              t.entity_type, t.normalized_value, r.relationship_type,
-                              r.evidence_kind, r.confidence, r.provenance,
-                              r.first_seen, r.last_seen, r.observation_count
-                       FROM entity_intelligence_relationships r
-                       JOIN entity_intelligence_entities s ON s.entity_id=r.source_entity_id
-                       JOIN entity_intelligence_entities t ON t.entity_id=r.target_entity_id
-                       WHERE """ + predicate + """
-                       ORDER BY r.last_seen DESC, r.relationship_id ASC
-                       LIMIT ?""",
-                    [*values, limit],
-                ).fetchall()
+                    rows = self._connection.execute(
+                        """SELECT r.relationship_id, s.entity_type, s.normalized_value,
+                                  t.entity_type, t.normalized_value, r.relationship_type,
+                                  r.evidence_kind, r.confidence, r.provenance,
+                                  r.first_seen, r.last_seen, r.observation_count
+                           FROM entity_intelligence_relationships r
+                           JOIN entity_intelligence_entities s ON s.entity_id=r.source_entity_id
+                           JOIN entity_intelligence_entities t ON t.entity_id=r.target_entity_id
+                           WHERE r.source_entity_id=? OR r.target_entity_id=?
+                           ORDER BY r.last_seen DESC, r.relationship_id ASC
+                           LIMIT ?""",
+                        (entity_id, entity_id, limit),
+                    ).fetchall()
                 results: list[dict[str, object]] = []
                 for row in rows:
                     evidence_rows = self._connection.execute(
@@ -531,12 +551,15 @@ class SQLiteAdapter(Storage):
                 ).fetchone()
                 if source is None or target is None:
                     raise ValueError("Inferred relationships require existing observed entities.")
-                placeholders = ",".join("?" for _ in evidence_event_ids)
-                evidence = self._connection.execute(
-                    f"""SELECT event_id, timestamp FROM telemetry_evidence_index
-                        WHERE event_id IN ({placeholders})""",
-                    list(evidence_event_ids),
-                ).fetchall()
+                evidence = []
+                for evidence_event_id in dict.fromkeys(evidence_event_ids):
+                    row = self._connection.execute(
+                        """SELECT event_id, timestamp FROM telemetry_evidence_index
+                           WHERE event_id=?""",
+                        (evidence_event_id,),
+                    ).fetchone()
+                    if row is not None:
+                        evidence.append(row)
                 if len(evidence) != len(evidence_event_ids):
                     raise ValueError("Every inferred relationship evidence ID must be durable.")
                 timestamps = [str(row[1]) for row in evidence]
