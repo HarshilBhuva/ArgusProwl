@@ -53,3 +53,38 @@ def test_config_manager_singleton(temp_dir: Path):
     assert cfg.app_name == "YAML App"
     assert cfg.debug is True
     assert cm.is_loaded is True
+
+
+def test_config_manager_loads_explicit_evidence_retention_policy(tmp_path: Path) -> None:
+    yaml_file = tmp_path / "retention.yaml"
+    yaml_file.write_text(
+        "telemetry_evidence:\n"
+        "  enabled: true\n"
+        "  retention_enabled: true\n"
+        "  retention_days: 90\n"
+        "  cleanup_interval_seconds: 600\n"
+        "  cleanup_batch_size: 250\n"
+    )
+    config = ConfigManager().load(yaml_file)
+
+    assert config.telemetry_evidence.retention_enabled is True
+    assert config.telemetry_evidence.retention_days == 90
+    assert config.telemetry_evidence.cleanup_interval_seconds == 600
+    assert config.telemetry_evidence.cleanup_batch_size == 250
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("retention_enabled", "yes"),
+        ("retention_days", 0),
+        ("cleanup_interval_seconds", -1),
+        ("cleanup_batch_size", True),
+    ],
+)
+def test_config_rejects_invalid_evidence_retention_settings(key, value) -> None:
+    config = ConfigLoader().get_default_config()
+    config["telemetry_evidence"][key] = value
+
+    with pytest.raises(ValidationError, match="telemetry_evidence"):
+        ConfigValidator().validate(config)
