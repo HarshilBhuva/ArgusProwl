@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import hashlib
 import json
 import sqlite3
 import threading
@@ -9,6 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+from argusprowl.entity_intelligence.extractor import (
+    extract_event_observations,
+    normalize_entity_type,
+    normalize_entity_value,
+)
 from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.interfaces.storage import Storage
 
@@ -54,9 +60,71 @@ class SQLiteAdapter(Storage):
         self._connection.execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)"
         )
+
+        self._connection.execute(
+            """CREATE TABLE IF NOT EXISTS entity_intelligence_entities (
+                entity_id TEXT PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                normalized_value TEXT NOT NULL,
+                display_value TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                observation_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(entity_type, normalized_value)
+            )"""
+        )
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entity_intelligence_type_seen ON entity_intelligence_entities(entity_type, last_seen DESC)"
+        )
+        self._connection.execute(
+            """CREATE TABLE IF NOT EXISTS entity_intelligence_relationships (
+                relationship_id TEXT PRIMARY KEY,
+                source_entity_id TEXT NOT NULL,
+                target_entity_id TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('OBSERVED', 'INFERRED')),
+                confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+                provenance TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                observation_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(source_entity_id, target_entity_id, relationship_type, evidence_kind)
+            )"""
+        )
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entity_intelligence_rel_source_seen ON entity_intelligence_relationships(source_entity_id, last_seen DESC)"
+        )
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entity_intelligence_rel_target_seen ON entity_intelligence_relationships(target_entity_id, last_seen DESC)"
+        )
+        self._connection.execute(
+            """CREATE TABLE IF NOT EXISTS entity_intelligence_entity_evidence (
+                entity_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                provenance TEXT NOT NULL,
+                PRIMARY KEY(entity_id, event_id)
+            )"""
+        )
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entity_intelligence_entity_evidence_seen ON entity_intelligence_entity_evidence(entity_id, observed_at DESC, event_id)"
+        )
+        self._connection.execute(
+            """CREATE TABLE IF NOT EXISTS entity_intelligence_relationship_evidence (
+                relationship_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                provenance TEXT NOT NULL,
+                PRIMARY KEY(relationship_id, event_id)
+            )"""
+        )
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entity_intelligence_relationship_evidence_seen ON entity_intelligence_relationship_evidence(relationship_id, observed_at DESC, event_id)"
+        )
         self._connection.commit()
         self._lock = threading.RLock()
         self._migrate_evidence_index()
+        self._migrate_entity_intelligence()
 
     def _migrate_evidence_index(self) -> None:
         """Backfill the derived index once for databases created before this version."""
@@ -109,6 +177,406 @@ class SQLiteAdapter(Storage):
                 event_type, source_type,
             ),
         )
+
+        self._upsert_entity_intelligence(record_id, payload)
+
+    def _migrate_entity_intelligence(self) -> None:
+        """Backfill relational entity indexes from authoritative evidence records."""
+        with self._lock, self._connection:
+            migrated = self._connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version=2"
+            ).fetchone()
+            if migrated:
+                return
+            rows = self._connection.execute(
+                "SELECT record_id, payload FROM records WHERE collection=?",
+                (self._EVIDENCE_COLLECTION,),
+            )
+            for record_id, raw_payload in rows:
+                try:
+                    payload = json.loads(raw_payload)
+                    self._upsert_entity_intelligence(record_id, payload)
+                except (TypeError, ValueError, KeyError, UnicodeError, json.JSONDecodeError):
+                    # Keep the authoritative evidence record; malformed source rows
+                    # remain visible to the evidence recovery diagnostics.
+                    continue
+            self._connection.execute(
+                "INSERT INTO schema_migrations(version) VALUES(2)"
+            )
+
+    @staticmethod
+    def _relationship_identifier(
+        source_entity_id: str,
+        target_entity_id: str,
+        relationship_type: str,
+        evidence_kind: str,
+    ) -> str:
+        material = "\0".join(
+            (source_entity_id, target_entity_id, relationship_type, evidence_kind)
+        ).encode("utf-8")
+        return hashlib.sha256(material).hexdigest()
+
+    def _upsert_entity_intelligence(
+        self, record_id: str, payload: dict[str, object]
+    ) -> None:
+        event = payload.get("event")
+        if not isinstance(event, dict):
+            raise ValueError("Telemetry evidence payload must contain an event object.")
+        event_id = str(event.get("event_id", ""))
+        if event_id != record_id:
+            raise ValueError("Telemetry evidence record ID does not match event ID.")
+        timestamp = event.get("timestamp")
+        source_type = event.get("source_type")
+        event_type = event.get("event_type")
+        if not all(isinstance(value, str) and value for value in (timestamp, source_type, event_type)):
+            raise ValueError("Entity intelligence requires event timestamp and source identity.")
+        entities, relationships = extract_event_observations(event)
+        event_provenance = str(payload.get("provenance", "OBSERVED_CONTEXT"))
+        provenance = f"{event_provenance}:{source_type}:{event_type}"[:256]
+
+        for fact in entities:
+            self._connection.execute(
+                """INSERT INTO entity_intelligence_entities
+                (entity_id, entity_type, normalized_value, display_value, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entity_type, normalized_value) DO UPDATE SET
+                    display_value=excluded.display_value,
+                    first_seen=MIN(entity_intelligence_entities.first_seen, excluded.first_seen),
+                    last_seen=MAX(entity_intelligence_entities.last_seen, excluded.last_seen)""",
+                (
+                    fact.entity_id,
+                    fact.entity_type,
+                    fact.normalized_value,
+                    fact.display_value,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            inserted = self._connection.execute(
+                """INSERT OR IGNORE INTO entity_intelligence_entity_evidence
+                (entity_id, event_id, observed_at, provenance) VALUES (?, ?, ?, ?)""",
+                (fact.entity_id, event_id, timestamp, provenance),
+            )
+            if inserted.rowcount:
+                self._connection.execute(
+                    """UPDATE entity_intelligence_entities
+                    SET observation_count=observation_count+1
+                    WHERE entity_id=?""",
+                    (fact.entity_id,),
+                )
+
+        for fact in relationships:
+            relationship_id = self._relationship_identifier(
+                fact.source_entity_id,
+                fact.target_entity_id,
+                fact.relationship_type,
+                fact.evidence_kind,
+            )
+            self._connection.execute(
+                """INSERT OR IGNORE INTO entity_intelligence_relationships
+                (relationship_id, source_entity_id, target_entity_id, relationship_type,
+                 evidence_kind, confidence, provenance, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    relationship_id,
+                    fact.source_entity_id,
+                    fact.target_entity_id,
+                    fact.relationship_type,
+                    fact.evidence_kind,
+                    fact.confidence,
+                    provenance,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            inserted = self._connection.execute(
+                """INSERT OR IGNORE INTO entity_intelligence_relationship_evidence
+                (relationship_id, event_id, observed_at, provenance)
+                VALUES (?, ?, ?, ?)""",
+                (relationship_id, event_id, timestamp, provenance),
+            )
+            if inserted.rowcount:
+                self._connection.execute(
+                    """UPDATE entity_intelligence_relationships
+                    SET first_seen=MIN(first_seen, ?),
+                        last_seen=MAX(last_seen, ?),
+                        observation_count=observation_count+1
+                    WHERE relationship_id=?""",
+                    (timestamp, timestamp, relationship_id),
+                )
+
+    @staticmethod
+    def _validate_entity_limit(limit: int) -> None:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
+            raise ValueError("Entity intelligence limit must be between 1 and 500.")
+
+    def list_entity_intelligence_entities(
+        self, *, entity_type: str | None = None, limit: int = 100
+    ) -> list[dict[str, object]]:
+        self._validate_entity_limit(limit)
+        canonical_type = normalize_entity_type(entity_type) if entity_type is not None else None
+        try:
+            with self._lock:
+                if canonical_type is None:
+                    rows = self._connection.execute(
+                        """SELECT entity_type, normalized_value, display_value,
+                                  first_seen, last_seen, observation_count
+                           FROM entity_intelligence_entities
+                           ORDER BY last_seen DESC, entity_type ASC, normalized_value ASC
+                           LIMIT ?""",
+                        (limit,),
+                    ).fetchall()
+                else:
+                    rows = self._connection.execute(
+                        """SELECT entity_type, normalized_value, display_value,
+                                  first_seen, last_seen, observation_count
+                           FROM entity_intelligence_entities
+                           WHERE entity_type=?
+                           ORDER BY last_seen DESC, normalized_value ASC
+                           LIMIT ?""",
+                        (canonical_type, limit),
+                    ).fetchall()
+            return [
+                {
+                    "entity_type": row[0],
+                    "entity_id": row[1],
+                    "display_value": row[2],
+                    "first_seen": row[3],
+                    "last_seen": row[4],
+                    "observation_count": int(row[5]),
+                }
+                for row in rows
+            ]
+        except sqlite3.Error as exc:
+            raise StorageError("Unable to list entity intelligence records", {}) from exc
+
+    def get_entity_intelligence_entity(
+        self, entity_type: str, entity_value: str
+    ) -> dict[str, object] | None:
+        canonical_type = normalize_entity_type(entity_type)
+        normalized_value = normalize_entity_value(canonical_type, entity_value)
+        try:
+            with self._lock:
+                row = self._connection.execute(
+                    """SELECT entity_type, normalized_value, display_value,
+                              first_seen, last_seen, observation_count
+                       FROM entity_intelligence_entities
+                       WHERE entity_type=? AND normalized_value=?""",
+                    (canonical_type, normalized_value),
+                ).fetchone()
+            if row is None:
+                return None
+            return {
+                "entity_type": row[0],
+                "entity_id": row[1],
+                "display_value": row[2],
+                "first_seen": row[3],
+                "last_seen": row[4],
+                "observation_count": int(row[5]),
+            }
+        except sqlite3.Error as exc:
+            raise StorageError("Unable to retrieve entity intelligence record", {}) from exc
+
+    def list_entity_intelligence_relationships(
+        self,
+        entity_type: str,
+        entity_value: str,
+        *,
+        direction: str = "both",
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        self._validate_entity_limit(limit)
+        if direction not in {"both", "inbound", "outbound"}:
+            raise ValueError("direction must be 'both', 'inbound', or 'outbound'.")
+        canonical_type = normalize_entity_type(entity_type)
+        normalized_value = normalize_entity_value(canonical_type, entity_value)
+        try:
+            with self._lock:
+                entity_row = self._connection.execute(
+                    """SELECT entity_id FROM entity_intelligence_entities
+                       WHERE entity_type=? AND normalized_value=?""",
+                    (canonical_type, normalized_value),
+                ).fetchone()
+                if entity_row is None:
+                    return []
+                entity_id = str(entity_row[0])
+                if direction == "outbound":
+                    predicate = "r.source_entity_id=?"
+                    values: list[object] = [entity_id]
+                elif direction == "inbound":
+                    predicate = "r.target_entity_id=?"
+                    values = [entity_id]
+                else:
+                    predicate = "(r.source_entity_id=? OR r.target_entity_id=?)"
+                    values = [entity_id, entity_id]
+                rows = self._connection.execute(
+                    """SELECT r.relationship_id, s.entity_type, s.normalized_value,
+                              t.entity_type, t.normalized_value, r.relationship_type,
+                              r.evidence_kind, r.confidence, r.provenance,
+                              r.first_seen, r.last_seen, r.observation_count
+                       FROM entity_intelligence_relationships r
+                       JOIN entity_intelligence_entities s ON s.entity_id=r.source_entity_id
+                       JOIN entity_intelligence_entities t ON t.entity_id=r.target_entity_id
+                       WHERE """ + predicate + """
+                       ORDER BY r.last_seen DESC, r.relationship_id ASC
+                       LIMIT ?""",
+                    [*values, limit],
+                ).fetchall()
+                results: list[dict[str, object]] = []
+                for row in rows:
+                    evidence_rows = self._connection.execute(
+                        """SELECT e.event_id, e.observed_at, e.provenance,
+                                  CASE WHEN i.event_id IS NULL THEN 0 ELSE 1 END
+                           FROM entity_intelligence_relationship_evidence e
+                           LEFT JOIN telemetry_evidence_index i ON i.event_id=e.event_id
+                           WHERE e.relationship_id=?
+                           ORDER BY e.observed_at DESC, e.event_id DESC
+                           LIMIT 20""",
+                        (row[0],),
+                    ).fetchall()
+                    results.append(
+                        {
+                            "relationship_id": row[0],
+                            "source_entity_type": row[1],
+                            "source_entity_id": row[2],
+                            "target_entity_type": row[3],
+                            "target_entity_id": row[4],
+                            "relationship_type": row[5],
+                            "evidence_kind": row[6],
+                            "confidence": float(row[7]),
+                            "provenance": row[8],
+                            "first_seen": row[9],
+                            "last_seen": row[10],
+                            "observation_count": int(row[11]),
+                            "evidence_refs": [
+                                {
+                                    "event_id": evidence[0],
+                                    "observed_at": evidence[1],
+                                    "provenance": evidence[2],
+                                    "available": bool(evidence[3]),
+                                }
+                                for evidence in evidence_rows
+                            ],
+                        }
+                    )
+                return results
+        except sqlite3.Error as exc:
+            raise StorageError("Unable to query entity relationships", {}) from exc
+
+    def list_entity_intelligence_evidence(
+        self, entity_type: str, entity_value: str, *, limit: int = 100
+    ) -> list[dict[str, object]]:
+        self._validate_entity_limit(limit)
+        canonical_type = normalize_entity_type(entity_type)
+        normalized_value = normalize_entity_value(canonical_type, entity_value)
+        try:
+            with self._lock:
+                rows = self._connection.execute(
+                    """SELECT e.event_id, e.observed_at, e.provenance,
+                              CASE WHEN i.event_id IS NULL THEN 0 ELSE 1 END
+                       FROM entity_intelligence_entity_evidence e
+                       JOIN entity_intelligence_entities n ON n.entity_id=e.entity_id
+                       LEFT JOIN telemetry_evidence_index i ON i.event_id=e.event_id
+                       WHERE n.entity_type=? AND n.normalized_value=?
+                       ORDER BY e.observed_at DESC, e.event_id DESC
+                       LIMIT ?""",
+                    (canonical_type, normalized_value, limit),
+                ).fetchall()
+            return [
+                {
+                    "event_id": row[0],
+                    "observed_at": row[1],
+                    "provenance": row[2],
+                    "available": bool(row[3]),
+                }
+                for row in rows
+            ]
+        except sqlite3.Error as exc:
+            raise StorageError("Unable to query entity evidence references", {}) from exc
+
+    def add_inferred_entity_relationship(
+        self,
+        source_entity_type: str,
+        source_entity_value: str,
+        target_entity_type: str,
+        target_entity_value: str,
+        relationship_type: str,
+        *,
+        confidence: float,
+        provenance: str,
+        evidence_event_ids: tuple[str, ...],
+    ) -> None:
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("confidence must be between 0 and 1.")
+        if not evidence_event_ids:
+            raise ValueError("An inferred relationship requires evidence event IDs.")
+        source_type = normalize_entity_type(source_entity_type)
+        source_value = normalize_entity_value(source_type, source_entity_value)
+        target_type = normalize_entity_type(target_entity_type)
+        target_value = normalize_entity_value(target_type, target_entity_value)
+        relation_type = relationship_type.strip().upper()
+        if not relation_type or len(relation_type) > 64:
+            raise ValueError("Invalid inferred relationship type.")
+        try:
+            with self._lock, self._connection:
+                source = self._connection.execute(
+                    """SELECT entity_id FROM entity_intelligence_entities
+                       WHERE entity_type=? AND normalized_value=?""",
+                    (source_type, source_value),
+                ).fetchone()
+                target = self._connection.execute(
+                    """SELECT entity_id FROM entity_intelligence_entities
+                       WHERE entity_type=? AND normalized_value=?""",
+                    (target_type, target_value),
+                ).fetchone()
+                if source is None or target is None:
+                    raise ValueError("Inferred relationships require existing observed entities.")
+                placeholders = ",".join("?" for _ in evidence_event_ids)
+                evidence = self._connection.execute(
+                    f"""SELECT event_id, timestamp FROM telemetry_evidence_index
+                        WHERE event_id IN ({placeholders})""",
+                    list(evidence_event_ids),
+                ).fetchall()
+                if len(evidence) != len(evidence_event_ids):
+                    raise ValueError("Every inferred relationship evidence ID must be durable.")
+                timestamps = [str(row[1]) for row in evidence]
+                relationship_id = self._relationship_identifier(
+                    str(source[0]), str(target[0]), relation_type, "INFERRED"
+                )
+                self._connection.execute(
+                    """INSERT OR IGNORE INTO entity_intelligence_relationships
+                    (relationship_id, source_entity_id, target_entity_id, relationship_type,
+                     evidence_kind, confidence, provenance, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, 'INFERRED', ?, ?, ?, ?)""",
+                    (
+                        relationship_id,
+                        str(source[0]),
+                        str(target[0]),
+                        relation_type,
+                        confidence,
+                        provenance,
+                        min(timestamps),
+                        max(timestamps),
+                    ),
+                )
+                for event_id, observed_at in evidence:
+                    inserted = self._connection.execute(
+                        """INSERT OR IGNORE INTO entity_intelligence_relationship_evidence
+                        (relationship_id, event_id, observed_at, provenance)
+                        VALUES (?, ?, ?, ?)""",
+                        (relationship_id, str(event_id), str(observed_at), provenance),
+                    )
+                    if inserted.rowcount:
+                        self._connection.execute(
+                            """UPDATE entity_intelligence_relationships
+                            SET first_seen=MIN(first_seen, ?),
+                                last_seen=MAX(last_seen, ?),
+                                observation_count=observation_count+1
+                            WHERE relationship_id=?""",
+                            (str(observed_at), str(observed_at), relationship_id),
+                        )
+        except sqlite3.Error as exc:
+            raise StorageError("Unable to persist inferred entity relationship", {}) from exc
 
     def save(self, collection: str, record_id: UUID, data: dict[str, object]) -> None:
         try:

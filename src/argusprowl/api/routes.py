@@ -38,8 +38,14 @@ from argusprowl.api.response_models import (
     AttckOverviewResponse,
     AttckTechniqueSummaryResponse,
     EntityDetailResponse,
+    EntityEvidenceListResponse,
+    EntityEvidenceReferenceResponse,
+    EntityIntelligenceItemResponse,
+    EntityIntelligenceListResponse,
     EntityItemResponse,
     EntityListResponse,
+    EntityRelationshipListResponse,
+    EntityRelationshipResponse,
     EvidenceDetailResponse,
     EvidenceEventResponse,
     EvidenceRecordResponse,
@@ -1276,6 +1282,171 @@ async def list_entities(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning("Failed to list entities: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@router.get(
+    "/entities/intelligence",
+    summary="List durable entity intelligence",
+    response_model=EntityIntelligenceListResponse,
+)
+async def list_entity_intelligence(
+    entity_type: str | None = Query(None, max_length=64),
+    limit: int = Query(100, ge=1, le=500),
+) -> EntityIntelligenceListResponse:
+    """List entities indexed transactionally with durable telemetry evidence."""
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.entity_intelligence.service import EntityIntelligenceService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(EntityIntelligenceService):
+        raise HTTPException(status_code=503, detail="Entity intelligence service not available")
+
+    service = container.resolve(EntityIntelligenceService)
+    try:
+        entities = service.list_entities(entity_type=entity_type, limit=limit)
+        items = [
+            EntityIntelligenceItemResponse(
+                entity_type=item.entity_type,
+                entity_id=item.entity_id,
+                display_value=item.display_value,
+                first_seen=item.first_seen,
+                last_seen=item.last_seen,
+                observation_count=item.observation_count,
+            )
+            for item in entities
+        ]
+        return EntityIntelligenceListResponse(entities=items, returned_count=len(items))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("Failed to list durable entity intelligence: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@router.get(
+    "/entities/{entity_type}/{entity_id}/relationships",
+    summary="Get evidence-backed entity pivots",
+    response_model=EntityRelationshipListResponse,
+)
+async def get_entity_relationships(
+    entity_type: str,
+    entity_id: str,
+    direction: str = Query("both", pattern="^(both|inbound|outbound)$"),
+    limit: int = Query(100, ge=1, le=500),
+) -> EntityRelationshipListResponse:
+    """Return observed or explicitly inferred relationships for one entity."""
+    if len(entity_type) > 64 or len(entity_id) > 512:
+        raise HTTPException(status_code=400, detail="Entity type or ID exceeds maximum length")
+
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.entity_intelligence.service import EntityIntelligenceService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(EntityIntelligenceService):
+        raise HTTPException(status_code=503, detail="Entity intelligence service not available")
+
+    service = container.resolve(EntityIntelligenceService)
+    try:
+        entity = service.get_entity(entity_type, entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail="Entity not found")
+        relationships = service.get_relationships(
+            entity_type,
+            entity_id,
+            direction=direction,
+            limit=limit,
+        )
+        items = [
+            EntityRelationshipResponse(
+                relationship_id=item.relationship_id,
+                source_entity_type=item.source_entity_type,
+                source_entity_id=item.source_entity_id,
+                target_entity_type=item.target_entity_type,
+                target_entity_id=item.target_entity_id,
+                relationship_type=item.relationship_type,
+                evidence_kind=item.evidence_kind.value,
+                confidence=item.confidence,
+                provenance=item.provenance,
+                first_seen=item.first_seen,
+                last_seen=item.last_seen,
+                observation_count=item.observation_count,
+                evidence_refs=[
+                    EntityEvidenceReferenceResponse(
+                        event_id=ref.event_id,
+                        observed_at=ref.observed_at,
+                        provenance=ref.provenance,
+                        available=ref.available,
+                    )
+                    for ref in item.evidence_refs
+                ],
+            )
+            for item in relationships
+        ]
+        return EntityRelationshipListResponse(
+            entity_type=entity.entity_type,
+            entity_id=entity.entity_id,
+            direction=direction,
+            relationships=items,
+            returned_count=len(items),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("Failed to resolve entity relationships: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@router.get(
+    "/entities/{entity_type}/{entity_id}/evidence",
+    summary="Get entity evidence references",
+    response_model=EntityEvidenceListResponse,
+)
+async def get_entity_evidence_references(
+    entity_type: str,
+    entity_id: str,
+    limit: int = Query(100, ge=1, le=500),
+) -> EntityEvidenceListResponse:
+    """Return event references and report when retention removed the event payload."""
+    if len(entity_type) > 64 or len(entity_id) > 512:
+        raise HTTPException(status_code=400, detail="Entity type or ID exceeds maximum length")
+
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.entity_intelligence.service import EntityIntelligenceService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(EntityIntelligenceService):
+        raise HTTPException(status_code=503, detail="Entity intelligence service not available")
+
+    service = container.resolve(EntityIntelligenceService)
+    try:
+        entity = service.get_entity(entity_type, entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail="Entity not found")
+        references = service.get_evidence(entity_type, entity_id, limit=limit)
+        items = [
+            EntityEvidenceReferenceResponse(
+                event_id=ref.event_id,
+                observed_at=ref.observed_at,
+                provenance=ref.provenance,
+                available=ref.available,
+            )
+            for ref in references
+        ]
+        return EntityEvidenceListResponse(
+            entity_type=entity.entity_type,
+            entity_id=entity.entity_id,
+            evidence_refs=items,
+            returned_count=len(items),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("Failed to resolve entity evidence references: %s", exc)
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 

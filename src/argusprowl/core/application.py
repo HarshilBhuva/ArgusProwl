@@ -473,6 +473,13 @@ class Application:
         self._container.register_singleton(
             Storage, lambda: SQLiteAdapter(self._config.storage.database_path)
         )
+        # Entity identities and relationship pivots share the durable evidence database.
+        from argusprowl.entity_intelligence.service import EntityIntelligenceService
+
+        self._container.register_singleton(
+            EntityIntelligenceService,
+            lambda: EntityIntelligenceService(self._container.resolve(Storage)),
+        )
         # Event-count and ordered-sequence detectors share the configured
         # durable store for temporal correlation state.
         self._container.register_singleton(
