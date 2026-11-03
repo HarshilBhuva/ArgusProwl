@@ -111,6 +111,23 @@ def test_browser_login_rejects_cross_origin_request(tmp_path) -> None:
 
 
 
+
+def test_browser_session_cookie_is_secure_when_tls_terminates_at_proxy(tmp_path) -> None:
+    client, secret, _audit_path = _client(tmp_path, "analyst")
+
+    response = client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={
+            "Origin": "https://testserver",
+            "X-Forwarded-Proto": "https",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Secure" in response.headers["set-cookie"]
+
+
 def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
     client, _secret, audit_path = _client(tmp_path)
 
