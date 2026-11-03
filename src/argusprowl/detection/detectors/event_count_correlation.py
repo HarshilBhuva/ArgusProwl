@@ -7,6 +7,8 @@ and other threshold-based correlation patterns.
 
 from __future__ import annotations
 
+import json
+
 import re
 from collections import OrderedDict
 from datetime import timedelta
@@ -146,8 +148,23 @@ class EventCountCorrelationDetector(Detector):
         self._config = config or {}
         self._name = name
         self._detections_count = 0
+        state_identity = json.dumps(
+            {
+                "version": version,
+                "count": count,
+                "timespan_seconds": timespan.total_seconds(),
+                "group_by": self._group_by,
+                "filter_config": self._filter_config,
+                "max_observations_per_key": max_observations_per_key,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
         self._state_repository = (
-            CorrelationStateRepository(storage, name) if storage is not None else None
+            CorrelationStateRepository(storage, name, state_identity)
+            if storage is not None
+            else None
         )
 
         # Bounded state storage
