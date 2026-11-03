@@ -36,11 +36,17 @@ def test_query_execution_rejects_unknown_fields_and_oversized_limits(tmp_path):
     hunts = HuntService(storage)
     hunt = hunts.create_hunt(title="Investigation", hypothesis="Test", actor="analyst")
     for definition in ({"sql":"select *"}, {"limit":501}):
-        saved = hunts.save_query(hunt.hunt_id,name="q"+str(len(hunt.queries)),definition=definition,actor="analyst")
-        try:
-            HuntQueryExecutionService(evidence).execute(hunts,hunt.hunt_id,saved.queries[-1].query_id,1,"analyst")
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("invalid query accepted")
+        saved = hunts.save_query(
+            hunt.hunt_id,
+            name="q" + str(len(hunt.queries)),
+            definition=definition,
+            actor="analyst",
+        )
+        result = HuntQueryExecutionService(evidence).execute(
+            hunts, hunt.hunt_id, saved.queries[-1].query_id, 1, "analyst"
+        )
+        assert result.execution.status == "failed"
+        assert result.execution.result_count == 0
+        assert result.execution.error
+    evidence.search.assert_not_called()
     storage.close()
