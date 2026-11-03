@@ -74,7 +74,7 @@ class EventCountState:
             }
 
     @classmethod
-    def from_dict(cls, snapshot: dict[str, object]) -> "EventCountState":
+    def from_dict(cls, snapshot: dict[str, object]) -> EventCountState:
         """Restore a validated state snapshot without changing its event window."""
         if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
             raise ValueError("Unsupported event-count state snapshot schema.")
