@@ -94,14 +94,14 @@ describe('ArgusProwl Frontend', () => {
     expect(screen.getByLabelText(/API key/i)).not.toBeInTheDocument();
   });
 
-  it('renders the application shell', () => {
+  it('renders the application shell', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /Operations Dashboard/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Operations Dashboard/i })).toBeInTheDocument();
   });
 
   it('shows health status when available', async () => {
@@ -118,27 +118,27 @@ describe('ArgusProwl Frontend', () => {
     expect(await screen.findByRole('heading', { name: /System Health/i })).toBeInTheDocument();
   });
 
-  it('shows loading state while fetching', () => {
+  it('shows loading state while fetching', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: true, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: true, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: true, error: null });
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /System Health/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /System Health/i })).toBeInTheDocument();
   });
 
-  it('shows error state when API is unavailable', () => {
+  it('shows error state when API is unavailable', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: new Error('API unavailable') });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
 
     render(<App />);
 
-    expect(screen.getByText(/Backend status unavailable/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Backend status unavailable/i)).toBeInTheDocument();
   });
 
-  it('renders metrics and alerts returned by the backend', () => {
+  it('renders metrics and alerts returned by the backend', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({
       data: {
@@ -173,12 +173,12 @@ describe('ArgusProwl Frontend', () => {
 
     render(<App />);
 
-    expect(screen.getByText('Alert Count')).toBeInTheDocument();
+    expect(await screen.findByText('Alert Count')).toBeInTheDocument();
     expect(screen.getByText('<script>alert(1)</script>')).toBeInTheDocument();
     expect(screen.queryByRole('script')).not.toBeInTheDocument();
   });
 
-  it('shows the alerts empty state', () => {
+  it('shows the alerts empty state', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({
@@ -189,10 +189,10 @@ describe('ArgusProwl Frontend', () => {
 
     render(<App />);
 
-    expect(screen.getByText(/No alerts are currently available/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No alerts are currently available/i)).toBeInTheDocument();
   });
 
-  it('renders placeholder routes and the 404 route', () => {
+  it('renders placeholder routes and the 404 route', async () => {
     mockUseHealth.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseMetrics.mockReturnValue({ data: null, isLoading: false, error: null });
     mockUseAlerts.mockReturnValue({ data: null, isLoading: false, error: null });
@@ -217,11 +217,11 @@ describe('ArgusProwl Frontend', () => {
       refetch: vi.fn(),
     });
     const { unmount } = render(<App />);
-    expect(screen.getByRole('heading', { name: /Entity Investigation/i, level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Entity Investigation/i, level: 1 })).toBeInTheDocument();
 
     unmount();
     window.history.pushState({}, '', '/does-not-exist');
     render(<App />);
-    expect(screen.getByRole('heading', { name: /Page not found/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Page not found/i })).toBeInTheDocument();
   });
 });
