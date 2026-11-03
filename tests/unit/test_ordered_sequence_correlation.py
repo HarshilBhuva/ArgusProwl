@@ -12,6 +12,7 @@ from argusprowl.detection.detectors.ordered_sequence_state import (
 )
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def create_event(
@@ -34,6 +35,43 @@ def create_event(
 
 class TestOrderedSequenceState:
     """Tests for OrderedSequenceState."""
+
+    def test_persistent_sequence_state_restores_after_detector_restart(self, tmp_path: Path):
+        storage = SQLiteAdapter(tmp_path / "sequence-state.db")
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        first = create_event(t0, event_type="process_start", hostname="host-01", pid=4242)
+        second = create_event(
+            t0 + timedelta(seconds=1),
+            event_type="network_connection",
+            hostname="host-01",
+            pid=4242,
+            source_type="zeek",
+        )
+        steps = [
+            {"event_type": "process_start"},
+            {"event_type": "network_connection"},
+        ]
+        first_detector = OrderedSequenceDetector(
+            steps=steps,
+            timespan=timedelta(minutes=5),
+            group_by=["hostname", "pid"],
+            name="persistent-process-sequence",
+            storage=storage,
+        )
+        first_detector.observe(first)
+
+        restarted_detector = OrderedSequenceDetector(
+            steps=steps,
+            timespan=timedelta(minutes=5),
+            group_by=["hostname", "pid"],
+            name="persistent-process-sequence",
+            storage=storage,
+        )
+        restarted_detector.observe(second)
+        result = restarted_detector.detect(second)
+
+        assert result.matched is True
+        assert result.contributing_event_ids == (first.event_id,)
 
     def test_basic_sequence_completion(self):
         """Test that a basic 2-step sequence completes correctly."""
