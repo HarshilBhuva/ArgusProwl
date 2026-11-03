@@ -475,7 +475,9 @@ def test_docker_container_boots_and_serves(docker_image):
         assert health_api_status in (200, 503), f"/api/v1/health returned {health_api_status}"
 
         # A SPA route resolves to the frontend (200 HTML).
-        spa_status, _ = _http_request(port, "/alerts/xyz")
+        spa_status, _ = _http_request(
+            port, "/alerts/xyz", headers={"Accept": "text/html"}
+        )
         assert spa_status == 200, f"SPA route /alerts/xyz returned {spa_status}, expected 200"
 
         # The process is running inside the container
