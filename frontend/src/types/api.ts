@@ -291,6 +291,10 @@ export interface EvidenceStatsResponse {
   max_retained_events: number;
   eviction_count: number;
   capacity_used_pct: number;
+  retention_last_run_at?: string | null;
+  retention_last_deleted_count?: number;
+  retention_runs_failed?: number;
+  retention_last_error?: string | null;
 }
 
 export interface AttckTechniqueSummary {
