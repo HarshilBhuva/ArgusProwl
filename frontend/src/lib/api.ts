@@ -24,6 +24,12 @@ import type {
   RuleDetail,
   RuleListResponse,
   TimelineResponse,
+  Hunt,
+  HuntDisposition,
+  HuntEvidenceRole,
+  HuntListResponse,
+  HuntQueryExecutionResponse,
+  HuntScopeRequest,
 } from '../types/api';
 
 export class ApiClientError extends Error {
@@ -153,6 +159,66 @@ function buildAlertQuery(params: AlertSearchParams = {}): string {
 
 export const api = {
   health: () => request<HealthResponse>('/api/v1/health'),
+  hunts: () => request<HuntListResponse>('/api/v1/hunts'),
+  hunt: (huntId: string) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}`),
+  createHunt: (data: { title: string; hypothesis: string }) =>
+    request<Hunt>('/api/v1/hunts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  updateHuntScope: (huntId: string, scope: HuntScopeRequest) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}/scope`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scope),
+    }),
+  saveHuntQuery: (huntId: string, data: { name: string; definition: Record<string, unknown> }) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}/queries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  executeHuntQuery: (huntId: string, queryId: string, version: number) =>
+    request<HuntQueryExecutionResponse>(
+      `/api/v1/hunts/${encodeURIComponent(huntId)}/queries/${encodeURIComponent(queryId)}/execute?version=${version}`,
+      { method: 'POST' },
+    ),
+  attachHuntEvidence: (
+    huntId: string,
+    data: { event_id: string; role: HuntEvidenceRole; note: string },
+  ) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  addHuntFinding: (
+    huntId: string,
+    data: { title: string; description: string; disposition: HuntDisposition; evidence_event_ids: string[] },
+  ) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}/findings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  setHuntConclusion: (
+    huntId: string,
+    data: { summary: string; disposition: HuntDisposition; confidence: number },
+  ) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}/conclusion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  transitionHunt: (huntId: string, status: string) =>
+    request<Hunt>(`/api/v1/hunts/${encodeURIComponent(huntId)}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }),
+
   operationalHealth: () => request<HealthResponse>('/health'),
   metrics: () => request<MetricsResponse>('/api/v1/metrics'),
   alerts: (params: AlertSearchParams = {}) =>

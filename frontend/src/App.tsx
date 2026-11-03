@@ -13,6 +13,7 @@ import { IocDetailPage, IocPage } from './pages/IocPage';
 import { RuleDetailPage, RulesPage } from './pages/RulesPage';
 import { EvidenceDetailPage } from './pages/EvidenceDetailPage';
 import { EvidencePage } from './pages/EvidencePage';
+import { HuntsPage } from './pages/HuntsPage';
 
 function AlertDetailRoute() {
   const { id } = useParams<{ id: string }>();
@@ -52,6 +53,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<DashboardPage />} />
       <Route path="/alerts" element={<AlertsPage />} />
+      <Route path="/hunts" element={<HuntsPage />} />
+      <Route path="/hunts/:id" element={<HuntsPage />} />
       <Route path="/alerts/:id" element={<AlertDetailRoute />} />
       <Route path="/incidents" element={<IncidentsPage />} />
       <Route path="/incidents/:id" element={<IncidentDetailRoute />} />

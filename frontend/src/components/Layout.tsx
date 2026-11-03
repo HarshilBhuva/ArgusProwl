@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/alerts', label: 'Alerts', end: false },
   { to: '/incidents', label: 'Incidents', end: false },
+  { to: '/hunts', label: 'Hunts', end: false },
   { to: '/entities', label: 'Entities', end: false },
   { to: '/rules', label: 'Rules', end: false },
   { to: '/iocs', label: 'IOCs', end: false },
