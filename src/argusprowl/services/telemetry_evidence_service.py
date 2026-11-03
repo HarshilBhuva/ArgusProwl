@@ -105,14 +105,25 @@ class TelemetryEvidenceService:
         *,
         storage: Storage | None = None,
         metrics_collector: MetricsCollector | None = None,
+        retention_enabled: bool = False,
+        retention_days: int | None = None,
     ) -> None:
         if not isinstance(max_retained_events, int) or isinstance(max_retained_events, bool):
             raise ValueError("max_retained_events must be a positive integer.")
         if max_retained_events <= 0:
             raise ValueError("max_retained_events must be positive.")
 
+        if not isinstance(retention_enabled, bool):
+            raise ValueError("retention_enabled must be a boolean.")
+        if retention_days is not None and (
+            not isinstance(retention_days, int) or isinstance(retention_days, bool) or retention_days <= 0
+        ):
+            raise ValueError("retention_days must be a positive integer when provided.")
+
         self._max_retained = max_retained_events
         self._storage = storage
+        self._retention_enabled = retention_enabled
+        self._retention_days = retention_days
         self._lock = Lock()
         # Recovery status describes completeness of the durable startup snapshot.
         # In-memory-only callers have no recovery step and remain AVAILABLE.
@@ -745,6 +756,8 @@ class TelemetryEvidenceService:
                 "persistence_writes_succeeded": self._persistence_writes_succeeded.get_value(),
                 "persistence_writes_failed": self._persistence_writes_failed.get_value(),
                 "persistence_operations_failed": self._persistence_operations_failed.get_value(),
+                "retention_enabled": self._retention_enabled,
+                "retention_days": self._retention_days,
                 "retention_last_run_at": self._retention_last_run_at,
                 "retention_last_deleted_count": self._retention_last_deleted_count,
                 "retention_runs_failed": self._retention_runs_failed,
