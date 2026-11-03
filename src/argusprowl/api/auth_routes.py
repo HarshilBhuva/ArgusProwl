@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from argusprowl.api.auth import ApiKeyAuthService, AuthPrincipal
+from argusprowl.api.auth import ApiKeyAuthService, AuthPrincipal, _origin_matches_request
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,17 @@ async def create_session(payload: SessionCreateRequest, request: Request) -> JSO
     service: ApiKeyAuthService = request.app.state.auth_service
     if not service.auth_enabled:
         raise HTTPException(status_code=409, detail="API authentication is disabled.")
+    if not _origin_matches_request(request, request.headers.get("origin")):
+        try:
+            _audit_login(
+                request,
+                event_type="AUTHENTICATION_ORIGIN_REJECTED",
+                principal=None,
+                status_code=403,
+            )
+        except Exception:
+            logger.exception("Could not persist rejected browser login origin")
+        raise HTTPException(status_code=403, detail="Forbidden")
     created = service.create_session(payload.api_key)
     if created is None:
         try:
