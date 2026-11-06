@@ -5,6 +5,7 @@ Provides time-based windowing for event aggregation and feature extraction.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -46,26 +47,41 @@ class SlidingWindow:
         self._window_size_seconds = window_size_seconds
         self._max_events = max_events
         self._events: deque[tuple[datetime, NormalizedEvent]] = deque()
+        self._watermark: datetime | None = None
         self._lock = Lock()
 
     def add(self, event: NormalizedEvent) -> None:
-        """Add an event to the window.
+        """Add an event in event-time order and evict expired state.
 
-        Thread-safe. Automatically evicts expired events.
-
-        Args:
-            event: Event to add.
+        In-order telemetry uses an O(1) append path. Bounded out-of-order
+        arrivals are inserted in timestamp order; arrivals older than the
+        active window are ignored rather than reintroducing expired state.
         """
         with self._lock:
             event_time = event.timestamp
-            self._events.append((event_time, event))
+            watermark = (
+                event_time if self._watermark is None else max(self._watermark, event_time)
+            )
+            self._watermark = watermark
+            self._evict_expired(watermark)
 
-            # Enforce max_events limit if set
-            if self._max_events > 0 and len(self._events) > self._max_events:
-                self._events.popleft()
+            cutoff = watermark - timedelta(seconds=self._effective_window_seconds)
+            if event_time < cutoff:
+                return
 
-            # Evict expired events
-            self._evict_expired(event_time)
+            item = (event_time, event)
+            if not self._events or event_time >= self._events[-1][0]:
+                self._events.append(item)
+            else:
+                ordered = list(self._events)
+                keys = [(timestamp, str(existing.event_id)) for timestamp, existing in ordered]
+                position = bisect_right(keys, (event_time, str(event.event_id)))
+                ordered.insert(position, item)
+                self._events = deque(ordered)
+
+            if self._max_events > 0:
+                while len(self._events) > self._max_events:
+                    self._events.popleft()
 
     def get_events(self, reference_time: datetime | None = None) -> list[NormalizedEvent]:
         """Get all events currently in the window.
@@ -79,6 +95,8 @@ class SlidingWindow:
         """
         with self._lock:
             ref_time = reference_time or datetime.now(UTC)
+            if self._watermark is not None:
+                ref_time = max(ref_time, self._watermark)
             self._evict_expired(ref_time)
             return [event for _, event in self._events]
 
@@ -93,6 +111,8 @@ class SlidingWindow:
         """
         with self._lock:
             ref_time = reference_time or datetime.now(UTC)
+            if self._watermark is not None:
+                ref_time = max(ref_time, self._watermark)
             self._evict_expired(ref_time)
             return len(self._events)
 
@@ -125,14 +145,18 @@ class SlidingWindow:
         Args:
             reference_time: Current time reference.
         """
-        win_sec = (
+        cutoff_time = reference_time - timedelta(seconds=self._effective_window_seconds)
+        while self._events and self._events[0][0] < cutoff_time:
+            self._events.popleft()
+
+    @property
+    def _effective_window_seconds(self) -> float:
+        """Return the effective duration, preserving the short-window floor."""
+        return (
             self._window_size_seconds
             if self._window_size_seconds > 1.0
             else min(self._window_size_seconds, 0.05)
         )
-        cutoff_time = reference_time - timedelta(seconds=win_sec)
-        while self._events and self._events[0][0] < cutoff_time:
-            self._events.popleft()
 
     @property
     def window_size_seconds(self) -> float:
