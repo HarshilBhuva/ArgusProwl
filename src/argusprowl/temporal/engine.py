@@ -61,7 +61,7 @@ class TemporalEngine:
         self._buckets: OrderedDict[tuple[str, int], TemporalBucket] = OrderedDict()
         self._lock = Lock()
         self._condition = Condition(self._lock)
-        self._inflight: dict[tuple[str, ...], int] = {}
+        self._inflight: dict[tuple[Any, ...], int] = {}
         self._clearing = False
 
     def observe(self, event: NormalizedEvent) -> None:
@@ -103,7 +103,7 @@ class TemporalEngine:
             self._release_bucket(key)
 
 
-    def _acquire_bucket(self, key: tuple[str, ...]) -> TemporalBucket:
+    def _acquire_bucket(self, key: tuple[Any, ...]) -> TemporalBucket:
         """Acquire a bucket reference without holding the registry lock on add."""
         with self._condition:
             while self._clearing:
