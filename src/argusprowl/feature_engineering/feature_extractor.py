@@ -4,8 +4,8 @@ Extracts feature vectors from NormalizedEvents using sliding windows
 and aggregation functions.
 """
 
-import dataclasses
 from collections import OrderedDict
+import dataclasses
 from datetime import timedelta
 from threading import Lock
 
