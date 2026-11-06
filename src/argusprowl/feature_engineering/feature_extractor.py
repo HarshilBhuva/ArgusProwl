@@ -4,7 +4,9 @@ Extracts feature vectors from NormalizedEvents using sliding windows
 and aggregation functions.
 """
 
+from collections import OrderedDict
 from datetime import timedelta
+from threading import Lock
 
 from argusprowl.feature_engineering.aggregators import aggregate_connection_features
 from argusprowl.feature_engineering.feature_vector import FeatureVector
@@ -29,16 +31,22 @@ class FeatureExtractor:
         self,
         window_size_seconds: float = 60.0,
         max_events_per_window: int = 1000,
+        max_active_windows: int = 10000,
     ) -> None:
         """Initialize feature extractor.
 
         Args:
             window_size_seconds: Time window in seconds.
             max_events_per_window: Maximum events per window (0 = unlimited).
+            max_active_windows: Maximum source-IP windows retained (LRU eviction).
         """
+        if max_active_windows < 1:
+            raise ValueError("max_active_windows must be positive")
         self._window_size_seconds = window_size_seconds
         self._max_events_per_window = max_events_per_window
-        self._windows: dict[str, SlidingWindow] = {}
+        self._max_active_windows = max_active_windows
+        self._windows: OrderedDict[str, SlidingWindow] = OrderedDict()
+        self._lock = Lock()
 
     def extract(self, event: NormalizedEvent) -> FeatureVector | None:
         """Extract features from a single event.
@@ -64,25 +72,30 @@ class FeatureExtractor:
         if src_ip is None:
             return None
 
-        # Get or create window for this source IP
-        if src_ip not in self._windows:
-            self._windows[src_ip] = SlidingWindow(
-                window_size_seconds=self._window_size_seconds,
-                max_events=self._max_events_per_window,
-            )
+        # Bound per-source state and protect registry mutation. Keep expensive
+        # aggregation outside the registry lock so different sources do not
+        # serialize on feature computation.
+        with self._lock:
+            window = self._windows.get(src_ip)
+            if window is None:
+                if len(self._windows) >= self._max_active_windows:
+                    self._windows.popitem(last=False)
+                window = SlidingWindow(
+                    window_size_seconds=self._window_size_seconds,
+                    max_events=self._max_events_per_window,
+                )
+                self._windows[src_ip] = window
+            else:
+                self._windows.move_to_end(src_ip)
+            window.add(event)
 
-        window = self._windows[src_ip]
-        window.add(event)
-
-        # Need at least one event to generate features
-        if window.is_empty:
+        # One snapshot serves both aggregation and window-boundary calculation.
+        events = window.get_events(event.timestamp)
+        if not events:
             return None
-
-        # Aggregate features from window
-        features_dict = aggregate_connection_features(window.get_events(event.timestamp))
+        features_dict = aggregate_connection_features(events)
 
         # Calculate window timing
-        events = window.get_events(event.timestamp)
         window_end = events[-1].timestamp
         if len(events) == 1 or events[0].timestamp == window_end:
             window_start = window_end - timedelta(seconds=self._window_size_seconds)
@@ -131,7 +144,8 @@ class FeatureExtractor:
         Returns:
             SlidingWindow if exists, else None.
         """
-        return self._windows.get(src_ip)
+        with self._lock:
+            return self._windows.get(src_ip)
 
     def clear_window(self, src_ip: str) -> None:
         """Clear the sliding window for a specific source IP.
@@ -139,13 +153,16 @@ class FeatureExtractor:
         Args:
             src_ip: Source IP address.
         """
-        if src_ip in self._windows:
-            self._windows[src_ip].clear()
+        with self._lock:
+            window = self._windows.get(src_ip)
+            if window is not None:
+                window.clear()
 
     def clear_all_windows(self) -> None:
         """Clear all sliding windows."""
-        for window in self._windows.values():
-            window.clear()
+        with self._lock:
+            for window in self._windows.values():
+                window.clear()
 
     def get_active_windows(self) -> list[str]:
         """Get list of source IPs with non-empty windows.
@@ -153,7 +170,9 @@ class FeatureExtractor:
         Returns:
             List of source IP addresses.
         """
-        return [ip for ip, window in self._windows.items() if not window.is_empty]
+        with self._lock:
+            windows = list(self._windows.items())
+        return [ip for ip, window in windows if not window.is_empty]
 
     @property
     def window_size_seconds(self) -> float:
@@ -163,7 +182,9 @@ class FeatureExtractor:
     @property
     def active_window_count(self) -> int:
         """Get number of active (non-empty) windows."""
-        return sum(1 for w in self._windows.values() if not w.is_empty)
+        with self._lock:
+            windows = list(self._windows.values())
+        return sum(1 for window in windows if not window.is_empty)
 
     def __repr__(self) -> str:
         """String representation."""

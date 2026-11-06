@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import timedelta
-from threading import Lock
+from threading import Condition, Lock
 from typing import Any
 
 from argusprowl.models.normalized_event import NormalizedEvent
@@ -60,6 +60,9 @@ class TemporalEngine:
         self._allowed_lateness = allowed_lateness
         self._buckets: OrderedDict[tuple[str, int], TemporalBucket] = OrderedDict()
         self._lock = Lock()
+        self._condition = Condition(self._lock)
+        self._inflight: dict[tuple[Any, ...], int] = {}
+        self._clearing = False
 
     def observe(self, event: NormalizedEvent) -> None:
         """Record an observation for temporal analysis.
@@ -93,24 +96,90 @@ class TemporalEngine:
             source_record_id=event.source_record_id,
         )
 
-        with self._lock:
-            if key in self._buckets:
-                bucket = self._buckets[key]
-                bucket.add(observation)
-                # Move to end for LRU
-                self._buckets.move_to_end(key)
-            else:
-                if len(self._buckets) >= self._max_keys:
-                    # Evict oldest (least recently used)
-                    self._buckets.popitem(last=False)
+        bucket = self._acquire_bucket(key)
+        try:
+            bucket.add(observation)
+        finally:
+            self._release_bucket(key)
+
+
+    def _acquire_bucket(self, key: tuple[Any, ...]) -> TemporalBucket:
+        """Acquire a bucket reference without holding the registry lock on add."""
+        with self._condition:
+            while self._clearing:
+                self._condition.wait()
+
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                while len(self._buckets) >= self._max_keys:
+                    # Never evict a bucket while a producer or reader is using it.
+                    evictable = next(
+                        (candidate for candidate in self._buckets if self._inflight.get(candidate, 0) == 0),
+                        None,
+                    )
+                    if evictable is not None:
+                        del self._buckets[evictable]
+                        break
+                    self._condition.wait()
+                    while self._clearing:
+                        self._condition.wait()
+
                 bucket = TemporalBucket(
                     key=key,
                     max_observations=self._max_observations,
                     window_duration=self._window_duration,
                     allowed_lateness=self._allowed_lateness,
                 )
-                bucket.add(observation)
                 self._buckets[key] = bucket
+
+            self._inflight[key] = self._inflight.get(key, 0) + 1
+            self._buckets.move_to_end(key)
+            return bucket
+
+    def _acquire_existing_bucket(
+        self,
+        dst_ip: str,
+        port: int,
+        src_ip: str | None,
+    ) -> tuple[tuple[str, ...], TemporalBucket] | None:
+        """Find and pin a bucket for a read operation."""
+        with self._condition:
+            while self._clearing:
+                self._condition.wait()
+            key: tuple[str, ...] | None = None
+            bucket: TemporalBucket | None = None
+            if src_ip is not None:
+                candidate = (src_ip, dst_ip, port)
+                bucket = self._buckets.get(candidate)
+                if bucket is not None:
+                    key = candidate
+            if bucket is None:
+                candidate = (dst_ip, port)
+                bucket = self._buckets.get(candidate)
+                if bucket is not None:
+                    key = candidate
+            if bucket is None:
+                for candidate, candidate_bucket in self._buckets.items():
+                    if (len(candidate) == 3 and candidate[1] == dst_ip and candidate[2] == port) or (
+                        len(candidate) == 2 and candidate[0] == dst_ip and candidate[1] == port
+                    ):
+                        key = candidate
+                        bucket = candidate_bucket
+                        break
+            if key is None or bucket is None:
+                return None
+            self._inflight[key] = self._inflight.get(key, 0) + 1
+            return key, bucket
+
+    def _release_bucket(self, key: tuple[str, ...]) -> None:
+        """Release a pinned bucket and wake waiters when it becomes evictable."""
+        with self._condition:
+            remaining = self._inflight.get(key, 0) - 1
+            if remaining > 0:
+                self._inflight[key] = remaining
+            else:
+                self._inflight.pop(key, None)
+            self._condition.notify_all()
 
     def get_analysis(
         self,
@@ -118,59 +187,32 @@ class TemporalEngine:
         dst_port: int | None = None,
         src_ip: str | None = None,
     ) -> dict[str, Any] | None:
-        """Get periodicity analysis for a specific destination.
-
-        Args:
-            dst_ip: Destination IP address.
-            dst_port: Destination port (optional, None for any port).
-            src_ip: Source IP address or host identifier (optional).
-
-        Returns:
-            Analysis dictionary or None if not found.
-        """
+        """Get periodicity analysis for a specific destination."""
         port = dst_port if dst_port is not None else 0
-
-        with self._lock:
-            bucket = None
-            if src_ip is not None:
-                bucket = self._buckets.get((src_ip, dst_ip, port))
-            if bucket is None:
-                bucket = self._buckets.get((dst_ip, port))
-            if bucket is None:
-                # Find matching bucket by destination
-                for k, b in self._buckets.items():
-                    if (len(k) == 3 and k[1] == dst_ip and k[2] == port) or (
-                        len(k) == 2 and k[0] == dst_ip and k[1] == port
-                    ):
-                        bucket = b
-                        break
-
-            if bucket is None or len(bucket) < 2:
+        acquired = self._acquire_existing_bucket(dst_ip, port, src_ip)
+        if acquired is None:
+            return None
+        key, bucket = acquired
+        try:
+            if len(bucket) < 2:
                 return None
 
             stats = bucket.get_stats()
             intervals = stats.get("intervals", [])
-
             if not intervals:
                 return None
 
             periodicity_score = calculate_periodicity_score(intervals)
             classification = classify_periodicity(periodicity_score)
-
-            # Extract process identity from most recent observation
-            observations = list(bucket.observations)
-            latest = observations[-1] if observations else None
-
-            # Standardized [dst_ip, dst_port] key for downstream consumers
-            key_dst = [dst_ip, port]
+            with bucket.lock:
+                latest = bucket.observations[-1] if bucket.observations else None
 
             result: dict[str, Any] = {
                 **stats,
                 "periodicity_score": periodicity_score,
                 "periodicity_classification": classification,
-                "key": key_dst,
+                "key": [dst_ip, port],
             }
-
             if latest is not None:
                 result["process_name"] = latest.process_name
                 result["pid"] = latest.pid
@@ -178,18 +220,22 @@ class TemporalEngine:
                 result["hostname"] = latest.hostname
                 result["direction"] = latest.direction
                 result["command_line"] = latest.command_line
-
             return result
+        finally:
+            self._release_bucket(key)
 
     def get_all_analyses(self) -> list[dict[str, Any]]:
-        """Get periodicity analysis for all tracked destinations.
+        """Get periodicity analysis for a pinned snapshot of tracked buckets."""
+        with self._condition:
+            while self._clearing:
+                self._condition.wait()
+            snapshot = list(self._buckets.items())
+            for key, _bucket in snapshot:
+                self._inflight[key] = self._inflight.get(key, 0) + 1
 
-        Returns:
-            List of analysis dictionaries.
-        """
         results = []
-        with self._lock:
-            for key, bucket in self._buckets.items():
+        try:
+            for key, bucket in snapshot:
                 if len(bucket) >= 2:
                     stats = bucket.get_stats()
                     intervals = stats.get("intervals", [])
@@ -206,7 +252,10 @@ class TemporalEngine:
                                 "key": [dst_ip, dst_port],
                             }
                         )
-        return results
+            return results
+        finally:
+            for key, _bucket in snapshot:
+                self._release_bucket(key)
 
     def get_key_count(self) -> int:
         """Get number of tracked keys.
@@ -219,8 +268,13 @@ class TemporalEngine:
 
     def clear(self) -> None:
         """Clear all temporal state."""
-        with self._lock:
+        with self._condition:
+            self._clearing = True
+            while self._inflight:
+                self._condition.wait()
             self._buckets.clear()
+            self._clearing = False
+            self._condition.notify_all()
 
     @property
     def max_keys(self) -> int:
