@@ -70,7 +70,13 @@ class SlidingWindow:
                 return
 
             item = (event_time, event)
-            if not self._events or event_time >= self._events[-1][0]:
+            incoming_key = (event_time, str(event.event_id))
+            last_key = (
+                (self._events[-1][0], str(self._events[-1][1].event_id))
+                if self._events
+                else None
+            )
+            if last_key is None or incoming_key >= last_key:
                 self._events.append(item)
             else:
                 ordered = list(self._events)
