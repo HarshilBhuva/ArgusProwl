@@ -98,6 +98,8 @@ class TemporalBucket:
             raise ValueError("allowed_lateness cannot be negative")
         if self.allowed_lateness > self.window_duration:
             raise ValueError("allowed_lateness cannot exceed window_duration")
+        for observation in self.observations:
+            self._identity_index.update(observation.identity_keys())
 
     @property
     def watermark(self) -> datetime | None:
