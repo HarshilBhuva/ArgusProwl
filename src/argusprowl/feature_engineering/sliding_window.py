@@ -126,6 +126,7 @@ class SlidingWindow:
         """Clear all events from the window."""
         with self._lock:
             self._events.clear()
+            self._watermark = None
 
     def aggregate(
         self,
