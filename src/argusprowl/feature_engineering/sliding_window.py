@@ -80,8 +80,11 @@ class SlidingWindow:
                 self._events.append(item)
             else:
                 ordered = list(self._events)
-                keys = [(timestamp, str(existing.event_id)) for timestamp, existing in ordered]
-                position = bisect_right(keys, (event_time, str(event.event_id)))
+                position = bisect_right(
+                    ordered,
+                    incoming_key,
+                    key=lambda existing: (existing[0], str(existing[1].event_id)),
+                )
                 ordered.insert(position, item)
                 self._events = deque(ordered)
 

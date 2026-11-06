@@ -307,6 +307,43 @@ class TestAggregators:
         assert result["total_bytes_sent"] > 0
         assert result["connection_rate"] > 0
 
+    def test_aggregate_connection_statistics_without_positive_values(self) -> None:
+        """Missing and non-positive measurements retain zero-valued semantics."""
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        events = [
+            NormalizedEvent(
+                source_type="zeek",
+                event_type="network_connection",
+                timestamp=base + timedelta(seconds=index),
+                src_ip="192.0.2.1",
+                attributes={
+                    "duration": duration,
+                    "orig_bytes": sent,
+                    "resp_bytes": received,
+                },
+            )
+            for index, (duration, sent, received) in enumerate(
+                ((0.0, 0, 10), (-1.0, -2, 0), (2.0, 20, 30))
+            )
+        ]
+        result = aggregate_connection_features(events)
+        assert result["avg_duration"] == 2.0
+        assert result["min_duration"] == 2.0
+        assert result["max_duration"] == 2.0
+        assert result["std_duration"] == 0.0
+        assert result["total_bytes_sent"] == 20
+        assert result["total_bytes_received"] == 40
+
+    def test_aggregate_connection_duration_population_statistics(
+        self, sample_normalized_events: list[NormalizedEvent]
+    ) -> None:
+        """Duration statistics use population standard deviation."""
+        result = aggregate_connection_features(sample_normalized_events)
+        assert result["avg_duration"] == pytest.approx(2.0)
+        assert result["min_duration"] == pytest.approx(1.0)
+        assert result["max_duration"] == pytest.approx(3.0)
+        assert result["std_duration"] == pytest.approx(2.0**0.5 / 2.0)
+
     def test_aggregate_by_src_ip(self, sample_normalized_events: list[NormalizedEvent]) -> None:
         """Test grouping by source IP."""
         result = aggregate_by_src_ip(sample_normalized_events)

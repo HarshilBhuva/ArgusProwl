@@ -38,9 +38,14 @@ def aggregate_connection_features(events: list[NormalizedEvent]) -> dict[str, An
     syn_count = 0
 
     # Statistical collections
-    durations: list[float] = []
-    orig_bytes_list: list[int] = []
-    resp_bytes_list: list[int] = []
+    duration_count = 0
+    duration_sum = 0.0
+    duration_mean = 0.0
+    duration_m2 = 0.0
+    min_duration = 0.0
+    max_duration = 0.0
+    total_bytes_sent = 0
+    total_bytes_received = 0
 
     # Port distribution for concentration calculation
     port_counts: dict[int, int] = defaultdict(int)
@@ -83,32 +88,28 @@ def aggregate_connection_features(events: list[NormalizedEvent]) -> dict[str, An
         # Collect durations and bytes
         duration = event.attributes.get("duration", 0.0)
         if duration > 0:
-            durations.append(duration)
+            duration_count += 1
+            duration_sum += duration
+            delta = duration - duration_mean
+            duration_mean += delta / duration_count
+            duration_m2 += delta * (duration - duration_mean)
+            if duration_count == 1:
+                min_duration = max_duration = duration
+            else:
+                min_duration = min(min_duration, duration)
+                max_duration = max(max_duration, duration)
 
         orig_bytes = event.attributes.get("orig_bytes", 0)
         if orig_bytes > 0:
-            orig_bytes_list.append(orig_bytes)
+            total_bytes_sent += orig_bytes
 
         resp_bytes = event.attributes.get("resp_bytes", 0)
         if resp_bytes > 0:
-            resp_bytes_list.append(resp_bytes)
+            total_bytes_received += resp_bytes
 
-    # Calculate statistics
-    avg_duration = sum(durations) / len(durations) if durations else 0.0
-    max_duration = max(durations) if durations else 0.0
-    min_duration = min(durations) if durations else 0.0
-
-    # Standard deviation
-    if len(durations) >= 2:
-        mean_duration = avg_duration
-        variance = sum((d - mean_duration) ** 2 for d in durations) / len(durations)
-        std_duration = variance**0.5
-    else:
-        std_duration = 0.0
-
-    # Byte statistics
-    total_bytes_sent = sum(orig_bytes_list)
-    total_bytes_received = sum(resp_bytes_list)
+    # Calculate statistics without allocating per-event duration/byte lists.
+    avg_duration = duration_sum / duration_count if duration_count else 0.0
+    std_duration = 0.0 if duration_count < 2 else (duration_m2 / duration_count) ** 0.5
     avg_bytes_per_connection = (total_bytes_sent + total_bytes_received) / connection_count
 
     # Time-based features

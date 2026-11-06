@@ -5,6 +5,7 @@ and aggregation functions.
 """
 
 from collections import OrderedDict
+from dataclasses import fields
 from datetime import timedelta
 from threading import Lock
 
@@ -12,6 +13,8 @@ from argusprowl.feature_engineering.aggregators import aggregate_connection_feat
 from argusprowl.feature_engineering.feature_vector import FeatureVector
 from argusprowl.feature_engineering.sliding_window import SlidingWindow
 from argusprowl.models.normalized_event import NormalizedEvent
+
+_FEATURE_VECTOR_FIELDS = frozenset(field.name for field in fields(FeatureVector))
 
 
 class FeatureExtractor:
@@ -102,13 +105,14 @@ class FeatureExtractor:
         else:
             window_start = events[0].timestamp
 
-        import dataclasses
-
-        valid_fields = {f.name for f in dataclasses.fields(FeatureVector)}
         main_features = {
-            k: v for k, v in features_dict.items() if k in valid_fields and k != "features"
+            key: value
+            for key, value in features_dict.items()
+            if key in _FEATURE_VECTOR_FIELDS and key != "features"
         }
-        extra_features = {k: v for k, v in features_dict.items() if k not in valid_fields}
+        extra_features = {
+            key: value for key, value in features_dict.items() if key not in _FEATURE_VECTOR_FIELDS
+        }
 
         # Create and return FeatureVector
         return FeatureVector(
