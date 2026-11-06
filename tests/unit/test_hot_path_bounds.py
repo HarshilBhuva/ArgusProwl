@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ import pytest
 
 from argusprowl.feature_engineering.feature_extractor import FeatureExtractor
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.temporal.engine import TemporalEngine
 from argusprowl.temporal.temporal_state import TemporalBucket, TemporalObservation
 
 
@@ -67,3 +69,37 @@ def test_feature_extractor_bounds_source_window_registry() -> None:
 def test_feature_extractor_rejects_invalid_registry_bound() -> None:
     with pytest.raises(ValueError, match="max_active_windows"):
         FeatureExtractor(max_active_windows=0)
+
+def test_temporal_engine_processes_independent_keys_concurrently() -> None:
+    engine = TemporalEngine(
+        max_keys=4,
+        max_observations_per_key=100,
+        window_duration=timedelta(hours=1),
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def ingest(source_index: int) -> None:
+        for event_index in range(50):
+            engine.observe(
+                NormalizedEvent(
+                    source_type="test",
+                    event_type="network_connection",
+                    timestamp=start + timedelta(seconds=event_index),
+                    src_ip=f"192.0.2.{source_index + 1}",
+                    dst_ip=f"203.0.113.{source_index + 1}",
+                    dst_port=443,
+                )
+            )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(ingest, range(4)))
+
+    assert engine.get_key_count() == 4
+    for source_index in range(4):
+        analysis = engine.get_analysis(
+            dst_ip=f"203.0.113.{source_index + 1}",
+            dst_port=443,
+            src_ip=f"192.0.2.{source_index + 1}",
+        )
+        assert analysis is not None
+        assert analysis["count"] == 50
