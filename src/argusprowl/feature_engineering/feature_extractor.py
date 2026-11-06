@@ -4,8 +4,8 @@ Extracts feature vectors from NormalizedEvents using sliding windows
 and aggregation functions.
 """
 
-from dataclasses import fields
 from collections import OrderedDict
+from dataclasses import fields
 from datetime import timedelta
 from threading import Lock
 
@@ -13,7 +13,6 @@ from argusprowl.feature_engineering.aggregators import aggregate_connection_feat
 from argusprowl.feature_engineering.feature_vector import FeatureVector
 from argusprowl.feature_engineering.sliding_window import SlidingWindow
 from argusprowl.models.normalized_event import NormalizedEvent
-
 
 _FEATURE_VECTOR_FIELDS = frozenset(field.name for field in fields(FeatureVector))
 
