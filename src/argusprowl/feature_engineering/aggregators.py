@@ -109,10 +109,7 @@ def aggregate_connection_features(events: list[NormalizedEvent]) -> dict[str, An
 
     # Calculate statistics without allocating per-event duration/byte lists.
     avg_duration = duration_sum / duration_count if duration_count else 0.0
-    if duration_count < 2:
-        std_duration = 0.0
-    else:
-        std_duration = (duration_m2 / duration_count) ** 0.5
+    std_duration = 0.0 if duration_count < 2 else (duration_m2 / duration_count) ** 0.5
     avg_bytes_per_connection = (total_bytes_sent + total_bytes_received) / connection_count
 
     # Time-based features
