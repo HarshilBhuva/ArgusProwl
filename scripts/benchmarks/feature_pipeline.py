@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import math
 import statistics
+import sys
 import time
 import tracemalloc
 from concurrent.futures import ThreadPoolExecutor
@@ -48,7 +49,7 @@ def percentile(values: list[int], fraction: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, int((len(ordered) - 1) * fraction)))
+    index = min(len(ordered) - 1, max(0, math.ceil(len(ordered) * fraction) - 1))
     return ordered[index] / 1_000_000
 
 
@@ -104,7 +105,7 @@ def main() -> None:
     report = {
         "benchmark": "feature_extractor.extract",
         "scope": "feature-extraction component; excludes collectors, queues, storage, and detection rules",
-        "python": os.sys.version.split()[0],
+        "python": sys.version.split()[0],
         "workers": args.workers,
         "offered_events": offered,
         "processed_events": processed,
