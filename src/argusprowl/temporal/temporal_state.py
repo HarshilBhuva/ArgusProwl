@@ -6,6 +6,7 @@ enabling periodicity analysis without persistent storage.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -84,6 +85,7 @@ class TemporalBucket:
     lock: Lock = field(default_factory=Lock, repr=False)
     _max_event_time: datetime | None = field(default=None, init=False, repr=False)
     _late_event_count: int = field(default=0, init=False, repr=False)
+    _identity_index: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.max_observations < 1:
@@ -110,21 +112,13 @@ class TemporalBucket:
             return self._late_event_count
 
     def add(self, observation: TemporalObservation) -> bool:
-        """Add an observation, evicting expired and excess entries.
+        """Add an observation using an indexed, append-first hot path.
 
-        Repeated delivery of the same event identity is ignored. Identity is
-        ``source_record_id`` when present, otherwise ``event_id``. Duplicate
-        tracking is bounded by the observation window and ``max_observations``.
-
-        Args:
-            observation: The observation to add.
-
-        Returns:
-            True if the observation was accepted, False if it was a duplicate.
+        In-order events are amortized O(1): duplicate checks use a set,
+        expiration removes from the deque head, and no full sort occurs.
+        Late-but-allowed events use a slower ordered insertion path.
         """
         with self.lock:
-            # The watermark is monotonic and advances only for accepted events.
-            # The lateness boundary provides a bounded reorder window.
             previous_watermark = self._max_event_time
             if previous_watermark is not None:
                 lateness_cutoff = previous_watermark - self.allowed_lateness
@@ -135,39 +129,44 @@ class TemporalBucket:
             if self._is_duplicate_unlocked(observation):
                 return False
 
-            watermark = (
-                observation.timestamp
-                if previous_watermark is None
-                else max(previous_watermark, observation.timestamp)
-            )
+            watermark = observation.timestamp if previous_watermark is None else max(previous_watermark, observation.timestamp)
             cutoff = watermark - self.window_duration
-            retained = [
-                item for item in self.observations if item.timestamp >= cutoff
-            ]
-            self.observations = deque(retained)
+            while self.observations and self.observations[0].timestamp < cutoff:
+                expired = self.observations.popleft()
+                self._remove_identity_unlocked(expired)
+
             if observation.timestamp < cutoff:
                 self._late_event_count += 1
                 return False
-            self._max_event_time = watermark
 
-            # Keep event-time order so interval calculations and replay are
-            # independent of delivery order for events inside the window.
-            ordered = sorted(
-                (*self.observations, observation),
-                key=lambda item: (item.timestamp, str(item.event_id)),
-            )
-            self.observations = deque(
-                ordered[-self.max_observations :],
-            )
+            self._max_event_time = watermark
+            incoming_key = self._order_key(observation)
+            if not self.observations or incoming_key >= self._order_key(self.observations[-1]):
+                self.observations.append(observation)
+            else:
+                ordered = list(self.observations)
+                keys = [self._order_key(item) for item in ordered]
+                ordered.insert(bisect_right(keys, incoming_key), observation)
+                self.observations = deque(ordered)
+
+            self._identity_index.update(observation.identity_keys())
+            while len(self.observations) > self.max_observations:
+                evicted = self.observations.popleft()
+                self._remove_identity_unlocked(evicted)
             return True
 
-    def _is_duplicate_unlocked(self, observation: TemporalObservation) -> bool:
-        """Return True if ``observation`` matches a retained identity.
+    @staticmethod
+    def _order_key(observation: TemporalObservation) -> tuple[datetime, str]:
+        """Return the stable event-time ordering key."""
+        return observation.timestamp, str(observation.event_id)
 
-        Assumes caller holds ``self.lock``.
-        """
-        incoming = observation.identity_keys()
-        return any(incoming & existing.identity_keys() for existing in self.observations)
+    def _remove_identity_unlocked(self, observation: TemporalObservation) -> None:
+        """Remove identities for an expired or evicted observation."""
+        self._identity_index.difference_update(observation.identity_keys())
+
+    def _is_duplicate_unlocked(self, observation: TemporalObservation) -> bool:
+        """Return True when any incoming identity is already retained."""
+        return not self._identity_index.isdisjoint(observation.identity_keys())
 
     def _calculate_intervals_unlocked(self) -> list[float]:
         """Calculate intervals between consecutive observations in seconds.
