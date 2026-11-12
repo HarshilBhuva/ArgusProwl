@@ -118,19 +118,40 @@ def create_api_app(
     from argusprowl.api.audit import router as audit_router
     from argusprowl.api.auth import ApiKeyAuthMiddleware, ApiKeyAuthService
     from argusprowl.api.auth_routes import router as auth_router
-    from argusprowl.api.auth_store import ApiKeyRevocationStore
+    from argusprowl.api.auth_store import ApiKeyRevocationStore, FirstRunBootstrapStore
     from argusprowl.api.routes import operational_router, router
 
     audit_log = AuditLog(audit_db_path)
     revocation_store = ApiKeyRevocationStore(audit_db_path)
+    storage_directory = (
+        Path("data") if audit_db_path == ":memory:" else Path(audit_db_path).expanduser().parent
+    )
+    bootstrap_store = FirstRunBootstrapStore(storage_directory)
+    persisted_api_keys = bootstrap_store.load_credentials()
+    configured_api_keys = dict(api_keys or {})
+    duplicate_key_ids = set(configured_api_keys).intersection(persisted_api_keys)
+    if duplicate_key_ids:
+        raise ValueError(
+            "Configured API key IDs conflict with first-run bootstrap credentials: "
+            + ", ".join(sorted(duplicate_key_ids))
+        )
+    configured_api_keys.update(persisted_api_keys)
     auth_service = ApiKeyAuthService(
         auth_enabled=auth_enabled,
         api_key=api_key,
-        api_keys=api_keys,
+        api_keys=configured_api_keys,
         revocation_store=revocation_store,
     )
+    if auth_enabled and not auth_service.has_credentials:
+        bootstrap_store.ensure_token()
+        logger.warning(
+            "API authentication is enabled without credentials. First-run bootstrap is "
+            "available only from loopback; read the owner-only token at %s",
+            bootstrap_store.token_path,
+        )
     app.state.audit_log = audit_log
     app.state.api_key_revocation_store = revocation_store
+    app.state.bootstrap_store = bootstrap_store
     app.state.auth_service = auth_service
     app.add_middleware(
         ApiKeyAuthMiddleware,

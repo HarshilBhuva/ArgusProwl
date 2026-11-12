@@ -4,10 +4,13 @@ Validates configuration dictionaries against constraints and type rules.
 """
 
 import ipaddress
+import json
 import math
 import os
 import re
+import stat
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, ClassVar
 
 from argusprowl.exceptions.exceptions import ValidationError
@@ -468,6 +471,56 @@ class ConfigValidator:
         auth_enabled = api.get("auth_enabled", False)
         if not isinstance(auth_enabled, bool):
             raise ValidationError("api.auth_enabled must be a boolean.")
+        if not isinstance(api.get("api_key", ""), str):
+            raise ValidationError("api.api_key must be a string.")
+        audit_db_path = api.get("audit_db_path", "data/audit.db")
+        if not is_non_empty_string(audit_db_path):
+            raise ValidationError("api.audit_db_path must be a non-empty string.")
+
+        configured_legacy_key = api.get("api_key", "") or os.environ.get(
+            "ARGUSPROWL_API_KEY", ""
+        )
+        configured_named_keys = api.get("api_keys", {})
+        if not isinstance(configured_named_keys, dict):
+            raise ValidationError("api.api_keys must be a mapping of key IDs to credentials.")
+
+        # Credentials created by the one-time bootstrap are stored separately
+        # from YAML and are loaded by the API factory. Include that private
+        # credential file in remote-bind validation so a bootstrapped instance
+        # can safely move from loopback setup to its intended network bind.
+        persisted_named_keys: dict[str, Any] = {}
+        storage_directory = (
+            Path("data") if audit_db_path == ":memory:" else Path(audit_db_path).expanduser().parent
+        )
+        credentials_path = storage_directory / "bootstrap-credentials.json"
+        if credentials_path.exists():
+            try:
+                info = credentials_path.lstat()
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or stat.S_IMODE(info.st_mode) & 0o077
+                ):
+                    raise ValidationError(
+                        "The persisted bootstrap credential file must be a regular owner-only file."
+                    )
+                persisted_named_keys = json.loads(credentials_path.read_text(encoding="utf-8"))
+            except ValidationError:
+                raise
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValidationError(
+                    "The persisted bootstrap credential file cannot be read safely."
+                ) from exc
+            if not isinstance(persisted_named_keys, dict):
+                raise ValidationError(
+                    "The persisted bootstrap credential file must contain a JSON object."
+                )
+
+        duplicate_ids = set(configured_named_keys).intersection(persisted_named_keys)
+        if duplicate_ids:
+            raise ValidationError(
+                "Configured API key IDs conflict with persisted bootstrap credentials."
+            )
+        named_keys = {**configured_named_keys, **persisted_named_keys}
 
         # A loopback-only listener is the supported unauthenticated development
         # mode. Any other bind address may be reachable from another host, so
@@ -482,14 +535,11 @@ class ConfigValidator:
                 raise ValidationError(
                     "api.auth_enabled must be true when api.host is not a loopback address."
                 )
-            configured_legacy_key = api.get("api_key", "") or os.environ.get(
-                "ARGUSPROWL_API_KEY", ""
-            )
-            configured_named_keys = api.get("api_keys", {})
-            if not configured_legacy_key and not configured_named_keys:
+            if not configured_legacy_key and not named_keys:
                 raise ValidationError(
                     "A remote API listener requires at least one credential: "
-                    "api.api_key, api.api_keys, or ARGUSPROWL_API_KEY."
+                    "api.api_key, api.api_keys, ARGUSPROWL_API_KEY, or a private "
+                    "first-run bootstrap credential."
                 )
             if configured_legacy_key and (
                 not isinstance(configured_legacy_key, str)
@@ -500,20 +550,16 @@ class ConfigValidator:
                     "The legacy API key for a remote listener must contain at least "
                     "32 ASCII characters."
                 )
-        header_name = api.get("auth_header_name", "X-ArgusProwl-Key")
-        if not isinstance(header_name, str) or not re.fullmatch(r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]+", header_name):
-            raise ValidationError("api.auth_header_name must be a valid HTTP header name.")
-        if not isinstance(api.get("api_key", ""), str):
-            raise ValidationError("api.api_key must be a string.")
-        if not is_non_empty_string(api.get("audit_db_path", "data/audit.db")):
-            raise ValidationError("api.audit_db_path must be a non-empty string.")
 
-        api_keys = api.get("api_keys", {})
-        if not isinstance(api_keys, dict):
-            raise ValidationError("api.api_keys must be a mapping of key IDs to credentials.")
+        header_name = api.get("auth_header_name", "X-ArgusProwl-Key")
+        if not isinstance(header_name, str) or not re.fullmatch(
+            r"[!#$%&'*+.^_\x60|~0-9A-Za-z-]+", header_name
+        ):
+            raise ValidationError("api.auth_header_name must be a valid HTTP header name.")
+
         allowed_roles = {"viewer", "analyst", "admin"}
         seen_secrets: set[str] = set()
-        for key_id, definition in api_keys.items():
+        for key_id, definition in named_keys.items():
             if not isinstance(key_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", key_id):
                 raise ValidationError("api.api_keys contains an invalid key ID.")
             if not isinstance(definition, dict):
@@ -564,7 +610,7 @@ class ConfigValidator:
                         else definition["expires_at"]
                     ).astimezone(UTC) > now
                 )
-                for definition in api_keys.values()
+                for definition in named_keys.values()
             )
             if not has_active_named_key:
                 raise ValidationError(

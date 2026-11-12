@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from uuid import uuid4
 
@@ -27,6 +28,13 @@ class SessionCreateRequest(BaseModel):
     api_key: str = Field(min_length=1, max_length=4096)
 
 
+class BootstrapAdminRequest(BaseModel):
+    """One-time local setup request."""
+
+    bootstrap_token: str = Field(min_length=32, max_length=256)
+    subject: str = Field(min_length=1, max_length=128)
+
+
 def _audit_login(
     request: Request,
     *,
@@ -46,6 +54,91 @@ def _audit_login(
         status_code=status_code,
         request_id=str(uuid4()),
         client_ip=request.client.host if request.client else None,
+    )
+
+
+@router.post("/bootstrap", summary="Create the first administrator credential")
+async def bootstrap_admin(payload: BootstrapAdminRequest, request: Request) -> JSONResponse:
+    """Consume a one-time local token and create a persistent administrator API key."""
+    service: ApiKeyAuthService = request.app.state.auth_service
+    store = request.app.state.bootstrap_store
+    if not service.auth_enabled:
+        raise HTTPException(status_code=409, detail="Enable API authentication before setup.")
+    if service.has_credentials:
+        raise HTTPException(status_code=409, detail="Administrator bootstrap is already complete.")
+    client_ip = request.client.host if request.client else ""
+    try:
+        is_loopback = ipaddress.ip_address(client_ip).is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        raise HTTPException(status_code=403, detail="Bootstrap is available only over loopback.")
+    origin = request.headers.get("origin")
+    if origin is not None and not _origin_matches_request(request, origin):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if service.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many bootstrap attempts",
+            headers={"Retry-After": str(service.retry_after(client_ip))},
+        )
+
+    subject = payload.subject.strip()
+    if not subject:
+        raise HTTPException(status_code=422, detail="Administrator subject must not be blank.")
+    created = store.create_admin(payload.bootstrap_token, subject)
+    if created is None:
+        locked = service.record_auth_failure(client_ip)
+        status_code = 429 if locked else 401
+        try:
+            _audit_login(
+                request,
+                event_type="ADMIN_BOOTSTRAP_FAILED",
+                principal=None,
+                status_code=status_code,
+            )
+        except Exception:
+            logger.exception("Could not persist failed bootstrap audit event")
+        headers = {"Retry-After": str(service.retry_after(client_ip))} if locked else None
+        raise HTTPException(
+            status_code=status_code,
+            detail="Invalid or already-consumed bootstrap token.",
+            headers=headers,
+        )
+
+    key_id, api_key = created
+    principal = service.register_credential(
+        key_id,
+        {
+            "secret": api_key,
+            "subject": subject,
+            "role": "admin",
+            "enabled": True,
+        },
+    )
+    service.record_auth_success(client_ip)
+    try:
+        _audit_login(
+            request,
+            event_type="ADMIN_BOOTSTRAPPED",
+            principal=principal,
+            status_code=201,
+        )
+    except Exception as exc:
+        logger.exception("Administrator was bootstrapped but its audit event could not be persisted")
+        raise HTTPException(status_code=503, detail="Audit service unavailable.") from exc
+
+    return JSONResponse(
+        {
+            "created": True,
+            "key_id": key_id,
+            "subject": principal.subject,
+            "role": principal.role,
+            "api_key": api_key,
+            "message": "Store this API key securely. It will not be shown again.",
+        },
+        status_code=201,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
 
 

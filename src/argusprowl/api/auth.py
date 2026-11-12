@@ -76,6 +76,8 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
     normalized = path.rstrip("/") or "/"
     if normalized == "/api/v1/auth/session" and method in {"POST", "DELETE"}:
         return True
+    if normalized == "/api/v1/auth/bootstrap" and method == "POST":
+        return True
     if normalized == "/api/v1/auth/status" and method in {"GET", "HEAD"}:
         return True
     if method not in {"GET", "HEAD"}:
@@ -231,6 +233,31 @@ class ApiKeyAuthService:
                 active = self._active_credential(key_id, now)
                 return active[0] if active is not None else None
         return None
+
+    def register_credential(self, key_id: str, definition: dict[str, Any]) -> AuthPrincipal:
+        """Register a validated credential created by the first-run bootstrap."""
+        secret = definition.get("secret", "")
+        subject = definition.get("subject", key_id)
+        role = definition.get("role", "")
+        enabled = definition.get("enabled", True)
+        expires_at = _parse_key_expiry(definition.get("expires_at"))
+        if (
+            not isinstance(key_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", key_id)
+            or key_id in self._credentials
+            or not isinstance(secret, str)
+            or len(secret) < 32
+            or not secret.isascii()
+            or not isinstance(subject, str)
+            or not subject.strip()
+            or not isinstance(role, str)
+            or role not in _VALID_ROLES
+            or not isinstance(enabled, bool)
+        ):
+            raise ValueError("Invalid or duplicate API credential.")
+        principal = AuthPrincipal(subject=subject, role=role, key_id=key_id)
+        self._credentials[key_id] = (principal, secret, enabled, expires_at)
+        return principal
 
     def revoke_key(self, key_id: str, *, revoked_by: str) -> bool:
         """Persistently revoke a configured key, including its active sessions."""

@@ -6,6 +6,64 @@ API-key authentication is opt-in for backward compatibility. Set
 `TH_API__AUTH_ENABLED=true` (or `api.auth_enabled: true`) before exposing the
 service beyond a trusted local environment.
 
+## First-run administrator bootstrap
+
+For a new installation with API authentication enabled and no configured API
+credentials, ArgusProwl creates a cryptographically random one-time bootstrap
+token at `<audit-db-directory>/bootstrap-token`. The file is created with
+owner-only permissions (mode `0600`); the startup log reports its path but
+never prints the token. Keep the first-run listener bound to loopback while
+completing setup.
+
+Read the token on the host running ArgusProwl, then create the first
+administrator through the local API:
+
+```bash
+export BOOTSTRAP_TOKEN="$(cat data/bootstrap-token)"
+curl --fail-with-body -X POST http://127.0.0.1:8080/api/v1/auth/bootstrap \
+  -H 'Content-Type: application/json' \
+  -d "$(python -c 'import json,os; print(json.dumps({"bootstrap_token":os.environ["BOOTSTRAP_TOKEN"],"subject":"platform-admin"}))')"
+unset BOOTSTRAP_TOKEN
+```
+
+The endpoint accepts requests only from a loopback peer, rate-limits invalid
+attempts, and consumes the token after the first successful setup. It returns
+a randomly generated administrator API key exactly once. The key is persisted
+in `bootstrap-credentials.json` beside the audit database with mode `0600`
+so it survives restarts; protect this file as a deployment secret, include it
+in encrypted backups, and never commit or expose it. The API key is not stored
+in the audit trail. Subsequent starts load the credential automatically, and
+the bootstrap endpoint permanently returns HTTP 409 after setup.
+
+For Docker Compose, the normal service binds to `0.0.0.0` inside
+the container so the published port works. To keep first-run bootstrap
+loopback-only, start a temporary instance against the same persistent data
+volume with a loopback bind:
+
+```bash
+docker compose run -d --name argusprowl-bootstrap \
+  -e TH_API__HOST=127.0.0.1 argusprowl
+TOKEN="$(docker exec argusprowl-bootstrap cat /app/data/bootstrap-token)"
+docker exec -e BOOTSTRAP_TOKEN="$TOKEN" argusprowl-bootstrap python -c \
+  'import json,os,urllib.request; data=json.dumps({"bootstrap_token":os.environ["BOOTSTRAP_TOKEN"],"subject":"platform-admin"}).encode(); req=urllib.request.Request("http://127.0.0.1:8080/api/v1/auth/bootstrap",data=data,headers={"Content-Type":"application/json"}); print(urllib.request.urlopen(req).read().decode())'
+unset TOKEN
+docker rm -f argusprowl-bootstrap
+docker compose up -d
+```
+
+The temporary container and normal service share the Compose data volume.
+The generated credential therefore survives the transition to the regular
+network bind. Store the returned API key in your secret manager before
+discarding the command output. Do not publish the first-run service through a
+public reverse proxy.
+
+If the token or credential file has unsafe permissions, ArgusProwl refuses
+to use it rather than silently weakening file protection. Bootstrap is a
+single-instance, first-run operation; complete it before starting multiple
+API workers or replicas. For multi-replica production deployments, provision
+named credentials through the deployment secret manager instead.
+
+
 The existing `ARGUSPROWL_API_KEY` remains supported and is treated as an
 administrator credential. For least-privilege access, configure multiple named
 credentials through the `ARGUSPROWL_API_KEYS` environment variable. Its value
