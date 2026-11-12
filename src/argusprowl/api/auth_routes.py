@@ -83,7 +83,10 @@ async def bootstrap_admin(payload: BootstrapAdminRequest, request: Request) -> J
             headers={"Retry-After": str(service.retry_after(client_ip))},
         )
 
-    created = store.create_admin(payload.bootstrap_token, payload.subject.strip())
+    subject = payload.subject.strip()
+    if not subject:
+        raise HTTPException(status_code=422, detail="Administrator subject must not be blank.")
+    created = store.create_admin(payload.bootstrap_token, subject)
     if created is None:
         locked = service.record_auth_failure(client_ip)
         status_code = 429 if locked else 401
@@ -108,7 +111,7 @@ async def bootstrap_admin(payload: BootstrapAdminRequest, request: Request) -> J
         key_id,
         {
             "secret": api_key,
-            "subject": payload.subject.strip(),
+            "subject": subject,
             "role": "admin",
             "enabled": True,
         },
