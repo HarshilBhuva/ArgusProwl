@@ -9,7 +9,6 @@ from uuid import uuid4
 
 import pytest
 
-from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.storage.postgresql_adapter import PostgreSQLAdapter
 
 
