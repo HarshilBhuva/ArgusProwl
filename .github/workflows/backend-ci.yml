@@ -84,6 +84,45 @@ jobs:
         # -ll reports medium/high severity findings; low-severity noise is excluded.
         run: uvx --from bandit==1.9.4 bandit -r src/ -ll
 
+  postgresql-integration:
+    name: PostgreSQL storage integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: argusprowl_test
+          POSTGRES_USER: argusprowl
+          POSTGRES_PASSWORD: argusprowl-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U argusprowl -d argusprowl_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ARGUSPROWL_TEST_DATABASE_URL: postgresql://argusprowl:argusprowl-ci-password@localhost:5432/argusprowl_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install project and PostgreSQL driver
+        run: |
+          uv sync --frozen
+          uv pip install --python .venv/bin/python 'psycopg[binary,pool]>=3.2.3'
+      - name: Run PostgreSQL integration tests
+        run: uv run pytest -q tests/integration/test_postgresql_adapter.py
+
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 45
