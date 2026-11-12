@@ -82,6 +82,23 @@ async def create_session(payload: SessionCreateRequest, request: Request) -> JSO
     service: ApiKeyAuthService = request.app.state.auth_service
     if not service.auth_enabled:
         raise HTTPException(status_code=409, detail="API authentication is disabled.")
+    client_ip = request.client.host if request.client else None
+    if service.is_rate_limited(client_ip):
+        retry_after = service.retry_after(client_ip)
+        try:
+            _audit_login(
+                request,
+                event_type="AUTH_RATE_LIMITED",
+                principal=None,
+                status_code=429,
+            )
+        except Exception:
+            logger.exception("Could not persist rate-limit audit event")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many authentication attempts",
+            headers={"Retry-After": str(retry_after)},
+        )
     if not _origin_matches_request(request, request.headers.get("origin")):
         try:
             _audit_login(
@@ -95,16 +112,25 @@ async def create_session(payload: SessionCreateRequest, request: Request) -> JSO
         raise HTTPException(status_code=403, detail="Forbidden")
     created = service.create_session(payload.api_key)
     if created is None:
+        locked = service.record_auth_failure(client_ip)
+        status_code = 429 if locked else 401
+        event_type = "AUTH_RATE_LIMITED" if locked else "AUTHENTICATION_FAILED"
         try:
             _audit_login(
                 request,
-                event_type="AUTHENTICATION_FAILED",
+                event_type=event_type,
                 principal=None,
-                status_code=401,
+                status_code=status_code,
             )
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Audit service unavailable.") from exc
-        raise HTTPException(status_code=401, detail="Invalid API key.")
+        headers = {"Retry-After": str(service.retry_after(client_ip))} if locked else None
+        raise HTTPException(
+            status_code=status_code,
+            detail="Too many authentication attempts" if locked else "Invalid API key.",
+            headers=headers,
+        )
+    service.record_auth_success(client_ip)
     principal, token = created
     try:
         _audit_login(
