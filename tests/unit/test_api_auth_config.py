@@ -244,6 +244,7 @@ def test_remote_listener_accepts_private_bootstrap_credential_file(tmp_path, mon
     monkeypatch.delenv("ARGUSPROWL_API_KEY", raising=False)
     monkeypatch.delenv("ARGUSPROWL_API_KEYS", raising=False)
     audit_path = tmp_path / "audit.db"
+    monkeypatch.setenv("ARGUSPROWL_AUDIT_DB_PATH", str(audit_path))
     credential_path = tmp_path / "bootstrap-credentials.json"
     credential_path.write_text(
         json.dumps(
@@ -265,8 +266,7 @@ def test_remote_listener_accepts_private_bootstrap_credential_file(tmp_path, mon
         "api:\n"
         "  enabled: true\n"
         "  host: 0.0.0.0\n"
-        "  auth_enabled: true\n"
-        f"  audit_db_path: '{audit_path}'\n",
+        "  auth_enabled: true\n",
         encoding="utf-8",
     )
 
@@ -275,6 +275,29 @@ def test_remote_listener_accepts_private_bootstrap_credential_file(tmp_path, mon
     assert config.api.host == "0.0.0.0"
     assert config.api.auth_enabled is True
     assert config.api.api_keys == {}
+
+
+def test_environment_remote_bind_cannot_bypass_auth_validation(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from argusprowl.exceptions.exceptions import ValidationError
+
+    monkeypatch.setenv("TH_API__HOST", "0.0.0.0")
+    monkeypatch.setenv("TH_API__AUTH_ENABLED", "false")
+    monkeypatch.delenv("ARGUSPROWL_API_KEY", raising=False)
+    monkeypatch.delenv("ARGUSPROWL_API_KEYS", raising=False)
+    config_file = tmp_path / "app.yaml"
+    config_file.write_text(
+        "app_name: TestApp\\n"
+        "api:\\n"
+        "  enabled: true\\n"
+        "  host: 127.0.0.1\\n"
+        "  auth_enabled: false\\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="auth_enabled must be true"):
+        ConfigManager().load(config_file)
 
 
 def test_remote_listener_rejects_insecure_bootstrap_credential_file(
