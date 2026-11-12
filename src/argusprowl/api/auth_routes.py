@@ -164,3 +164,28 @@ async def delete_session(request: Request) -> JSONResponse:
         samesite="strict",
     )
     return response
+
+
+@router.post("/keys/{key_id}/revoke", summary="Revoke an API key")
+async def revoke_api_key(key_id: str, request: Request) -> JSONResponse:
+    """Persistently revoke a configured API key and invalidate its sessions."""
+    service: ApiKeyAuthService = request.app.state.auth_service
+    principal = getattr(request.state, "principal", None)
+    if not service.auth_enabled or principal is None or principal.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not service.revoke_key(key_id, revoked_by=principal.subject):
+        raise HTTPException(status_code=404, detail="API key not found")
+    try:
+        _audit_login(
+            request,
+            event_type="API_KEY_REVOKED",
+            principal=principal,
+            status_code=200,
+        )
+    except Exception as exc:
+        logger.exception("API key was revoked but its audit event could not be persisted")
+        raise HTTPException(status_code=503, detail="Audit service unavailable.") from exc
+    return JSONResponse(
+        {"revoked": True, "key_id": key_id},
+        headers={"Cache-Control": "no-store"},
+    )
