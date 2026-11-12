@@ -148,7 +148,6 @@ async def auth_status(request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "auth_enabled": service.auth_enabled,
-            "bootstrap_required": service.auth_enabled and not service.has_credentials,
             "session_ttl_seconds": service.session_ttl_seconds,
         },
         headers={"Cache-Control": "no-store"},
