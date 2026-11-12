@@ -489,7 +489,10 @@ class ConfigValidator:
         # credential file in remote-bind validation so a bootstrapped instance
         # can safely move from loopback setup to its intended network bind.
         persisted_named_keys: dict[str, Any] = {}
-        credentials_path = Path(audit_db_path).expanduser().parent / "bootstrap-credentials.json"
+        storage_directory = (
+            Path("data") if audit_db_path == ":memory:" else Path(audit_db_path).expanduser().parent
+        )
+        credentials_path = storage_directory / "bootstrap-credentials.json"
         if credentials_path.exists():
             try:
                 info = credentials_path.lstat()
