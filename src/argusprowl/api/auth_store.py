@@ -90,7 +90,19 @@ class AuthAttemptLimiter:
             and key not in self._blocked_until
             and len(self._attempts) + len(self._blocked_until) >= self._max_tracked_clients
         ):
-            return "__overflow__"
+            now = time.monotonic()
+            stale_keys = [
+                tracked_key
+                for tracked_key, attempts in self._attempts.items()
+                if tracked_key not in self._blocked_until
+                and (not attempts or now - attempts[-1] >= self._window_seconds)
+            ]
+            for stale_key in stale_keys:
+                self._attempts.pop(stale_key, None)
+            if (
+                len(self._attempts) + len(self._blocked_until) >= self._max_tracked_clients
+            ):
+                return "__overflow__"
         return key
 
     def is_blocked(self, client_ip: str | None) -> bool:
