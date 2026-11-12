@@ -47,6 +47,11 @@ class StorageConfig:
     backend: str = "sqlite"
     base_path: str = "data"
     database_path: str = "data/argusprowl.db"
+    connection_string: str = ""
+    pool_min_size: int = 1
+    pool_max_size: int = 10
+    pool_timeout_seconds: float = 10.0
+    connect_timeout_seconds: float = 10.0
 
 
 @dataclass(slots=True)

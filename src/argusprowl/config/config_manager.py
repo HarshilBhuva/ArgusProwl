@@ -94,6 +94,9 @@ class ConfigManager:
         api_data = raw.get("api", {})
         if not isinstance(api_data, dict):
             self._validator.validate(raw)
+        storage_env = os.environ.get("ARGUSPROWL_DATABASE_URL")
+        if storage_env is not None and isinstance(raw.get("storage", {}), dict):
+            raw.setdefault("storage", {})["connection_string"] = storage_env
         raw["api"] = api_data
         api_keys_env = os.environ.get("ARGUSPROWL_API_KEYS")
         if api_keys_env:
@@ -156,6 +159,11 @@ class ConfigManager:
             backend=storage_data.get("backend", "sqlite"),
             base_path=storage_data.get("base_path", "data"),
             database_path=storage_data.get("database_path", "data/argusprowl.db"),
+            connection_string=storage_data.get("connection_string", ""),
+            pool_min_size=storage_data.get("pool_min_size", 1),
+            pool_max_size=storage_data.get("pool_max_size", 10),
+            pool_timeout_seconds=float(storage_data.get("pool_timeout_seconds", 10.0)),
+            connect_timeout_seconds=float(storage_data.get("connect_timeout_seconds", 10.0)),
         )
 
         events_cfg = EventsConfig(
