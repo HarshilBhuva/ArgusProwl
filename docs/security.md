@@ -79,9 +79,13 @@ its outstanding sessions on the next request.
 | `analyst` | Viewer access plus alert acknowledge/close, incident transitions/close/annotations, entity annotations, and owned hunt creation/management |
 | `admin` | All API operations, including audit-log reads |
 
-Authorization is deny-by-default for write operations. Newly introduced write
-routes must be explicitly added to the analyst policy or remain administrator
-only. The audit reader at `GET /api/v1/audit` is administrator-only.
+Authorization is deny-by-default for both reads and writes. Viewer and analyst
+read access is granted only to the explicit API route allowlist; unknown or
+newly introduced routes remain denied until deliberately classified. Analyst
+write access is separately allowlisted for alert triage, incident updates,
+entity annotations, and hunt operations. Other writes remain administrator
+only. The audit readers at `GET /api/v1/audit` and
+`GET /api/v1/audit/integrity` are administrator-only.
 
 The legacy single API key is administrator-level for compatibility. Rotate it
 and migrate to named role-bearing keys when multiple operators need different
