@@ -86,6 +86,7 @@ class PostgreSQLAdapter(Storage):
     def _run_migrations(self) -> None:
         with self._connection() as connection:
             with connection.transaction():
+                connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("argusprowl-schema",))
                 connection.execute(
                     """CREATE TABLE IF NOT EXISTS argusprowl_schema_migrations (
                         version INTEGER PRIMARY KEY,
