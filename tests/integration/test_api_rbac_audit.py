@@ -250,7 +250,6 @@ def test_unexpired_named_api_key_is_accepted(tmp_path) -> None:
     ServiceContainer.reset_instance()
 
 
-
 def test_admin_revocation_persists_and_invalidates_browser_sessions(tmp_path) -> None:
     ServiceContainer.reset_instance()
     service = MagicMock(spec=AlertSearchService)
