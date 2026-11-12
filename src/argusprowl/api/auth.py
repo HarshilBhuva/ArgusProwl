@@ -16,11 +16,11 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from argusprowl.api.auth_store import AuthAttemptLimiter
-
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+from argusprowl.api.auth_store import AuthAttemptLimiter
 
 logger = logging.getLogger(__name__)
 
