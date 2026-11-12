@@ -115,18 +115,22 @@ def create_api_app(
     # Attach shared-secret auth middleware before routes are resolved so
     # every handler (including those on included routers) is protected.
     from argusprowl.api.audit import AuditLog
+    from argusprowl.api.auth_store import ApiKeyRevocationStore
     from argusprowl.api.audit import router as audit_router
     from argusprowl.api.auth import ApiKeyAuthMiddleware, ApiKeyAuthService
     from argusprowl.api.auth_routes import router as auth_router
     from argusprowl.api.routes import operational_router, router
 
     audit_log = AuditLog(audit_db_path)
+    revocation_store = ApiKeyRevocationStore(audit_db_path)
     auth_service = ApiKeyAuthService(
         auth_enabled=auth_enabled,
         api_key=api_key,
         api_keys=api_keys,
+        revocation_store=revocation_store,
     )
     app.state.audit_log = audit_log
+    app.state.api_key_revocation_store = revocation_store
     app.state.auth_service = auth_service
     app.add_middleware(
         ApiKeyAuthMiddleware,
