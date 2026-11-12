@@ -11,10 +11,6 @@ from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
-from psycopg_pool import ConnectionPool
-
 from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.interfaces.storage import Storage
 
@@ -52,6 +48,16 @@ class PostgreSQLAdapter(Storage):
             raise ValueError("Pool sizes must satisfy 1 <= min_size <= max_size.")
         if timeout <= 0 or open_timeout <= 0:
             raise ValueError("Pool timeouts must be positive.")
+        try:
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
+        except ImportError as exc:
+            raise StorageError(
+                "PostgreSQL support requires the optional dependency: pip install argusprowl[postgresql]"
+            ) from exc
+        from psycopg.types.json import Jsonb
+
+        self._jsonb = Jsonb
         self._pool = ConnectionPool(
             conninfo=connection_string,
             min_size=min_size,
@@ -106,7 +112,7 @@ class PostgreSQLAdapter(Storage):
                    VALUES (%s, %s, %s)
                    ON CONFLICT(collection, record_id) DO UPDATE
                    SET payload = EXCLUDED.payload, updated_at = CURRENT_TIMESTAMP""",
-                (collection, str(record_id), Jsonb(data)),
+                (collection, str(record_id), self._jsonb(data)),
             )
 
     def load(self, collection: str, record_id: UUID) -> dict[str, object] | None:
