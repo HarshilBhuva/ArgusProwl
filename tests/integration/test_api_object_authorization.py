@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-
 from fastapi.testclient import TestClient
 
 from argusprowl.alerting.alert_manager import AlertManager
