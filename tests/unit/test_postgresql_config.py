@@ -36,7 +36,7 @@ def test_postgresql_storage_configuration_is_accepted() -> None:
 def test_invalid_postgresql_storage_configuration_is_rejected(key, value) -> None:
     config = _postgres_config()
     config["storage"][key] = value
-    with pytest.raises(ValidationError, match="storage|PostgreSQL"):
+    with pytest.raises(ValidationError, match=r"storage|PostgreSQL"):
         ConfigValidator().validate(config)
 
 
