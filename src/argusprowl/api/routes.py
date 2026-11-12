@@ -1321,12 +1321,17 @@ _SUPPORTED_CORRELATION_TYPES = frozenset({"hostname", "dst_ip", "process"})
 
 @router.get("/entities", summary="List behavioral entities", response_model=EntityListResponse)
 async def list_entities(
+    request: Request,
     entity_type: str | None = Query(
         None, max_length=64, description="Optional entity type filter."
     ),
     limit: int = Query(100, ge=1, le=100, description="Maximum entities to return."),
 ) -> EntityListResponse:
     """Return bounded behavioral entity list representing entity identities."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     from argusprowl.behavior.analyst_behavior_query_service import AnalystBehaviorQueryService
     from argusprowl.dependency_injection.container import ServiceContainer
 
@@ -1420,12 +1425,17 @@ async def list_entity_intelligence(
     response_model=EntityRelationshipListResponse,
 )
 async def get_entity_relationships(
+    request: Request,
     entity_type: str,
     entity_id: str,
     direction: str = Query("both", pattern="^(both|inbound|outbound)$"),
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityRelationshipListResponse:
     """Return observed or explicitly inferred relationships for one entity."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 512:
         raise HTTPException(status_code=400, detail="Entity type or ID exceeds maximum length")
 
@@ -1495,11 +1505,16 @@ async def get_entity_relationships(
     response_model=EntityEvidenceListResponse,
 )
 async def get_entity_evidence_references(
+    request: Request,
     entity_type: str,
     entity_id: str,
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityEvidenceListResponse:
     """Return event references and report when retention removed the event payload."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 512:
         raise HTTPException(status_code=400, detail="Entity type or ID exceeds maximum length")
 
@@ -1546,10 +1561,15 @@ async def get_entity_evidence_references(
     response_model=EntityDetailResponse,
 )
 async def get_entity_detail(
+    request: Request,
     entity_type: str,
     entity_id: str,
 ) -> EntityDetailResponse:
     """Get entity detail preserving clear distinction between entity identity and correlation keys."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 256:
         raise HTTPException(
             status_code=400, detail="Entity type or ID parameter exceeds maximum length"
@@ -1752,10 +1772,15 @@ async def get_entity_detail(
     response_model=list[AnnotationResponse],
 )
 async def get_entity_annotations(
+    request: Request,
     entity_type: str,
     entity_id: str,
 ) -> list[AnnotationResponse]:
     """Read annotations for entity identity target (entity:{entity_type}:{entity_id})."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 256:
         raise HTTPException(
             status_code=400, detail="Entity type or ID parameter exceeds maximum length"
@@ -1849,6 +1874,7 @@ async def create_entity_annotation(
     response_model=TimelineResponse,
 )
 async def get_entity_timeline(
+    request: Request,
     entity_type: str,
     entity_id: str,
     limit: int = Query(
@@ -1860,6 +1886,10 @@ async def get_entity_timeline(
     Combines evidence from alerts, incidents, annotations, and behavior
     into a single chronological view. Does NOT modify any source state.
     """
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.services.investigation_timeline_service import InvestigationTimelineService
 
@@ -2284,8 +2314,10 @@ async def search_evidence(
 
 
 @router.get("/evidence/stats", summary="Telemetry evidence store stats")
-async def get_evidence_stats() -> dict[str, Any]:
+async def get_evidence_stats(request: Request) -> dict[str, Any]:
     """Return telemetry evidence store statistics."""
+    require_object_access(request, None, resource_type="Evidence statistics", resource_id="global")
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 
