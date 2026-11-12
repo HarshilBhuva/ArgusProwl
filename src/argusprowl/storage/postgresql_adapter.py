@@ -85,23 +85,27 @@ class PostgreSQLAdapter(Storage):
 
     def _run_migrations(self) -> None:
         with self._connection() as connection, connection.transaction():
-            connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("argusprowl-schema",))
             connection.execute(
-                    """CREATE TABLE IF NOT EXISTS argusprowl_schema_migrations (
-                        version INTEGER PRIMARY KEY,
-                        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )"""
-                )
-                for version, statement in self._MIGRATIONS:
-                    if connection.execute(
-                        "SELECT 1 FROM argusprowl_schema_migrations WHERE version = %s",
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                ("argusprowl-schema",),
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS argusprowl_schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )"""
+            )
+            for version, statement in self._MIGRATIONS:
+                applied = connection.execute(
+                    "SELECT 1 FROM argusprowl_schema_migrations WHERE version = %s",
+                    (version,),
+                ).fetchone()
+                if applied is None:
+                    connection.execute(statement)
+                    connection.execute(
+                        "INSERT INTO argusprowl_schema_migrations(version) VALUES (%s)",
                         (version,),
-                    ).fetchone() is None:
-                        connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO argusprowl_schema_migrations(version) VALUES (%s)",
-                            (version,),
-                        )
+                    )
 
     def save(self, collection: str, record_id: UUID, data: dict[str, object]) -> None:
         if not collection.strip():
