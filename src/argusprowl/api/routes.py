@@ -1385,7 +1385,8 @@ async def list_entities(
     summary="List durable entity intelligence",
     response_model=EntityIntelligenceListResponse,
 )
-async def list_entity_intelligence(request: Request, 
+async def list_entity_intelligence(
+    request: Request,
     entity_type: str | None = Query(None, max_length=64),
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityIntelligenceListResponse:
