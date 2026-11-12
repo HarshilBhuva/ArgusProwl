@@ -93,11 +93,10 @@ class ConfigManager:
         raw = self._loader.load_config(yaml_path)
         api_data = raw.get("api", {})
         if not isinstance(api_data, dict):
-            storage_env = os.environ.get("ARGUSPROWL_DATABASE_URL")
+            self._validator.validate(raw)
+        storage_env = os.environ.get("ARGUSPROWL_DATABASE_URL")
         if storage_env is not None:
             raw.setdefault("storage", {})["connection_string"] = storage_env
-
-        self._validator.validate(raw)
         raw["api"] = api_data
         api_keys_env = os.environ.get("ARGUSPROWL_API_KEYS")
         if api_keys_env:
