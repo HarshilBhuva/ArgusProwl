@@ -79,7 +79,6 @@ def require_object_access(
                 status_code=404,
                 request_id=getattr(request.state, "request_id", ""),
                 client_ip=request.client.host if request.client else None,
-                details={"resource_type": resource_type, "resource_id": resource_id},
             )
         except Exception:
             logger.exception("Failed to persist object-authorization denial audit event")
