@@ -1820,11 +1820,16 @@ async def get_entity_annotations(
     response_model=AnnotationResponse,
 )
 async def create_entity_annotation(
+    request: Request,
     entity_type: str,
     entity_id: str,
     body: AnnotationCreateRequest,
 ) -> AnnotationResponse:
     """Create a new annotation for entity identity target (entity:{entity_type}:{entity_id})."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 256:
         raise HTTPException(
             status_code=400, detail="Entity type or ID parameter exceeds maximum length"
