@@ -2,6 +2,10 @@
 
 ## Authentication model
 
+API-key authentication is opt-in for backward compatibility. Set
+`TH_API__AUTH_ENABLED=true` (or `api.auth_enabled: true`) before exposing the
+service beyond a trusted local environment.
+
 ## First-run administrator bootstrap
 
 For a new installation with API authentication enabled and no configured API
@@ -15,7 +19,7 @@ Read the token on the host running ArgusProwl, then create the first
 administrator through the local API:
 
 ```bash
-BOOTSTRAP_TOKEN="$(cat data/bootstrap-token)"
+export BOOTSTRAP_TOKEN="$(cat data/bootstrap-token)"
 curl --fail-with-body -X POST http://127.0.0.1:8080/api/v1/auth/bootstrap \
   -H 'Content-Type: application/json' \
   -d "$(python -c 'import json,os; print(json.dumps({"bootstrap_token":os.environ["BOOTSTRAP_TOKEN"],"subject":"platform-admin"}))')"
@@ -43,9 +47,6 @@ single-instance, first-run operation; complete it before starting multiple
 API workers or replicas. For multi-replica production deployments, provision
 named credentials through the deployment secret manager instead.
 
-API-key authentication is opt-in for backward compatibility. Set
-`TH_API__AUTH_ENABLED=true` (or `api.auth_enabled: true`) before exposing the
-service beyond a trusted local environment.
 
 The existing `ARGUSPROWL_API_KEY` remains supported and is treated as an
 administrator credential. For least-privilege access, configure multiple named
