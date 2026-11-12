@@ -229,6 +229,8 @@ class FirstRunBootstrapStore:
         with self._lock:
             self._directory.mkdir(parents=True, exist_ok=True)
             if self._credentials_path.exists():
+                if self._token_path.exists():
+                    self._token_path.unlink()
                 return False
             if self._token_path.exists():
                 self._read_private_file(self._token_path)
