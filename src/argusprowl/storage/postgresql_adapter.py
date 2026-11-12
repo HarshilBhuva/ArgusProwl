@@ -84,10 +84,9 @@ class PostgreSQLAdapter(Storage):
             raise StorageError(f"PostgreSQL storage operation failed: {exc}") from exc
 
     def _run_migrations(self) -> None:
-        with self._connection() as connection:
-            with connection.transaction():
-                connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("argusprowl-schema",))
-                connection.execute(
+        with self._connection() as connection, connection.transaction():
+            connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("argusprowl-schema",))
+            connection.execute(
                     """CREATE TABLE IF NOT EXISTS argusprowl_schema_migrations (
                         version INTEGER PRIMARY KEY,
                         applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
