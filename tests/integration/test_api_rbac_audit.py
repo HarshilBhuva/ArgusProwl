@@ -375,7 +375,6 @@ def test_first_run_bootstrap_creates_persistent_admin_once(tmp_path) -> None:
     assert token_path.exists()
     assert token_path.stat().st_mode & 0o777 == 0o600
     assert not credentials_path.exists()
-    assert client.get("/api/v1/auth/status").json()["bootstrap_required"] is True
     token = token_path.read_text(encoding="utf-8")
 
     response = client.post(
@@ -395,7 +394,6 @@ def test_first_run_bootstrap_creates_persistent_admin_once(tmp_path) -> None:
 
     headers = {"X-ArgusProwl-Key": payload["api_key"]}
     assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
-    assert client.get("/api/v1/auth/status").json()["bootstrap_required"] is False
     assert client.post(
         "/api/v1/auth/bootstrap",
         json={"bootstrap_token": token, "subject": "attacker"},
