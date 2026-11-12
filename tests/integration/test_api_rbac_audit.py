@@ -253,6 +253,14 @@ def test_unexpired_named_api_key_is_accepted(tmp_path) -> None:
 
 def test_admin_revocation_persists_and_invalidates_browser_sessions(tmp_path) -> None:
     ServiceContainer.reset_instance()
+    service = MagicMock(spec=AlertSearchService)
+    result = MagicMock()
+    result.alerts = []
+    result.status = MagicMock()
+    result.status.value = "AVAILABLE"
+    result.reason = None
+    service.search.return_value = result
+    ServiceContainer.get_instance().register_singleton(AlertSearchService, lambda: service)
     audit_path = str(tmp_path / "shared-auth.db")
     keys = {
         "admin-key": {
