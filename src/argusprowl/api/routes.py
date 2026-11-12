@@ -17,11 +17,6 @@ from fastapi.responses import JSONResponse
 
 from argusprowl.alerting.alert_manager import AlertManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
-from argusprowl.api.object_authorization import (
-    can_access_object,
-    filter_accessible,
-    require_object_access,
-)
 from argusprowl.api.hunt_models import (
     HuntConclusionRequest,
     HuntCreateRequest,
@@ -32,6 +27,11 @@ from argusprowl.api.hunt_models import (
     HuntQueryRequest,
     HuntScopeRequest,
     HuntStatusRequest,
+)
+from argusprowl.api.object_authorization import (
+    can_access_object,
+    filter_accessible,
+    require_object_access,
 )
 from argusprowl.api.response_models import (
     AlertResponse,
