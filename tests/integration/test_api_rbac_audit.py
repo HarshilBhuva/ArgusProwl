@@ -368,7 +368,7 @@ def test_first_run_bootstrap_creates_persistent_admin_once(tmp_path) -> None:
     ServiceContainer.reset_instance()
     audit_path = str(tmp_path / "bootstrap-audit.db")
     app = create_api_app(auth_enabled=True, audit_db_path=audit_path)
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 12345))
     token_path = tmp_path / "bootstrap-token"
     credentials_path = tmp_path / "bootstrap-credentials.json"
 
@@ -423,7 +423,10 @@ def test_first_run_bootstrap_rejects_non_loopback_clients(tmp_path) -> None:
 def test_first_run_bootstrap_rejects_invalid_token_and_rate_limits(tmp_path) -> None:
     ServiceContainer.reset_instance()
     audit_path = str(tmp_path / "invalid-bootstrap.db")
-    client = TestClient(create_api_app(auth_enabled=True, audit_db_path=audit_path))
+    client = TestClient(
+        create_api_app(auth_enabled=True, audit_db_path=audit_path),
+        client=("127.0.0.1", 12345),
+    )
     statuses = [
         client.post(
             "/api/v1/auth/bootstrap",
