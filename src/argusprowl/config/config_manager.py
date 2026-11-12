@@ -156,6 +156,11 @@ class ConfigManager:
             backend=storage_data.get("backend", "sqlite"),
             base_path=storage_data.get("base_path", "data"),
             database_path=storage_data.get("database_path", "data/argusprowl.db"),
+            connection_string=storage_data.get("connection_string", ""),
+            pool_min_size=storage_data.get("pool_min_size", 1),
+            pool_max_size=storage_data.get("pool_max_size", 10),
+            pool_timeout_seconds=float(storage_data.get("pool_timeout_seconds", 10.0)),
+            connect_timeout_seconds=float(storage_data.get("connect_timeout_seconds", 10.0)),
         )
 
         events_cfg = EventsConfig(
