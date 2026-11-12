@@ -35,11 +35,27 @@ in encrypted backups, and never commit or expose it. The API key is not stored
 in the audit trail. Subsequent starts load the credential automatically, and
 the bootstrap endpoint permanently returns HTTP 409 after setup.
 
-For Docker deployments, keep the API bound to loopback for the bootstrap
-phase and use `docker exec` to read the token and call the endpoint from
-inside the container. After the admin key has been created, configure the
-intended authenticated network bind and restart. Do not publish the
-first-run service through a public reverse proxy.
+For Docker Compose, the normal service binds to `0.0.0.0` inside
+the container so the published port works. To keep first-run bootstrap
+loopback-only, start a temporary instance against the same persistent data
+volume with a loopback bind:
+
+```bash
+docker compose run -d --name argusprowl-bootstrap \
+  -e TH_API__HOST=127.0.0.1 argusprowl
+TOKEN="$(docker exec argusprowl-bootstrap cat /app/data/bootstrap-token)"
+docker exec -e BOOTSTRAP_TOKEN="$TOKEN" argusprowl-bootstrap python -c \
+  'import json,os,urllib.request; data=json.dumps({"bootstrap_token":os.environ["BOOTSTRAP_TOKEN"],"subject":"platform-admin"}).encode(); req=urllib.request.Request("http://127.0.0.1:8080/api/v1/auth/bootstrap",data=data,headers={"Content-Type":"application/json"}); print(urllib.request.urlopen(req).read().decode())'
+unset TOKEN
+docker rm -f argusprowl-bootstrap
+docker compose up -d
+```
+
+The temporary container and normal service share the Compose data volume.
+The generated credential therefore survives the transition to the regular
+network bind. Store the returned API key in your secret manager before
+discarding the command output. Do not publish the first-run service through a
+public reverse proxy.
 
 If the token or credential file has unsafe permissions, ArgusProwl refuses
 to use it rather than silently weakening file protection. Bootstrap is a
