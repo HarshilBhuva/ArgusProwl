@@ -288,11 +288,11 @@ def test_environment_remote_bind_cannot_bypass_auth_validation(tmp_path, monkeyp
     monkeypatch.delenv("ARGUSPROWL_API_KEYS", raising=False)
     config_file = tmp_path / "app.yaml"
     config_file.write_text(
-        "app_name: TestApp\\n"
-        "api:\\n"
-        "  enabled: true\\n"
-        "  host: 127.0.0.1\\n"
-        "  auth_enabled: false\\n",
+        "app_name: TestApp\n"
+        "api:\n"
+        "  enabled: true\n"
+        "  host: 127.0.0.1\n"
+        "  auth_enabled: false\n",
         encoding="utf-8",
     )
 
