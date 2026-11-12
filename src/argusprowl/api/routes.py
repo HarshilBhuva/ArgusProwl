@@ -1329,7 +1329,7 @@ async def list_entities(
 ) -> EntityListResponse:
     """Return bounded behavioral entity list representing entity identities."""
     require_object_access(
-        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+        request, None, resource_type="Entity", resource_id=str(entity_type or "all")
     )
 
     from argusprowl.behavior.analyst_behavior_query_service import AnalystBehaviorQueryService
@@ -1385,11 +1385,13 @@ async def list_entities(
     summary="List durable entity intelligence",
     response_model=EntityIntelligenceListResponse,
 )
-async def list_entity_intelligence(
+async def list_entity_intelligence(request: Request, 
     entity_type: str | None = Query(None, max_length=64),
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityIntelligenceListResponse:
     """List entities indexed transactionally with durable telemetry evidence."""
+    require_object_access(request, None, resource_type="Entity intelligence", resource_id="global")
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.entity_intelligence.service import EntityIntelligenceService
 
@@ -2064,8 +2066,10 @@ async def get_rule_detail(
 @router.get(
     "/iocs/{indicator}", summary="Investigate an IOC", response_model=IocInvestigationResponse
 )
-async def investigate_ioc(indicator: str) -> IocInvestigationResponse:
+async def investigate_ioc(indicator: str, request: Request) -> IocInvestigationResponse:
     """Investigate an IP or domain indicator against threat intelligence and retained alerts."""
+    require_object_access(request, None, resource_type="IOC investigation", resource_id=indicator)
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.services.ioc_investigation_service import IocInvestigationService
 
