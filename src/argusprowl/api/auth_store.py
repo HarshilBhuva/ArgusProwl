@@ -13,6 +13,7 @@ import time
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 
 class ApiKeyRevocationStore:
@@ -189,12 +190,12 @@ class FirstRunBootstrapStore:
     @staticmethod
     def _read_private_file(path: Path) -> str:
         """Read a private regular file, rejecting group/world-accessible files."""
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
-            raise RuntimeError(f"Bootstrap file must be a regular mode-0600 file: {path}")
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(path, flags)
         try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
+                raise RuntimeError(f"Bootstrap file must be a regular owner-only file: {path}")
             with os.fdopen(descriptor, encoding="utf-8") as handle:
                 return handle.read()
         except Exception:
@@ -204,7 +205,7 @@ class FirstRunBootstrapStore:
                 pass
             raise
 
-    def load_credentials(self) -> dict[str, dict[str, str]]:
+    def load_credentials(self) -> dict[str, dict[str, Any]]:
         """Load previously bootstrapped credentials from the private file."""
         with self._lock:
             if not self._credentials_path.exists():
@@ -218,8 +219,12 @@ class FirstRunBootstrapStore:
                     not isinstance(key_id, str)
                     or not isinstance(definition, dict)
                     or not isinstance(definition.get("secret"), str)
+                    or len(definition.get("secret", "")) < 32
+                    or not definition.get("secret", "").isascii()
                     or not isinstance(definition.get("subject"), str)
+                    or not definition.get("subject", "").strip()
                     or definition.get("role") != "admin"
+                    or not isinstance(definition.get("enabled", True), bool)
                 ):
                     raise RuntimeError("Bootstrap credential file contains an invalid credential.")
             return value
@@ -254,7 +259,9 @@ class FirstRunBootstrapStore:
             if self._credentials_path.exists() or not self._token_path.exists():
                 return None
             expected_token = self._read_private_file(self._token_path).strip()
-            if not secrets.compare_digest(supplied_token, expected_token):
+            if not supplied_token.isascii() or not secrets.compare_digest(
+                supplied_token, expected_token
+            ):
                 return None
             key_id = f"bootstrap-admin-{secrets.token_hex(8)}"
             api_key = secrets.token_urlsafe(48)
