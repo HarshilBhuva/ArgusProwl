@@ -181,6 +181,11 @@ class FirstRunBootstrapStore:
         self._credentials_path = self._directory / "bootstrap-credentials.json"
         self._lock = threading.RLock()
 
+    @property
+    def token_path(self) -> Path:
+        """Return the operator-readable path to the one-time setup token."""
+        return self._token_path
+
     @staticmethod
     def _read_private_file(path: Path) -> str:
         """Read a private regular file, rejecting group/world-accessible files."""
