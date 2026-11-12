@@ -11,6 +11,7 @@ import stat
 import threading
 import time
 from collections import deque
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -199,10 +200,8 @@ class FirstRunBootstrapStore:
             with os.fdopen(descriptor, encoding="utf-8") as handle:
                 return handle.read()
         except Exception:
-            try:
+            with suppress(OSError):
                 os.close(descriptor)
-            except OSError:
-                pass
             raise
 
     def load_credentials(self) -> dict[str, dict[str, Any]]:
