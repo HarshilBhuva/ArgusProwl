@@ -95,7 +95,7 @@ class ConfigManager:
         if not isinstance(api_data, dict):
             self._validator.validate(raw)
         storage_env = os.environ.get("ARGUSPROWL_DATABASE_URL")
-        if storage_env is not None:
+        if storage_env is not None and isinstance(raw.get("storage", {}), dict):
             raw.setdefault("storage", {})["connection_string"] = storage_env
         raw["api"] = api_data
         api_keys_env = os.environ.get("ARGUSPROWL_API_KEYS")
