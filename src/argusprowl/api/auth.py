@@ -76,6 +76,8 @@ def _is_public_path(path: str, *, method: str = "GET", accept: str = "") -> bool
     normalized = path.rstrip("/") or "/"
     if normalized == "/api/v1/auth/session" and method in {"POST", "DELETE"}:
         return True
+    if normalized == "/api/v1/auth/bootstrap" and method == "POST":
+        return True
     if normalized == "/api/v1/auth/status" and method in {"GET", "HEAD"}:
         return True
     if method not in {"GET", "HEAD"}:
