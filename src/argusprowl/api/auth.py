@@ -20,6 +20,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from argusprowl.api.auth_store import AuthAttemptLimiter
+
 logger = logging.getLogger(__name__)
 
 _SESSION_COOKIE_NAME = "argusprowl_session"
@@ -34,6 +36,23 @@ _PUBLIC_EXACT_PATHS = frozenset(
 )
 _PUBLIC_PREFIXES = ("/assets/",)
 _VALID_ROLES = frozenset({"viewer", "analyst", "admin"})
+_VIEWER_READ_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"^/api/v1/auth/me$",
+        r"^/api/v1/health/details$",
+        r"^/api/v1/incidents$",
+        r"^/api/v1/incidents/[^/]+(?:/(?:alerts|timeline|annotations))?$",
+        r"^/api/v1/alerts(?:/[^/]+)?$",
+        r"^/api/v1/metrics$",
+        r"^/api/v1/entities(?:/intelligence|/[^/]+/[^/]+(?:/(?:relationships|evidence|annotations|timeline))?)?$",
+        r"^/api/v1/rules(?:/[^/]+)?$",
+        r"^/api/v1/iocs/[^/]+$",
+        r"^/api/v1/evidence(?:/(?:stats|[^/]+))?$",
+        r"^/api/v1/attck/(?:overview|investigation)$",
+        r"^/api/v1/hunts(?:/[^/]+)?$",
+    )
+)
 _ANALYST_WRITE_PATTERNS = (
     re.compile(r"^/api/v1/alerts/[^/]+/(?:acknowledge|close)$"),
     re.compile(r"^/api/v1/incidents/[^/]+/(?:annotations|close|transition)$"),
@@ -143,8 +162,12 @@ class ApiKeyAuthService:
         auth_enabled: bool,
         api_key: str = "",
         api_keys: dict[str, dict[str, Any]] | None = None,
+        revocation_store: Any | None = None,
+        attempt_limiter: AuthAttemptLimiter | None = None,
     ) -> None:
         self.auth_enabled = auth_enabled
+        self._revocation_store = revocation_store
+        self._attempt_limiter = attempt_limiter or AuthAttemptLimiter()
         self._credentials: dict[str, tuple[AuthPrincipal, str, bool, datetime | None]] = {}
         for key_id, definition in (api_keys or {}).items():
             secret = definition.get("secret", "")
@@ -190,6 +213,13 @@ class ApiKeyAuthService:
         principal, secret, enabled, expires_at = credential
         if not enabled or (expires_at is not None and now >= expires_at):
             return None
+        if self._revocation_store is not None:
+            try:
+                if self._revocation_store.is_revoked(key_id):
+                    return None
+            except Exception:
+                logger.exception("Credential revocation store unavailable; rejecting credential")
+                return None
         return principal, secret
 
     def authenticate_key(self, supplied_key: str | None) -> AuthPrincipal | None:
@@ -201,6 +231,29 @@ class ApiKeyAuthService:
                 active = self._active_credential(key_id, now)
                 return active[0] if active is not None else None
         return None
+
+    def revoke_key(self, key_id: str, *, revoked_by: str) -> bool:
+        """Persistently revoke a configured key, including its active sessions."""
+        if key_id not in self._credentials or self._revocation_store is None:
+            return False
+        self._revocation_store.revoke(key_id, revoked_by=revoked_by)
+        return True
+
+    def is_rate_limited(self, client_ip: str | None) -> bool:
+        """Return whether this client is currently locked out after failed auth."""
+        return self._attempt_limiter.is_blocked(client_ip)
+
+    def retry_after(self, client_ip: str | None) -> int:
+        """Return the remaining lockout in seconds, rounded up."""
+        return self._attempt_limiter.retry_after(client_ip)
+
+    def record_auth_failure(self, client_ip: str | None) -> bool:
+        """Record a failed authentication and report whether it triggered lockout."""
+        return self._attempt_limiter.record_failure(client_ip)
+
+    def record_auth_success(self, client_ip: str | None) -> None:
+        """Clear failed-authentication history after a successful login."""
+        self._attempt_limiter.record_success(client_ip)
 
     @staticmethod
     def _encode_segment(value: bytes) -> str:
@@ -294,14 +347,11 @@ def _role_allows(role: str, method: str, path: str) -> bool:
         return role == "admin" and method in {"GET", "HEAD"}
     if role == "admin":
         return True
-    if role == "viewer":
-        return method in {"GET", "HEAD"}
-    if role == "analyst":
+    if role in {"viewer", "analyst"}:
         if method in {"GET", "HEAD"}:
-            return True
-        return method == "POST" and any(
-            pattern.fullmatch(path) for pattern in _ANALYST_WRITE_PATTERNS
-        )
+            return any(pattern.fullmatch(path) for pattern in _VIEWER_READ_PATTERNS)
+        if role == "analyst" and method == "POST":
+            return any(pattern.fullmatch(path) for pattern in _ANALYST_WRITE_PATTERNS)
     return False
 
 
@@ -373,6 +423,19 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         principal: AuthPrincipal | None
         authenticated_via_session = False
         if self._auth_enabled:
+            if self._auth_service.is_rate_limited(client_ip):
+                retry_after = self._auth_service.retry_after(client_ip)
+                try:
+                    self._audit(
+                        event_type="AUTH_RATE_LIMITED", principal=None, method=method,
+                        path=path, status_code=429, request_id=request_id, client_ip=client_ip,
+                    )
+                except Exception:
+                    logger.exception("Could not persist rate-limit audit event")
+                return JSONResponse(
+                    status_code=429, content={"detail": "Too many authentication attempts"},
+                    headers={"X-Request-ID": request_id, "Retry-After": str(retry_after)},
+                )
             principal = self._authenticate(request.headers.get(self._header_name))
             if principal is None:
                 principal = self._auth_service.authenticate_session(
@@ -380,17 +443,26 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
                 )
                 authenticated_via_session = principal is not None
             if principal is None:
+                locked = self._auth_service.record_auth_failure(client_ip)
+                status_code = 429 if locked else 401
+                event_type = "AUTH_RATE_LIMITED" if locked else "AUTHENTICATION_FAILED"
                 try:
                     self._audit(
-                        event_type="AUTHENTICATION_FAILED", principal=None, method=method,
-                        path=path, status_code=401, request_id=request_id, client_ip=client_ip,
+                        event_type=event_type, principal=None, method=method,
+                        path=path, status_code=status_code, request_id=request_id,
+                        client_ip=client_ip,
                     )
                 except Exception:
                     logger.exception("Could not persist failed-authentication audit event")
+                headers = {"X-Request-ID": request_id}
+                if locked:
+                    headers["Retry-After"] = str(self._auth_service.retry_after(client_ip))
                 return JSONResponse(
-                    status_code=401, content={"detail": "Unauthorized"},
-                    headers={"X-Request-ID": request_id},
+                    status_code=status_code,
+                    content={"detail": "Too many authentication attempts" if locked else "Unauthorized"},
+                    headers=headers,
                 )
+            self._auth_service.record_auth_success(client_ip)
             if (
                 authenticated_via_session
                 and method not in {"GET", "HEAD", "OPTIONS"}

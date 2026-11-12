@@ -248,3 +248,116 @@ def test_unexpired_named_api_key_is_accepted(tmp_path) -> None:
     )
     assert response.status_code == 200
     ServiceContainer.reset_instance()
+
+
+def test_admin_revocation_persists_and_invalidates_browser_sessions(tmp_path) -> None:
+    ServiceContainer.reset_instance()
+    service = MagicMock(spec=AlertSearchService)
+    result = MagicMock()
+    result.alerts = []
+    result.status = MagicMock()
+    result.status.value = "AVAILABLE"
+    result.reason = None
+    service.search.return_value = result
+    ServiceContainer.get_instance().register_singleton(AlertSearchService, lambda: service)
+    audit_path = str(tmp_path / "shared-auth.db")
+    keys = {
+        "admin-key": {
+            "secret": "admin-key-secret-with-at-least-32-characters",
+            "subject": "security-admin",
+            "role": "admin",
+        },
+        "viewer-key": {
+            "secret": "viewer-key-secret-with-at-least-32-characters",
+            "subject": "read-only-operator",
+            "role": "viewer",
+        },
+    }
+    app = create_api_app(
+        auth_enabled=True,
+        api_keys=keys,
+        audit_db_path=audit_path,
+    )
+    admin_client = TestClient(app)
+    viewer_client = TestClient(app)
+    admin_headers = {
+        "X-ArgusProwl-Key": "admin-key-secret-with-at-least-32-characters"
+    }
+    viewer_headers = {
+        "X-ArgusProwl-Key": "viewer-key-secret-with-at-least-32-characters"
+    }
+
+    login = viewer_client.post(
+        "/api/v1/auth/session",
+        json={"api_key": viewer_headers["X-ArgusProwl-Key"]},
+        headers={"Origin": "http://testserver"},
+    )
+    assert login.status_code == 200
+    assert viewer_client.get("/api/v1/alerts").status_code == 200
+
+    revoked = admin_client.post(
+        "/api/v1/auth/keys/viewer-key/revoke",
+        headers=admin_headers,
+    )
+    assert revoked.status_code == 200
+    assert revoked.json() == {"revoked": True, "key_id": "viewer-key"}
+
+    assert viewer_client.get("/api/v1/alerts").status_code == 401
+    assert viewer_client.get("/api/v1/alerts", headers=viewer_headers).status_code == 401
+
+    restarted_app = create_api_app(
+        auth_enabled=True,
+        api_keys=keys,
+        audit_db_path=audit_path,
+    )
+    restarted_client = TestClient(restarted_app)
+    assert restarted_client.get("/api/v1/alerts", headers=viewer_headers).status_code == 401
+    ServiceContainer.reset_instance()
+
+
+def test_auth_session_endpoint_rate_limits_failed_logins(tmp_path) -> None:
+    ServiceContainer.reset_instance()
+    client = TestClient(
+        create_api_app(
+            auth_enabled=True,
+            api_keys={
+                "admin-key": {
+                    "secret": "admin-key-secret-with-at-least-32-characters",
+                    "subject": "security-admin",
+                    "role": "admin",
+                }
+            },
+            audit_db_path=str(tmp_path / "rate-limit.db"),
+        )
+    )
+    statuses = [
+        client.post(
+            "/api/v1/auth/session",
+            json={"api_key": "incorrect-key"},
+            headers={"Origin": "http://testserver"},
+        ).status_code
+        for _ in range(10)
+    ]
+    assert statuses[:9] == [401] * 9
+    assert statuses[9] == 429
+    blocked = client.post(
+        "/api/v1/auth/session",
+        json={"api_key": "admin-key-secret-with-at-least-32-characters"},
+        headers={"Origin": "http://testserver"},
+    )
+    assert blocked.status_code == 429
+    assert int(blocked.headers["Retry-After"]) > 0
+    ServiceContainer.reset_instance()
+
+
+
+def test_viewer_and_analyst_deny_unknown_read_routes_by_default(tmp_path) -> None:
+    for role in ("viewer", "analyst"):
+        client, _ = _build_client(tmp_path, role)
+        headers = {
+            "X-ArgusProwl-Key": f"{role}-test-secret-that-is-at-least-32-characters"
+        }
+        assert client.get("/api/v1/alerts", headers=headers).status_code == 200
+        denied = client.get("/api/v1/internal/undocumented-resource", headers=headers)
+        assert denied.status_code == 403
+        ServiceContainer.reset_instance()

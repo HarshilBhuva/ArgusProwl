@@ -36,19 +36,40 @@ must be a JSON object keyed by a non-secret key ID:
 Pass the same value into the container environment; do not commit real secrets
 to YAML, source control, CI logs, or issue reports. Secrets are compared using
 constant-time comparison and are never included in audit events or responses.
-Named keys may set `enabled: false` to revoke a credential at the next process
-start, and may set `expires_at` to an ISO-8601 timestamp with an explicit
-UTC marker or offset. Expired and disabled keys are rejected on every request;
-expiry is checked at authentication time, not only at startup. Keys without
-these fields retain the existing enabled/no-expiry behavior.
+Named keys may set `enabled: false` to disable a credential in configuration,
+and may set `expires_at` to an ISO-8601 timestamp with an explicit UTC marker
+or offset. Expired and disabled keys are rejected on every request; expiry is
+checked at authentication time, not only at startup. Keys without these fields
+retain the existing enabled/no-expiry behavior.
+
+Administrators can persistently revoke any configured key (including the
+legacy administrator key) without a restart:
+
+```http
+POST /api/v1/auth/keys/{key_id}/revoke
+X-ArgusProwl-Key: <administrator-key>
+```
+
+Revocations are stored in the same durable SQLite database as the API audit
+log and are checked on every key and browser-session authentication. A
+revoked key remains revoked across process restarts and cannot be re-enabled
+by restoring its configuration entry; issue a new key ID and secret instead.
+The endpoint is administrator-only and records an `API_KEY_REVOKED` audit
+event. Keep the audit/revocation database on persistent storage and include it
+in backups.
+
+Failed authentication attempts are throttled per client IP. The default policy
+allows 10 failures in a rolling 60-second window, then applies a 5-minute
+lockout and returns HTTP 429 with `Retry-After`. A successful authentication
+clears the client's failure history. The limiter is process-local; deployments
+with multiple API replicas should enforce an additional shared rate limit at
+the reverse proxy until distributed limiter state is implemented.
 
 For zero-downtime rotation, add a new key ID and secret alongside the old key,
 deploy the updated configuration, switch clients to the new credential, then
-disable or remove the old key and redeploy. Configuration-based revocation
-requires a configuration deployment/restart; a remote management API and
-persistent runtime revocation store are not implemented. Browser sessions are
-signed by the API key that created them, so disabling, removing, expiring, or
-rotating that key invalidates its outstanding sessions on the next request.
+revoke the old key using the administrator endpoint. Browser sessions are
+signed by the API key that created them, so persistent revocation invalidates
+its outstanding sessions on the next request.
 
 ## Role boundaries
 
@@ -58,9 +79,13 @@ rotating that key invalidates its outstanding sessions on the next request.
 | `analyst` | Viewer access plus alert acknowledge/close, incident transitions/close/annotations, entity annotations, and owned hunt creation/management |
 | `admin` | All API operations, including audit-log reads |
 
-Authorization is deny-by-default for write operations. Newly introduced write
-routes must be explicitly added to the analyst policy or remain administrator
-only. The audit reader at `GET /api/v1/audit` is administrator-only.
+Authorization is deny-by-default for both reads and writes. Viewer and analyst
+read access is granted only to the explicit API route allowlist; unknown or
+newly introduced routes remain denied until deliberately classified. Analyst
+write access is separately allowlisted for alert triage, incident updates,
+entity annotations, and hunt operations. Other writes remain administrator
+only. The audit readers at `GET /api/v1/audit` and
+`GET /api/v1/audit/integrity` are administrator-only.
 
 The legacy single API key is administrator-level for compatibility. Rotate it
 and migrate to named role-bearing keys when multiple operators need different
