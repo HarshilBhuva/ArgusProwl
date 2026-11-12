@@ -150,6 +150,7 @@ def create_api_app(
             bootstrap_store.token_path,
         )
     app.state.audit_log = audit_log
+    app.state.auth_enabled = auth_enabled
     app.state.api_key_revocation_store = revocation_store
     app.state.bootstrap_store = bootstrap_store
     app.state.auth_service = auth_service
