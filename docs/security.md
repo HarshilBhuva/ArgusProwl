@@ -314,3 +314,33 @@ use an appropriately secured transport boundary.
 - Keep the audit database on persistent storage and include it in backup policy.
 - Authentication remains disabled unless explicitly enabled; the default
   single-node quickstart is intended for local development only.
+
+
+## Object-level authorization
+
+When API authentication is enabled, administrators retain platform-wide access.
+Analysts and viewers can access an alert or case only when its explicit owner
+matches their API-key subject:
+
+- Alerts: set `metadata.owner_subject` (or `metadata.assigned_analyst`) to
+  the exact configured API-key subject.
+- Cases/incidents: set `assigned_analyst` to that subject, or use
+  `metadata.owner_subject`.
+- Telemetry evidence: set `NormalizedEvent.metadata.owner_subject` to that
+  subject before persisting the event.
+
+Missing ownership metadata is treated as unowned. Non-admin callers receive
+the same 404 response for unowned and nonexistent objects. Object-level
+denials are written to the append-only API audit log.
+
+Evidence search is restricted to exact event-ID lookups for non-admin users.
+Global evidence statistics and entity-wide aggregates/relationships are
+administrator-only until the storage/query layer can apply owner filters before
+pagination. Filtering a globally paginated result after retrieval is unsafe:
+it can leak counts and produce incomplete pages.
+
+This is an explicit single-owner scope model, not multi-tenant isolation.
+Do not treat analyst ownership as a tenant boundary. For multi-tenant
+deployments, introduce a durable tenant/workspace identifier and enforce it
+in repository queries and foreign-key relationships before exposing shared
+storage to multiple organizations.
