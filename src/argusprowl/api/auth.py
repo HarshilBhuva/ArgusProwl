@@ -36,6 +36,23 @@ _PUBLIC_EXACT_PATHS = frozenset(
 )
 _PUBLIC_PREFIXES = ("/assets/",)
 _VALID_ROLES = frozenset({"viewer", "analyst", "admin"})
+_VIEWER_READ_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"^/api/v1/auth/me$",
+        r"^/api/v1/health/details$",
+        r"^/api/v1/incidents$",
+        r"^/api/v1/incidents/[^/]+(?:/(?:alerts|timeline|annotations))?$",
+        r"^/api/v1/alerts(?:/[^/]+)?$",
+        r"^/api/v1/metrics$",
+        r"^/api/v1/entities(?:/intelligence|/[^/]+/[^/]+(?:/(?:relationships|evidence|annotations|timeline))?)?$",
+        r"^/api/v1/rules(?:/[^/]+)?$",
+        r"^/api/v1/iocs/[^/]+$",
+        r"^/api/v1/evidence(?:/(?:stats|[^/]+))?$",
+        r"^/api/v1/attck/(?:overview|investigation)$",
+        r"^/api/v1/hunts(?:/[^/]+)?$",
+    )
+)
 _ANALYST_WRITE_PATTERNS = (
     re.compile(r"^/api/v1/alerts/[^/]+/(?:acknowledge|close)$"),
     re.compile(r"^/api/v1/incidents/[^/]+/(?:annotations|close|transition)$"),
@@ -330,14 +347,11 @@ def _role_allows(role: str, method: str, path: str) -> bool:
         return role == "admin" and method in {"GET", "HEAD"}
     if role == "admin":
         return True
-    if role == "viewer":
-        return method in {"GET", "HEAD"}
-    if role == "analyst":
+    if role in {"viewer", "analyst"}:
         if method in {"GET", "HEAD"}:
-            return True
-        return method == "POST" and any(
-            pattern.fullmatch(path) for pattern in _ANALYST_WRITE_PATTERNS
-        )
+            return any(pattern.fullmatch(path) for pattern in _VIEWER_READ_PATTERNS)
+        if role == "analyst" and method == "POST":
+            return any(pattern.fullmatch(path) for pattern in _ANALYST_WRITE_PATTERNS)
     return False
 
 
