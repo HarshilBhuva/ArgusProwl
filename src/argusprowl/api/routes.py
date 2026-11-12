@@ -28,6 +28,11 @@ from argusprowl.api.hunt_models import (
     HuntScopeRequest,
     HuntStatusRequest,
 )
+from argusprowl.api.object_authorization import (
+    can_access_object,
+    filter_accessible,
+    require_object_access,
+)
 from argusprowl.api.response_models import (
     AlertResponse,
     AlertSearchResponse,
@@ -286,6 +291,7 @@ def _build_incident_response(incident) -> IncidentResponse:
 
 @router.get("/incidents", summary="List incidents", response_model=IncidentListResponse)
 async def list_incidents(
+    request: Request,
     status: str | None = Query(None, description="Filter by incident status."),
     severity: str | None = Query(None, description="Filter by severity."),
 ) -> IncidentListResponse:
@@ -326,7 +332,9 @@ async def list_incidents(
                 status_code=422,
             )
 
-    incidents = service.list_incidents(status=parsed_status, severity=parsed_severity)
+    incidents = filter_accessible(
+        request, service.list_incidents(status=parsed_status, severity=parsed_severity)
+    )
     responses = [_build_incident_response(inc) for inc in incidents]
 
     return IncidentListResponse(
@@ -338,7 +346,7 @@ async def list_incidents(
 @router.get(
     "/incidents/{incident_id}", summary="Get incident detail", response_model=IncidentResponse
 )
-async def get_incident_detail(incident_id: str) -> IncidentResponse:
+async def get_incident_detail(incident_id: str, request: Request) -> IncidentResponse:
     """Get detailed information for a single incident."""
     import uuid
 
@@ -359,12 +367,15 @@ async def get_incident_detail(incident_id: str) -> IncidentResponse:
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     return _build_incident_response(incident)
 
 
 @router.get("/incidents/{incident_id}/alerts", summary="Get constituent alerts for incident")
-async def get_incident_alerts(incident_id: str) -> dict[str, Any]:
+async def get_incident_alerts(incident_id: str, request: Request) -> dict[str, Any]:
     """Get constituent alerts for an incident through AlertSearchService.
 
     Returns bounded alert data with explicit degraded state if alerts
@@ -390,6 +401,9 @@ async def get_incident_alerts(incident_id: str) -> dict[str, Any]:
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     # Retrieve constituent alerts through AlertSearchService
     alerts_data: list[dict[str, Any]] = []
@@ -401,8 +415,10 @@ async def get_incident_alerts(incident_id: str) -> dict[str, Any]:
         for alert_id in incident.alert_ids:
             try:
                 alert = search_service.get_alert(alert_id)
-                if alert is not None:
+                if alert is not None and can_access_object(request, alert):
                     alerts_data.append(_build_alert_response(alert).model_dump())
+                elif alert is not None:
+                    missing_count += 1
                 else:
                     missing_count += 1
             except (ValueError, AttributeError):
@@ -423,6 +439,7 @@ async def get_incident_alerts(incident_id: str) -> dict[str, Any]:
 @router.get("/incidents/{incident_id}/timeline", summary="Get incident investigation timeline")
 async def get_incident_timeline(
     incident_id: str,
+    request: Request,
     limit: int = Query(50, ge=1, le=100, description="Maximum timeline items to return."),
 ) -> dict[str, Any]:
     """Get investigation timeline for an incident by extracting entity keys from constituent alerts."""
@@ -446,6 +463,9 @@ async def get_incident_timeline(
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     # Extract host entities from constituent alerts
     host_entities: set[str] = set()
@@ -466,7 +486,7 @@ async def get_incident_timeline(
                 alert = alert_persistence.load_alert(alert_uuid)
             except Exception:
                 pass
-        if alert and alert.entity_context and alert.entity_context.get("host"):
+        if alert and can_access_object(request, alert) and alert.entity_context and alert.entity_context.get("host"):
             host_entities.add(alert.entity_context["host"])
 
     if not host_entities:
@@ -506,7 +526,7 @@ async def get_incident_timeline(
 
 
 @router.get("/incidents/{incident_id}/annotations", summary="Get incident annotations")
-async def get_incident_annotations(incident_id: str) -> list[AnnotationResponse]:
+async def get_incident_annotations(incident_id: str, request: Request) -> list[AnnotationResponse]:
     """Get annotations for an incident."""
     import uuid
 
@@ -528,6 +548,9 @@ async def get_incident_annotations(incident_id: str) -> list[AnnotationResponse]
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     if not container.is_registered(AnalystAnnotationService):
         return []
@@ -556,6 +579,7 @@ async def get_incident_annotations(incident_id: str) -> list[AnnotationResponse]
 @router.post("/incidents/{incident_id}/annotations", summary="Create incident annotation")
 async def create_incident_annotation(
     incident_id: str,
+    request: Request,
     body: AnnotationCreateRequest,
 ) -> AnnotationResponse:
     """Create a new annotation for an incident."""
@@ -579,6 +603,9 @@ async def create_incident_annotation(
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     if not container.is_registered(AnalystAnnotationService):
         raise HTTPException(status_code=503, detail="Annotation service not available")
@@ -614,7 +641,7 @@ async def create_incident_annotation(
     summary="Close an incident",
     response_model=LifecycleActionResponse,
 )
-async def close_incident(incident_id: str) -> LifecycleActionResponse:
+async def close_incident(incident_id: str, request: Request) -> LifecycleActionResponse:
     """Close an incident (marks status as CLOSED)."""
     import uuid
 
@@ -636,6 +663,9 @@ async def close_incident(incident_id: str) -> LifecycleActionResponse:
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     previous_state = incident.status.value
 
@@ -659,7 +689,7 @@ async def close_incident(incident_id: str) -> LifecycleActionResponse:
     response_model=LifecycleActionResponse,
 )
 async def transition_incident(
-    incident_id: str, status: str = Query(..., description="The target status for the transition")
+    incident_id: str, request: Request, status: str = Query(..., description="The target status for the transition")
 ) -> LifecycleActionResponse:
     """Update incident status with authoritative lifecycle validation."""
     import uuid
@@ -687,6 +717,9 @@ async def transition_incident(
 
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
+    require_object_access(
+        request, incident, resource_type="Incident", resource_id=str(incident.incident_id)
+    )
 
     previous_state = incident.status.value
 
@@ -835,7 +868,7 @@ async def operational_health_check() -> JSONResponse:
 
 
 @router.get("/alerts/{alert_id}", summary="Get alert detail", response_model=AlertResponse)
-async def get_alert_detail(alert_id: str) -> AlertResponse:
+async def get_alert_detail(alert_id: str, request: Request) -> AlertResponse:
     """Get detailed information for a single alert.
 
     Lookup semantics:
@@ -878,6 +911,7 @@ async def get_alert_detail(alert_id: str) -> AlertResponse:
     # 3. Return 404 if not found
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found")
+    require_object_access(request, alert, resource_type="Alert", resource_id=str(alert.alert_id))
 
     # Build and return response
     response = _build_alert_response(alert)
@@ -896,7 +930,7 @@ async def get_alert_detail(alert_id: str) -> AlertResponse:
     summary="Acknowledge an alert",
     response_model=LifecycleActionResponse,
 )
-async def acknowledge_alert(alert_id: str) -> LifecycleActionResponse:
+async def acknowledge_alert(alert_id: str, request: Request) -> LifecycleActionResponse:
     """Acknowledge an alert (OPEN -> ACKNOWLEDGED).
 
     Args:
@@ -938,6 +972,9 @@ async def acknowledge_alert(alert_id: str) -> LifecycleActionResponse:
             if existing_alert is None:
                 raise HTTPException(status_code=404, detail="Alert not found")
 
+        require_object_access(
+            request, existing_alert, resource_type="Alert", resource_id=str(existing_alert.alert_id)
+        )
         previous_state = existing_alert.lifecycle_state.value
 
         # Dry-run the transition to validate it before touching persistence.
@@ -990,7 +1027,7 @@ async def acknowledge_alert(alert_id: str) -> LifecycleActionResponse:
 @router.post(
     "/alerts/{alert_id}/close", summary="Close an alert", response_model=LifecycleActionResponse
 )
-async def close_alert(alert_id: str) -> LifecycleActionResponse:
+async def close_alert(alert_id: str, request: Request) -> LifecycleActionResponse:
     """Close an alert (OPEN -> CLOSED or ACKNOWLEDGED -> CLOSED).
 
     Args:
@@ -1031,6 +1068,9 @@ async def close_alert(alert_id: str) -> LifecycleActionResponse:
             if existing_alert is None:
                 raise HTTPException(status_code=404, detail="Alert not found")
 
+        require_object_access(
+            request, existing_alert, resource_type="Alert", resource_id=str(existing_alert.alert_id)
+        )
         previous_state = existing_alert.lifecycle_state.value
 
         # Dry-run the transition to validate it before touching persistence.
@@ -1129,6 +1169,7 @@ async def get_metrics() -> MetricsResponse:
 
 @router.get("/alerts", summary="Search alerts", response_model=AlertSearchResponse)
 async def search_alerts(
+    request: Request,
     limit: int = Query(
         20, ge=1, le=100, description="Maximum number of alerts to return. Bounded to [1, 100]."
     ),
@@ -1244,7 +1285,11 @@ async def search_alerts(
             incident_id=incident_id,
         )
 
-        alerts = [_build_alert_response(alert) for alert in result.alerts]
+        alerts = [
+            _build_alert_response(alert)
+            for alert in result.alerts
+            if can_access_object(request, alert)
+        ]
 
         return AlertSearchResponse(
             alerts=alerts,
@@ -1276,12 +1321,17 @@ _SUPPORTED_CORRELATION_TYPES = frozenset({"hostname", "dst_ip", "process"})
 
 @router.get("/entities", summary="List behavioral entities", response_model=EntityListResponse)
 async def list_entities(
+    request: Request,
     entity_type: str | None = Query(
         None, max_length=64, description="Optional entity type filter."
     ),
     limit: int = Query(100, ge=1, le=100, description="Maximum entities to return."),
 ) -> EntityListResponse:
     """Return bounded behavioral entity list representing entity identities."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=str(entity_type or "all")
+    )
+
     from argusprowl.behavior.analyst_behavior_query_service import AnalystBehaviorQueryService
     from argusprowl.dependency_injection.container import ServiceContainer
 
@@ -1336,10 +1386,13 @@ async def list_entities(
     response_model=EntityIntelligenceListResponse,
 )
 async def list_entity_intelligence(
+    request: Request,
     entity_type: str | None = Query(None, max_length=64),
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityIntelligenceListResponse:
     """List entities indexed transactionally with durable telemetry evidence."""
+    require_object_access(request, None, resource_type="Entity intelligence", resource_id="global")
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.entity_intelligence.service import EntityIntelligenceService
 
@@ -1375,12 +1428,17 @@ async def list_entity_intelligence(
     response_model=EntityRelationshipListResponse,
 )
 async def get_entity_relationships(
+    request: Request,
     entity_type: str,
     entity_id: str,
     direction: str = Query("both", pattern="^(both|inbound|outbound)$"),
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityRelationshipListResponse:
     """Return observed or explicitly inferred relationships for one entity."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 512:
         raise HTTPException(status_code=400, detail="Entity type or ID exceeds maximum length")
 
@@ -1450,11 +1508,16 @@ async def get_entity_relationships(
     response_model=EntityEvidenceListResponse,
 )
 async def get_entity_evidence_references(
+    request: Request,
     entity_type: str,
     entity_id: str,
     limit: int = Query(100, ge=1, le=500),
 ) -> EntityEvidenceListResponse:
     """Return event references and report when retention removed the event payload."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 512:
         raise HTTPException(status_code=400, detail="Entity type or ID exceeds maximum length")
 
@@ -1501,10 +1564,15 @@ async def get_entity_evidence_references(
     response_model=EntityDetailResponse,
 )
 async def get_entity_detail(
+    request: Request,
     entity_type: str,
     entity_id: str,
 ) -> EntityDetailResponse:
     """Get entity detail preserving clear distinction between entity identity and correlation keys."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 256:
         raise HTTPException(
             status_code=400, detail="Entity type or ID parameter exceeds maximum length"
@@ -1707,10 +1775,15 @@ async def get_entity_detail(
     response_model=list[AnnotationResponse],
 )
 async def get_entity_annotations(
+    request: Request,
     entity_type: str,
     entity_id: str,
 ) -> list[AnnotationResponse]:
     """Read annotations for entity identity target (entity:{entity_type}:{entity_id})."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 256:
         raise HTTPException(
             status_code=400, detail="Entity type or ID parameter exceeds maximum length"
@@ -1750,11 +1823,16 @@ async def get_entity_annotations(
     response_model=AnnotationResponse,
 )
 async def create_entity_annotation(
+    request: Request,
     entity_type: str,
     entity_id: str,
     body: AnnotationCreateRequest,
 ) -> AnnotationResponse:
     """Create a new annotation for entity identity target (entity:{entity_type}:{entity_id})."""
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     if len(entity_type) > 64 or len(entity_id) > 256:
         raise HTTPException(
             status_code=400, detail="Entity type or ID parameter exceeds maximum length"
@@ -1804,6 +1882,7 @@ async def create_entity_annotation(
     response_model=TimelineResponse,
 )
 async def get_entity_timeline(
+    request: Request,
     entity_type: str,
     entity_id: str,
     limit: int = Query(
@@ -1815,6 +1894,10 @@ async def get_entity_timeline(
     Combines evidence from alerts, incidents, annotations, and behavior
     into a single chronological view. Does NOT modify any source state.
     """
+    require_object_access(
+        request, None, resource_type="Entity", resource_id=f"{entity_type}:{entity_id}"
+    )
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.services.investigation_timeline_service import InvestigationTimelineService
 
@@ -1984,8 +2067,10 @@ async def get_rule_detail(
 @router.get(
     "/iocs/{indicator}", summary="Investigate an IOC", response_model=IocInvestigationResponse
 )
-async def investigate_ioc(indicator: str) -> IocInvestigationResponse:
+async def investigate_ioc(indicator: str, request: Request) -> IocInvestigationResponse:
     """Investigate an IP or domain indicator against threat intelligence and retained alerts."""
+    require_object_access(request, None, resource_type="IOC investigation", resource_id=indicator)
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.services.ioc_investigation_service import IocInvestigationService
 
@@ -2065,6 +2150,7 @@ async def investigate_ioc(indicator: str) -> IocInvestigationResponse:
 
 @router.get("/evidence", summary="Search telemetry evidence")
 async def search_evidence(
+    request: Request,
     limit: int = Query(50, ge=1, le=500, description="Maximum evidence records to return."),
     event_id: str | None = Query(None, description="Exact event ID lookup."),
     start_time: str | None = Query(None, description="ISO 8601 start timestamp (inclusive)."),
@@ -2165,6 +2251,16 @@ async def search_evidence(
         )
 
     service = container.resolve(TelemetryEvidenceService)
+    principal = getattr(request.state, "principal", None)
+    if (
+        getattr(request.app.state, "auth_enabled", False)
+        and getattr(principal, "role", "anonymous") != "admin"
+        and parsed_event_id is None
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Evidence search requires an exact event ID for owner-scoped access",
+        )
     try:
         result = service.search(
             limit=limit,
@@ -2185,6 +2281,11 @@ async def search_evidence(
             content={"detail": str(exc)},
             status_code=400,
         )
+
+    if parsed_event_id is not None and getattr(request.app.state, "auth_enabled", False):
+        scoped_event = result.events.get(parsed_event_id)
+        if scoped_event is None or not can_access_object(request, scoped_event):
+            raise HTTPException(status_code=404, detail="Event not found")
 
     records = [
         EvidenceRecordResponse(
@@ -2223,8 +2324,10 @@ async def search_evidence(
 
 
 @router.get("/evidence/stats", summary="Telemetry evidence store stats")
-async def get_evidence_stats() -> dict[str, Any]:
+async def get_evidence_stats(request: Request) -> dict[str, Any]:
     """Return telemetry evidence store statistics."""
+    require_object_access(request, None, resource_type="Evidence statistics", resource_id="global")
+
     from argusprowl.dependency_injection.container import ServiceContainer
     from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 
@@ -2259,7 +2362,7 @@ async def get_evidence_stats() -> dict[str, Any]:
 
 
 @router.get("/evidence/{event_id}", summary="Get single evidence record")
-async def get_evidence_detail(event_id: str) -> dict[str, Any]:
+async def get_evidence_detail(event_id: str, request: Request) -> dict[str, Any]:
     """Get a single telemetry evidence record by event ID."""
     import uuid
 
@@ -2282,6 +2385,9 @@ async def get_evidence_detail(event_id: str) -> dict[str, Any]:
 
     if detail is None:
         raise HTTPException(status_code=404, detail="Event not found")
+    require_object_access(
+        request, detail.event, resource_type="Event", resource_id=str(detail.event_id)
+    )
 
     event_response = None
     if detail.event is not None:
