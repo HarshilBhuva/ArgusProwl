@@ -348,3 +348,16 @@ def test_auth_session_endpoint_rate_limits_failed_logins(tmp_path) -> None:
     assert blocked.status_code == 429
     assert int(blocked.headers["Retry-After"]) > 0
     ServiceContainer.reset_instance()
+
+
+
+def test_viewer_and_analyst_deny_unknown_read_routes_by_default(tmp_path) -> None:
+    for role in ("viewer", "analyst"):
+        client, _ = _build_client(tmp_path, role)
+        headers = {
+            "X-ArgusProwl-Key": f"{role}-test-secret-that-is-at-least-32-characters"
+        }
+        assert client.get("/api/v1/alerts", headers=headers).status_code == 200
+        denied = client.get("/api/v1/internal/undocumented-resource", headers=headers)
+        assert denied.status_code == 403
+        ServiceContainer.reset_instance()
