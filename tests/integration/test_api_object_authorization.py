@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+
 from fastapi.testclient import TestClient
 
 from argusprowl.alerting.alert_manager import AlertManager
@@ -16,7 +17,6 @@ from argusprowl.models.alert import Alert
 from argusprowl.models.incident import Incident, IncidentStatus
 from argusprowl.models.normalized_event import NormalizedEvent
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
-
 
 ALICE_KEY = "alice-test-key-with-more-than-thirty-two-characters"
 BOB_KEY = "bob-test-key-with-more-than-thirty-two-characters"
