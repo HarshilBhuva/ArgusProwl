@@ -91,6 +91,13 @@ class AuthAttemptLimiter:
             and len(self._attempts) + len(self._blocked_until) >= self._max_tracked_clients
         ):
             now = time.monotonic()
+            expired_lockouts = [
+                tracked_key
+                for tracked_key, blocked_until in self._blocked_until.items()
+                if blocked_until <= now
+            ]
+            for expired_key in expired_lockouts:
+                self._blocked_until.pop(expired_key, None)
             stale_keys = [
                 tracked_key
                 for tracked_key, attempts in self._attempts.items()
