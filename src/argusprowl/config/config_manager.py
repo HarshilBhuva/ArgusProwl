@@ -103,6 +103,36 @@ class ConfigManager:
                 from argusprowl.exceptions.exceptions import ValidationError
 
                 raise ValidationError("ARGUSPROWL_API_KEYS must contain valid JSON.") from exc
+
+        # Apply security-sensitive deployment overrides before validation.
+        # Validating YAML first and applying these values afterward could let
+        # an environment override bypass the remote-bind/authentication guard.
+        host_env = os.environ.get("TH_API__HOST")
+        if host_env is not None:
+            api_data["host"] = host_env
+        port_env = os.environ.get("TH_API__PORT")
+        if port_env is not None:
+            try:
+                api_data["port"] = int(port_env)
+            except ValueError as exc:
+                from argusprowl.exceptions.exceptions import ValidationError
+
+                raise ValidationError("TH_API__PORT must be an integer.") from exc
+        auth_env = os.environ.get("TH_API__AUTH_ENABLED")
+        if auth_env is not None:
+            normalized_auth_env = auth_env.strip().lower()
+            if normalized_auth_env not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+                from argusprowl.exceptions.exceptions import ValidationError
+
+                raise ValidationError("TH_API__AUTH_ENABLED must be a boolean value.")
+            api_data["auth_enabled"] = normalized_auth_env in {"1", "true", "yes", "on"}
+        header_env = os.environ.get("TH_API__AUTH_HEADER_NAME")
+        if header_env is not None:
+            api_data["auth_header_name"] = header_env
+        audit_path_env = os.environ.get("ARGUSPROWL_AUDIT_DB_PATH")
+        if audit_path_env is not None:
+            api_data["audit_db_path"] = audit_path_env
+
         self._validator.validate(raw)
         self._raw_config = raw
 
@@ -291,29 +321,21 @@ class ConfigManager:
 
         # API configuration (Phase 7.0)
         api_data = raw.get("api", {})
-        env_auth_enabled = os.environ.get("TH_API__AUTH_ENABLED")
         configured_auth_enabled = api_data.get("auth_enabled", False)
-        if env_auth_enabled is not None:
-            configured_auth_enabled = env_auth_enabled.strip().lower() in {"1", "true", "yes", "on"}
 
         api_cfg = ApiConfig(
             enabled=api_data.get("enabled", True),
-            host=os.environ.get("TH_API__HOST", api_data.get("host", "127.0.0.1")),
-            port=int(os.environ.get("TH_API__PORT", api_data.get("port", 8080))),
+            host=api_data.get("host", "127.0.0.1"),
+            port=int(api_data.get("port", 8080)),
             cors_origins=api_data.get("cors_origins", []),
             max_alert_limit=int(api_data.get("max_alert_limit", 100)),
             auth_enabled=configured_auth_enabled,
-            auth_header_name=os.environ.get(
-                "TH_API__AUTH_HEADER_NAME",
-                api_data.get("auth_header_name", "X-ArgusProwl-Key"),
-            ),
+            auth_header_name=api_data.get("auth_header_name", "X-ArgusProwl-Key"),
             # Prefer the environment variable for secrets. The middleware also
             # resolves ARGUSPROWL_API_KEY lazily when this value is empty.
             api_key=api_data.get("api_key", ""),
             api_keys=api_data.get("api_keys", {}),
-            audit_db_path=os.environ.get(
-                "ARGUSPROWL_AUDIT_DB_PATH", api_data.get("audit_db_path", "data/audit.db")
-            ),
+            audit_db_path=api_data.get("audit_db_path", "data/audit.db"),
         )
 
         zeek_data = raw.get("zeek", {})
