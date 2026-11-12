@@ -40,6 +40,12 @@ RUN python -m venv /app/.venv \
 # --- Stage 3: Runtime (Python 3.13, non-root, no uv, no Node) ---
 FROM python:3.13-slim AS runtime
 
+# Refresh Debian security updates in the final stage. The upstream slim tag can
+# lag fixed security packages between image rebuilds (for example, zlib1g).
+RUN apt-get update \
+ && apt-get upgrade -y \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Backend source, config, rules, and package metadata. ATT&CK data is
