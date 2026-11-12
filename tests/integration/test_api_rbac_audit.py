@@ -361,3 +361,78 @@ def test_viewer_and_analyst_deny_unknown_read_routes_by_default(tmp_path) -> Non
         denied = client.get("/api/v1/internal/undocumented-resource", headers=headers)
         assert denied.status_code == 403
         ServiceContainer.reset_instance()
+
+
+
+def test_first_run_bootstrap_creates_persistent_admin_once(tmp_path) -> None:
+    ServiceContainer.reset_instance()
+    audit_path = str(tmp_path / "bootstrap-audit.db")
+    app = create_api_app(auth_enabled=True, audit_db_path=audit_path)
+    client = TestClient(app)
+    token_path = tmp_path / "bootstrap-token"
+    credentials_path = tmp_path / "bootstrap-credentials.json"
+
+    assert token_path.exists()
+    assert not credentials_path.exists()
+    assert client.get("/api/v1/auth/status").json()["bootstrap_required"] is True
+    token = token_path.read_text(encoding="utf-8")
+
+    response = client.post(
+        "/api/v1/auth/bootstrap",
+        json={"bootstrap_token": token, "subject": "initial-security-admin"},
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["created"] is True
+    assert payload["role"] == "admin"
+    assert payload["subject"] == "initial-security-admin"
+    assert len(payload["api_key"]) >= 32
+    assert "api_key" not in str(AuditLog(audit_path).list_events(limit=10))
+    assert not token_path.exists()
+    assert credentials_path.exists()
+
+    headers = {"X-ArgusProwl-Key": payload["api_key"]}
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+    assert client.get("/api/v1/auth/status").json()["bootstrap_required"] is False
+    assert client.post(
+        "/api/v1/auth/bootstrap",
+        json={"bootstrap_token": token, "subject": "attacker"},
+    ).status_code == 409
+
+    restarted = TestClient(create_api_app(auth_enabled=True, audit_db_path=audit_path))
+    assert restarted.get("/api/v1/auth/me", headers=headers).status_code == 200
+    ServiceContainer.reset_instance()
+
+
+def test_first_run_bootstrap_rejects_non_loopback_clients(tmp_path) -> None:
+    ServiceContainer.reset_instance()
+    audit_path = str(tmp_path / "remote-bootstrap.db")
+    app = create_api_app(auth_enabled=True, audit_db_path=audit_path)
+    token = (tmp_path / "bootstrap-token").read_text(encoding="utf-8")
+    remote_client = TestClient(app, client=("192.0.2.10", 12345))
+    response = remote_client.post(
+        "/api/v1/auth/bootstrap",
+        json={"bootstrap_token": token, "subject": "remote-admin"},
+    )
+    assert response.status_code == 403
+    assert (tmp_path / "bootstrap-token").exists()
+    assert not (tmp_path / "bootstrap-credentials.json").exists()
+    ServiceContainer.reset_instance()
+
+
+def test_first_run_bootstrap_rejects_invalid_token_and_rate_limits(tmp_path) -> None:
+    ServiceContainer.reset_instance()
+    audit_path = str(tmp_path / "invalid-bootstrap.db")
+    client = TestClient(create_api_app(auth_enabled=True, audit_db_path=audit_path))
+    statuses = [
+        client.post(
+            "/api/v1/auth/bootstrap",
+            json={"bootstrap_token": "x" * 48, "subject": "initial-admin"},
+        ).status_code
+        for _ in range(10)
+    ]
+    assert statuses[:9] == [401] * 9
+    assert statuses[9] == 429
+    assert (tmp_path / "bootstrap-token").exists()
+    assert not (tmp_path / "bootstrap-credentials.json").exists()
+    ServiceContainer.reset_instance()
