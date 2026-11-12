@@ -88,11 +88,16 @@ def auth_disabled_app(mock_alert_search_service: MagicMock) -> TestClient:
 
 
 @pytest.fixture
-def fail_closed_app() -> TestClient:
+def fail_closed_app(tmp_path) -> TestClient:
     """App with auth enabled but no key configured anywhere."""
     env_before = os.environ.pop("ARGUSPROWL_API_KEY", None)
     try:
-        app = create_api_app(auth_enabled=True, api_key="", auth_header_name="X-ArgusProwl-Key")
+        app = create_api_app(
+            auth_enabled=True,
+            api_key="",
+            auth_header_name="X-ArgusProwl-Key",
+            audit_db_path=str(tmp_path / "fail-closed-audit.db"),
+        )
         return TestClient(app)
     finally:
         if env_before is not None:
