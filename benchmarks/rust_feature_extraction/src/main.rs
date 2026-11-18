@@ -26,6 +26,18 @@ struct NormalizedEvent {
     dst_ip: String,
     dst_port: u16,
     protocol: String,
+    hostname: String,
+    sensor: String,
+    username: String,
+    process_name: String,
+    pid: u32,
+    command_line: String,
+    severity: String,
+    raw_event: Option<Value>,
+    metadata: HashMap<String, Value>,
+    tags: Vec<String>,
+    schema_version: u32,
+    source_record_id: Option<String>,
     attributes: HashMap<String, Value>,
 }
 
@@ -51,6 +63,18 @@ impl NormalizedEvent {
             timestamp: base + Duration::milliseconds((sequence * 10) as i64),
             src_ip, src_port, dst_ip, dst_port,
             protocol: "tcp".into(),
+            hostname: format!("sensor-{}", source_index % 4),
+            sensor: format!("sensor-{}", source_index % 4),
+            username: format!("user-{}", sequence % 16),
+            process_name: "benchmark-client".into(),
+            pid: 1000 + (sequence % 1000) as u32,
+            command_line: "benchmark-client --connect".into(),
+            severity: "INFO".into(),
+            raw_event: None,
+            metadata: HashMap::new(),
+            tags: Vec::new(),
+            schema_version: 1,
+            source_record_id: None,
             attributes,
         };
         event.validate()?;
@@ -58,7 +82,7 @@ impl NormalizedEvent {
     }
 
     fn validate(&self) -> Result<(), String> {
-        if self.source_type.trim().is_empty() || self.event_type.trim().is_empty() {
+        if self.source_type.trim().is_empty() || self.event_type.trim().is_empty() || self.schema_version < 1 {
             return Err("source_type/event_type must not be empty".into());
         }
         IpAddr::from_str(&self.src_ip).map_err(|_| "invalid src_ip")?;
@@ -187,20 +211,27 @@ fn aggregate(events: &[Arc<NormalizedEvent>]) -> Result<FeatureVector, String> {
     Ok(vector)
 }
 
+struct WindowRegistry {
+    windows: HashMap<String, Arc<Mutex<SlidingWindow>>>,
+    lru: VecDeque<String>,
+}
 struct FeatureExtractor {
-    windows: Mutex<HashMap<String, Arc<Mutex<SlidingWindow>>>>,
+    windows: Mutex<WindowRegistry>,
 }
 impl FeatureExtractor {
-    fn new() -> Self { Self { windows: Mutex::new(HashMap::new()) } }
+    fn new() -> Self { Self { windows: Mutex::new(WindowRegistry { windows: HashMap::new(), lru: VecDeque::new() }) } }
     fn extract(&self, event: NormalizedEvent) -> Result<FeatureVector, String> {
         let key = event.src_ip.clone();
         let event = Arc::new(event);
         let window = {
             let mut registry = self.windows.lock().map_err(|_| "registry mutex poisoned")?;
-            if !registry.contains_key(&key) && registry.len() >= MAX_ACTIVE_WINDOWS {
-                if let Some(oldest) = registry.keys().next().cloned() { registry.remove(&oldest); }
+            if registry.windows.contains_key(&key) {
+                registry.lru.retain(|item| item != &key);
+            } else if registry.windows.len() >= MAX_ACTIVE_WINDOWS {
+                if let Some(oldest) = registry.lru.pop_front() { registry.windows.remove(&oldest); }
             }
-            registry.entry(key).or_insert_with(|| Arc::new(Mutex::new(SlidingWindow::new()))).clone()
+            registry.lru.push_back(key.clone());
+            registry.windows.entry(key).or_insert_with(|| Arc::new(Mutex::new(SlidingWindow::new()))).clone()
         };
         let snapshot = {
             let mut state = window.lock().map_err(|_| "window mutex poisoned")?;
