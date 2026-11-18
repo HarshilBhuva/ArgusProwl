@@ -69,7 +69,10 @@ jobs:
               rs = statistics.median(s["throughput_events_per_second"] for s in rows["rust"])
               py_checksum = statistics.median(s["checksum"] for s in rows["python"])
               rs_checksum = statistics.median(s["checksum"] for s in rows["rust"])
-              report["results"].append({"workers": workers, "python_median_events_per_second": py, "rust_median_events_per_second": rs, "rust_speedup": round(rs / py, 3), "python_checksum_median": py_checksum, "rust_checksum_median": rs_checksum, "checksum_relative_delta": round(abs(rs_checksum - py_checksum) / max(abs(py_checksum), 1e-12), 9)})
+              checksum_delta = abs(rs_checksum - py_checksum) / max(abs(py_checksum), 1e-12)
+              if checksum_delta > 1e-8:
+                  raise SystemExit(f"Output parity failed at {workers} workers: relative checksum delta={checksum_delta}")
+              report["results"].append({"workers": workers, "python_median_events_per_second": py, "rust_median_events_per_second": rs, "rust_speedup": round(rs / py, 3), "python_checksum_median": py_checksum, "rust_checksum_median": rs_checksum, "checksum_relative_delta": round(checksum_delta, 12)})
           (root / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
           print(json.dumps(report, indent=2))
           PY
