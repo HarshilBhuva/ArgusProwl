@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Lock
 
 from argusprowl.feature_engineering.feature_extractor import FeatureExtractor
 from argusprowl.models.normalized_event import NormalizedEvent
