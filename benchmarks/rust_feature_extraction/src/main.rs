@@ -48,8 +48,6 @@ impl NormalizedEvent {
         let dst_ip = format!("198.51.100.{}", sequence % 250 + 1);
         let src_port = 40000 + (sequence % 20000) as u16;
         let dst_port = [80, 443, 22, 8080][sequence % 4];
-        IpAddr::from_str(&src_ip).map_err(|_| "invalid src_ip")?;
-        IpAddr::from_str(&dst_ip).map_err(|_| "invalid dst_ip")?;
         let mut attributes = HashMap::with_capacity(5);
         attributes.insert("conn_state".into(), json!(["SF", "REJ", "S0", "OTH"][sequence % 4]));
         attributes.insert("history".into(), json!(if sequence % 3 == 0 { "S" } else { "ShADadfF" }));
