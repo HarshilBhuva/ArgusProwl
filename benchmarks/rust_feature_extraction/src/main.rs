@@ -253,17 +253,20 @@ fn peak_rss_kib() -> u64 {
         .and_then(|s| s.lines().find(|line| line.starts_with("VmHWM:")).map(str::to_owned))
         .and_then(|line| line.split_whitespace().nth(1).and_then(|v| v.parse().ok())).unwrap_or(0)
 }
-fn worker(count: usize, base: DateTime<Utc>) -> Result<(usize, Vec<u64>, [f64; 20]), String> {
+fn worker(count: usize, base: DateTime<Utc>) -> Result<(usize, Vec<u64>, [f64; 23]), String> {
     let extractor = FeatureExtractor::new();
     let mut latencies = Vec::with_capacity(count);
-    let mut sums = [0.0_f64; 20];
+    let mut sums = [0.0_f64; 23];
     let mut processed = 0;
     for seq in 0..count {
         let started = Instant::now();
         let event = NormalizedEvent::new(seq, base)?;
         let vector = extractor.extract(event)?;
         latencies.push(started.elapsed().as_nanos() as u64);
-        for (sum, value) in sums.iter_mut().zip(vector.values) { *sum += value; }
+        for (sum, value) in sums.iter_mut().take(20).zip(vector.values) { *sum += value; }
+        sums[20] += vector.extra.get("unique_src_ports").and_then(Value::as_u64).unwrap_or(0) as f64;
+        sums[21] += vector.extra.get("dst_ports_list").and_then(Value::as_array).map_or(0, |items| items.len()) as f64;
+        sums[22] += vector.extra.get("dst_ips_list").and_then(Value::as_array).map_or(0, |items| items.len()) as f64;
         processed += 1;
         black_box((&vector.vector_id, &vector.event_id, &vector.created_at,
             &vector.window_start, &vector.window_end, &vector.src_ip,
@@ -289,12 +292,12 @@ fn main() -> Result<(), String> {
     let p95 = percentile(&mut latencies.clone(), 0.95);
     let p99 = percentile(&mut latencies.clone(), 0.99);
     let max_latency = latencies.iter().copied().max().unwrap_or(0) as f64 / 1_000_000.0;
-    let mut sums = [0.0_f64; 20];
+    let mut sums = [0.0_f64; 23];
     for result in &results { for (sum, value) in sums.iter_mut().zip(result.2) { *sum += value; } }
     let names = ["connection_count","unique_dst_ports","unique_dst_ips","failed_connections","syn_count",
         "avg_duration","max_duration","min_duration","std_duration","total_bytes_sent",
         "total_bytes_received","avg_bytes_per_connection","connection_rate","bytes_rate",
-        "port_concentration","is_multi_port","is_multi_dst","time_since_first_connection","src_port","dst_port"];
+        "port_concentration","is_multi_port","is_multi_dst","time_since_first_connection","src_port","dst_port","unique_src_ports","dst_ports_list_len","dst_ips_list_len"];
     let feature_sums: serde_json::Map<String, Value> = names.iter().enumerate()
         .map(|(i, name)| ((*name).to_string(), json!(sums[i]))).collect();
     let report = json!({
