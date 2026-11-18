@@ -62,7 +62,8 @@ jobs:
               "min_duration", "std_duration", "total_bytes_sent",
               "total_bytes_received", "avg_bytes_per_connection", "connection_rate",
               "bytes_rate", "port_concentration", "is_multi_port", "is_multi_dst",
-              "time_since_first_connection", "src_port", "dst_port", "unique_src_ports",\n              "dst_ports_list_len", "dst_ips_list_len",
+              "time_since_first_connection", "src_port", "dst_port", "unique_src_ports",
+              "dst_ports_list_len", "dst_ips_list_len",
           )
           report = {
               "scope": "NormalizedEvent construction/validation + FeatureExtractor registry + SlidingWindow + aggregation + FeatureVector construction/validation; excludes collectors, queues, rules, enrichment, alerting, storage and API",
@@ -122,7 +123,7 @@ jobs:
                   "python_active_windows_median": statistics.median(s["active_windows"] for s in py),
                   "rust_active_windows_median": statistics.median(s["active_windows"] for s in rs),
               })
-          (root / "summary.json").write_text(json.dumps(report, indent=2) + "\\n")
+          (root / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
           print(json.dumps(report, indent=2))
           PY
       - name: Upload raw benchmark samples
