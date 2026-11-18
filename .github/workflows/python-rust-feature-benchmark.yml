@@ -1,0 +1,83 @@
+name: Python vs Rust Feature Aggregation Benchmark
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python-rust-feature-benchmark.yml"
+      - "benchmarks/rust_feature_extraction/**"
+      - "scripts/benchmarks/python_feature_aggregation.py"
+      - "src/argusprowl/feature_engineering/aggregators.py"
+      - "src/argusprowl/models/normalized_event.py"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-rust-feature-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Python project
+        run: uv sync --frozen
+      - name: Build Rust release binary
+        run: cargo build --release --manifest-path benchmarks/rust_feature_extraction/Cargo.toml
+      - name: Paired benchmark runs
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-results
+          for workers in 1 2 4; do
+            for repetition in 1 2 3 4 5; do
+              echo "workers=${workers} repetition=${repetition} Python"
+              uv run python scripts/benchmarks/python_feature_aggregation.py --events 1500 --workers "$workers" > "benchmark-results/python-w${workers}-r${repetition}.json"
+              echo "workers=${workers} repetition=${repetition} Rust"
+              "benchmarks/rust_feature_extraction/target/release/argusprowl-rust-feature-bench" 1500 "$workers" > "benchmark-results/rust-w${workers}-r${repetition}.json"
+            done
+          done
+      - name: Summarize measurements
+        run: |
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          root = Path("benchmark-results")
+          report = {"scope": "feature aggregation microbenchmark; excludes collectors, queues, storage, detection rules and API", "events_per_worker": 1500, "repetitions": 5, "results": []}
+          for workers in (1, 2, 4):
+              rows = {}
+              for language in ("python", "rust"):
+                  samples = [json.loads(p.read_text()) for p in sorted(root.glob(f"{language}-w{workers}-r*.json"))]
+                  if len(samples) != 5:
+                      raise SystemExit(f"Expected 5 {language} samples for {workers} workers; got {len(samples)}")
+                  if any(s["unprocessed_events"] for s in samples):
+                      raise SystemExit(f"Unprocessed events in {language} run at {workers} workers")
+                  rows[language] = samples
+              py = statistics.median(s["throughput_events_per_second"] for s in rows["python"])
+              rs = statistics.median(s["throughput_events_per_second"] for s in rows["rust"])
+              py_checksum = statistics.median(s["checksum"] for s in rows["python"])
+              rs_checksum = statistics.median(s["checksum"] for s in rows["rust"])
+              report["results"].append({"workers": workers, "python_median_events_per_second": py, "rust_median_events_per_second": rs, "rust_speedup": round(rs / py, 3), "python_checksum_median": py_checksum, "rust_checksum_median": rs_checksum, "checksum_relative_delta": round(abs(rs_checksum - py_checksum) / max(abs(py_checksum), 1e-12), 9)})
+          (root / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, indent=2))
+          PY
+      - name: Upload raw benchmark samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-rust-feature-benchmark-${{ github.run_id }}
+          path: benchmark-results/
+          if-no-files-found: warn
+          retention-days: 30
