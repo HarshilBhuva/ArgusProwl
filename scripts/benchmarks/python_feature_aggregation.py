@@ -83,6 +83,7 @@ def run_worker(event_count: int) -> dict[str, object]:
     )
     latencies: list[int] = []
     sums = {field: 0.0 for field in NUMERIC_FIELDS}
+    sums.update({"unique_src_ports": 0.0, "dst_ports_list_len": 0.0, "dst_ips_list_len": 0.0})
     processed = 0
     for sequence in range(event_count):
         started = time.perf_counter_ns()
@@ -95,6 +96,9 @@ def run_worker(event_count: int) -> dict[str, object]:
         for field in NUMERIC_FIELDS:
             value = getattr(vector, field)
             sums[field] += float(value)
+        sums["unique_src_ports"] += float(vector.features.get("unique_src_ports", 0))
+        sums["dst_ports_list_len"] += len(vector.features.get("dst_ports_list", []))
+        sums["dst_ips_list_len"] += len(vector.features.get("dst_ips_list", []))
     return {
         "processed": processed,
         "latencies_ns": latencies,
@@ -120,7 +124,7 @@ def main() -> None:
     processed = sum(int(result["processed"]) for result in results)
     feature_sums = {
         field: sum(float(result["feature_sums"][field]) for result in results)
-        for field in NUMERIC_FIELDS
+        for field in results[0]["feature_sums"]
     }
     print(json.dumps({
         "language": "python",
