@@ -45,13 +45,16 @@ def worker(events: int) -> tuple[int, float]:
         start = time.perf_counter_ns()
         features = aggregate_connection_features(window)
         checksum += (
-            features["unique_dst_ports"] + features["unique_dst_ips"]
-            + features["unique_src_ports"] + features["failed_connections"]
-            + features["syn_count"] + features["avg_duration"]
-            + features["std_duration"] + features["min_duration"]
-            + features["max_duration"] + features["total_bytes_sent"]
-            + features["total_bytes_received"] + features["port_concentration"]
-            + features["connection_rate"]
+            features["connection_count"] + features["unique_dst_ports"]
+            + features["unique_dst_ips"] + features["unique_src_ports"]
+            + features["failed_connections"] + features["syn_count"]
+            + features["avg_duration"] + features["std_duration"]
+            + features["min_duration"] + features["max_duration"]
+            + features["total_bytes_sent"] + features["total_bytes_received"]
+            + features["avg_bytes_per_connection"] + features["port_concentration"]
+            + features["connection_rate"] + features["bytes_rate"]
+            + int(features["is_multi_port"]) + int(features["is_multi_dst"])
+            + features["time_since_first_connection"]
         )
         _ = time.perf_counter_ns() - start
     return events, checksum
