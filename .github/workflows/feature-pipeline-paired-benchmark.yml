@@ -1,0 +1,128 @@
+name: Feature Pipeline Paired Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/feature-pipeline-paired-benchmark.yml"
+      - "scripts/benchmarks/feature_pipeline.py"
+      - "src/argusprowl/feature_engineering/**"
+      - "src/argusprowl/models/normalized_event.py"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-pipeline-paired-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: Baseline vs candidate (short paired run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout candidate with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Prepare pre-PR #53 baseline
+        env:
+          BASELINE_SHA: 2969a2e06fd3d0bb53b58cc94752038c35b94940
+        run: |
+          git worktree add /tmp/argusprowl-baseline "$BASELINE_SHA"
+          mkdir -p /tmp/argusprowl-baseline/scripts/benchmarks
+          cp scripts/benchmarks/feature_pipeline.py /tmp/argusprowl-baseline/scripts/benchmarks/
+          uv sync --frozen --project /tmp/argusprowl-baseline
+          uv sync --frozen
+
+      - name: Run paired samples
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-results
+          for workers in 1 2 4; do
+            for repetition in 1 2 3; do
+              echo "workers=$workers repetition=$repetition baseline"
+              uv run --project /tmp/argusprowl-baseline python /tmp/argusprowl-baseline/scripts/benchmarks/feature_pipeline.py \
+                --events 1500 --workers "$workers" > "benchmark-results/baseline-w${workers}-r${repetition}.json"
+              echo "workers=$workers repetition=$repetition candidate"
+              uv run python scripts/benchmarks/feature_pipeline.py \
+                --events 1500 --workers "$workers" > "benchmark-results/candidate-w${workers}-r${repetition}.json"
+            done
+          done
+
+      - name: Summarize paired runs
+        run: |
+          python - <<'PY'
+          import json
+          import statistics
+          from pathlib import Path
+
+          root = Path("benchmark-results")
+          summary = {
+              "baseline_commit": "2969a2e06fd3d0bb53b58cc94752038c35b94940",
+              "candidate_commit": "${{ github.sha }}",
+              "python": "3.13",
+              "events_per_worker": 1500,
+              "repetitions_per_worker_count": 3,
+              "results": [],
+          }
+
+          for workers in (1, 2, 4):
+              baseline = [json.loads(p.read_text()) for p in sorted(root.glob(f"baseline-w{workers}-r*.json"))]
+              candidate = [json.loads(p.read_text()) for p in sorted(root.glob(f"candidate-w{workers}-r*.json"))]
+              if len(baseline) != 3 or len(candidate) != 3:
+                  raise SystemExit(f"Expected three paired samples for workers={workers}")
+              for label, samples in (("baseline", baseline), ("candidate", candidate)):
+                  if any(s["unprocessed_events"] != 0 for s in samples):
+                      raise SystemExit(f"{label} left events unprocessed at workers={workers}")
+
+              median = statistics.median
+              base_tps = median(s["throughput_events_per_second"] for s in baseline)
+              cand_tps = median(s["throughput_events_per_second"] for s in candidate)
+              base_p99 = median(s["latency_ms"]["p99"] for s in baseline)
+              cand_p99 = median(s["latency_ms"]["p99"] for s in candidate)
+              base_mem = median(s["peak_traced_memory_bytes"] for s in baseline)
+              cand_mem = median(s["peak_traced_memory_bytes"] for s in candidate)
+              summary["results"].append({
+                  "workers": workers,
+                  "baseline_median_events_per_second": round(base_tps, 2),
+                  "candidate_median_events_per_second": round(cand_tps, 2),
+                  "throughput_change_percent": round((cand_tps / base_tps - 1) * 100, 2),
+                  "baseline_median_p99_ms": round(base_p99, 4),
+                  "candidate_median_p99_ms": round(cand_p99, 4),
+                  "p99_change_percent": round((cand_p99 / base_p99 - 1) * 100, 2) if base_p99 else None,
+                  "baseline_median_peak_traced_bytes": int(base_mem),
+                  "candidate_median_peak_traced_bytes": int(cand_mem),
+                  "peak_traced_memory_change_percent": round((cand_mem / base_mem - 1) * 100, 2) if base_mem else None,
+              })
+
+          (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload raw samples and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-pipeline-paired-benchmark-${{ github.run_id }}
+          path: benchmark-results/
+          if-no-files-found: warn
+          retention-days: 30
