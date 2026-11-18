@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from argusprowl.interfaces.storage import Storage
-from argusprowl.storage import ClickHouseAdapter, PostgreSQLAdapter, RedisAdapter, SQLiteAdapter
+from argusprowl.storage import ClickHouseAdapter, RedisAdapter, SQLiteAdapter
 
 
 def test_sqlite_adapter_implements_storage(tmp_path) -> None:
@@ -15,7 +15,7 @@ def test_sqlite_adapter_implements_storage(tmp_path) -> None:
     adapter.close()
 
 
-@pytest.mark.parametrize("adapter_type", [PostgreSQLAdapter, ClickHouseAdapter, RedisAdapter])
+@pytest.mark.parametrize("adapter_type", [ClickHouseAdapter, RedisAdapter])
 def test_future_storage_adapters_are_explicit_skeletons(adapter_type) -> None:
     adapter = adapter_type()
     assert isinstance(adapter, Storage)

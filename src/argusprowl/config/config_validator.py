@@ -137,6 +137,29 @@ class ConfigValidator:
             storage_cfg.get("database_path")
         ):
             raise ValidationError("storage.database_path must be a non-empty string for sqlite.")
+        if backend.lower() == "postgresql":
+            if not is_non_empty_string(storage_cfg.get("connection_string")):
+                raise ValidationError(
+                    "storage.connection_string must be set for the postgresql backend."
+                )
+            min_size = storage_cfg.get("pool_min_size", 1)
+            max_size = storage_cfg.get("pool_max_size", 10)
+            if (
+                not isinstance(min_size, int) or isinstance(min_size, bool) or min_size < 1
+                or not isinstance(max_size, int) or isinstance(max_size, bool)
+                or max_size < min_size
+            ):
+                raise ValidationError(
+                    "PostgreSQL pool sizes must satisfy 1 <= pool_min_size <= pool_max_size."
+                )
+            for key in ("pool_timeout_seconds", "connect_timeout_seconds"):
+                value = storage_cfg.get(key, 10.0)
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or value <= 0
+                ):
+                    raise ValidationError(f"storage.{key} must be a positive number.")
 
     def _validate_telemetry_evidence_section(self, evidence_cfg: Any) -> None:
         if not isinstance(evidence_cfg, dict):
