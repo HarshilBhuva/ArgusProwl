@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -208,4 +209,105 @@ def test_attck_investigation_filters_alerts_by_owner(tmp_path) -> None:
     # An inaccessible alert is indistinguishable from a missing alert.
     assert client.get(path, headers=_headers(BOB_KEY)).status_code == 404
     assert client.get(path, headers=_headers(ADMIN_KEY)).status_code == 200
+    ServiceContainer.reset_instance()
+
+
+def test_alert_and_evidence_provenance_hide_foreign_event_references(tmp_path) -> None:
+    client = _client(tmp_path)
+    container = ServiceContainer.get_instance()
+    queue = container.resolve(AlertQueue)
+    evidence = container.resolve(TelemetryEvidenceService)
+
+    source_event = NormalizedEvent(
+        source_type="test",
+        event_type="process_start",
+        metadata={"owner_subject": "alice"},
+    )
+    alice_contributor = NormalizedEvent(
+        source_type="test",
+        event_type="network_connection",
+        metadata={"owner_subject": "alice"},
+    )
+    bob_contributor = NormalizedEvent(
+        source_type="test",
+        event_type="network_connection",
+        metadata={"owner_subject": "bob"},
+    )
+    foreign_source_event = NormalizedEvent(
+        source_type="test",
+        event_type="process_start",
+        metadata={"owner_subject": "bob"},
+    )
+    for event in (
+        source_event,
+        alice_contributor,
+        bob_contributor,
+        foreign_source_event,
+    ):
+        evidence.record_event(event)
+
+    detection_result_id = uuid4()
+    evidence.record_provenance(
+        event_id=source_event.event_id,
+        provenance="DETECTION_SOURCE",
+        detection_result_id=detection_result_id,
+        contributing_event_ids=(bob_contributor.event_id, alice_contributor.event_id),
+    )
+    alert = Alert(
+        title="Alice correlated alert",
+        description="Alert with mixed-owner provenance references",
+        severity=Severity.HIGH,
+        source="test",
+        metadata={
+            "owner_subject": "alice",
+            "event_id": str(foreign_source_event.event_id),
+        },
+        detection_source_event_id=foreign_source_event.event_id,
+        contributing_event_ids=(bob_contributor.event_id, alice_contributor.event_id),
+    )
+    queue.enqueue(alert)
+
+    alice_alert = client.get(
+        f"/api/v1/alerts/{alert.alert_id}", headers=_headers(ALICE_KEY)
+    )
+    assert alice_alert.status_code == 200
+    alert_data = alice_alert.json()
+    assert alert_data["detection_source_event_id"] is None
+    assert "event_id" not in alert_data["metadata"]
+    assert alert_data["contributing_event_ids"] == [str(alice_contributor.event_id)]
+    assert set(alert_data["contributing_event_status"]) == {
+        str(alice_contributor.event_id)
+    }
+
+    alice_detail = client.get(
+        f"/api/v1/evidence/{source_event.event_id}", headers=_headers(ALICE_KEY)
+    )
+    assert alice_detail.status_code == 200
+    assert alice_detail.json()["record"]["contributing_event_ids"] == [
+        str(alice_contributor.event_id)
+    ]
+
+    alice_search = client.get(
+        f"/api/v1/evidence?event_id={source_event.event_id}",
+        headers=_headers(ALICE_KEY),
+    )
+    assert alice_search.status_code == 200
+    assert alice_search.json()["records"][0]["contributing_event_ids"] == [
+        str(alice_contributor.event_id)
+    ]
+
+    admin_alert = client.get(
+        f"/api/v1/alerts/{alert.alert_id}", headers=_headers(ADMIN_KEY)
+    )
+    assert admin_alert.status_code == 200
+    assert admin_alert.json()["detection_source_event_id"] == str(
+        foreign_source_event.event_id
+    )
+    assert admin_alert.json()["metadata"]["event_id"] == str(
+        foreign_source_event.event_id
+    )
+    assert set(admin_alert.json()["contributing_event_ids"]) == {
+        str(alice_contributor.event_id),
+        str(bob_contributor.event_id),
+    }
     ServiceContainer.reset_instance()

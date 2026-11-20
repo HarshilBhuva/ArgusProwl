@@ -176,7 +176,7 @@ def _build_metrics_response(snapshot) -> MetricsResponse:
     )
 
 
-def _build_alert_response(alert) -> AlertResponse:
+def _build_alert_response(alert, request: Request | None = None) -> AlertResponse:
     """Build an AlertResponse from an Alert domain object."""
     from argusprowl.models.alert import Alert
 
@@ -192,6 +192,38 @@ def _build_alert_response(alert) -> AlertResponse:
             created_at="",
         )
 
+    metadata = dict(alert.metadata)
+    contributing_event_ids = tuple(alert.contributing_event_ids)
+    detection_source_event_id = alert.detection_source_event_id
+    if (
+        request is not None
+        and getattr(request.app.state, "auth_enabled", False)
+        and getattr(getattr(request.state, "principal", None), "role", "anonymous") != "admin"
+    ):
+        metadata_event_id = metadata.get("event_id")
+        referenced_ids = list(contributing_event_ids)
+        if detection_source_event_id is not None:
+            referenced_ids.append(detection_source_event_id)
+        parsed_metadata_event_id = None
+        if metadata_event_id is not None:
+            try:
+                parsed_metadata_event_id = UUID(str(metadata_event_id))
+            except (TypeError, ValueError):
+                metadata.pop("event_id", None)
+            else:
+                referenced_ids.append(parsed_metadata_event_id)
+        visible_ids = set(_filter_accessible_evidence_ids(request, referenced_ids))
+        contributing_event_ids = tuple(
+            event_id for event_id in contributing_event_ids if event_id in visible_ids
+        )
+        if detection_source_event_id not in visible_ids:
+            detection_source_event_id = None
+        if (
+            parsed_metadata_event_id is not None
+            and parsed_metadata_event_id not in visible_ids
+        ):
+            metadata.pop("event_id", None)
+
     return AlertResponse(
         alert_id=str(alert.alert_id),
         title=alert.title,
@@ -204,7 +236,7 @@ def _build_alert_response(alert) -> AlertResponse:
         source=alert.source,
         created_at=alert.created_at.isoformat(),
         tags=list(alert.tags),
-        metadata=dict(alert.metadata),
+        metadata=metadata,
         schema_version=alert.schema_version,
         assessment_id=str(alert.assessment_id) if alert.assessment_id else None,
         detector_confidence=alert.detector_confidence,
@@ -215,12 +247,66 @@ def _build_alert_response(alert) -> AlertResponse:
         investigation_pivots=list(alert.investigation_pivots),
         entity_context=dict(alert.entity_context) if alert.entity_context else None,
         incident_id=str(alert.incident_id) if alert.incident_id else None,
-        detection_source_event_id=str(alert.detection_source_event_id)
-        if alert.detection_source_event_id
+        detection_source_event_id=str(detection_source_event_id)
+        if detection_source_event_id
         else None,
-        contributing_event_ids=[str(eid) for eid in alert.contributing_event_ids],
-        contributing_event_status=_resolve_contributing_event_status(alert.contributing_event_ids),
+        contributing_event_ids=[str(eid) for eid in contributing_event_ids],
+        contributing_event_status=_resolve_contributing_event_status(contributing_event_ids),
     )
+
+
+def _filter_accessible_evidence_ids(
+    request: Request,
+    event_ids: tuple[UUID, ...] | list[UUID],
+) -> tuple[UUID, ...]:
+    """Return only event references the current non-admin principal may access.
+
+    Visibility decisions are cached for the lifetime of the request so alert
+    and evidence projections do not repeat the same durable detail lookup.
+    Missing, evicted, or unresolvable events are hidden from non-admin users.
+    """
+    unique_ids = tuple(dict.fromkeys(event_ids))
+    if (
+        not getattr(request.app.state, "auth_enabled", False)
+        or getattr(getattr(request.state, "principal", None), "role", "anonymous") == "admin"
+    ):
+        return unique_ids
+    if not unique_ids:
+        return ()
+
+    cache = getattr(request.state, "evidence_event_access_cache", None)
+    if cache is None:
+        cache = {}
+        request.state.evidence_event_access_cache = cache
+
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(TelemetryEvidenceService):
+        return ()
+    try:
+        service = container.resolve(TelemetryEvidenceService)
+    except Exception:
+        logger.warning("Could not resolve evidence service for reference authorization")
+        return ()
+
+    for event_id in unique_ids:
+        key = str(event_id)
+        if key in cache:
+            continue
+        try:
+            detail = service.get_detail(event_id)
+            cache[key] = bool(
+                detail is not None
+                and detail.event is not None
+                and can_access_object(request, detail.event)
+            )
+        except Exception:
+            logger.warning("Could not verify ownership of evidence reference %s", key)
+            cache[key] = False
+
+    return tuple(event_id for event_id in unique_ids if cache.get(str(event_id), False))
 
 
 def _resolve_contributing_event_status(
@@ -416,7 +502,7 @@ async def get_incident_alerts(incident_id: str, request: Request) -> dict[str, A
             try:
                 alert = search_service.get_alert(alert_id)
                 if alert is not None and can_access_object(request, alert):
-                    alerts_data.append(_build_alert_response(alert).model_dump())
+                    alerts_data.append(_build_alert_response(alert, request).model_dump())
                 elif alert is not None:
                     missing_count += 1
                 else:
@@ -923,7 +1009,7 @@ async def get_alert_detail(alert_id: str, request: Request) -> AlertResponse:
     require_object_access(request, alert, resource_type="Alert", resource_id=str(alert.alert_id))
 
     # Build and return response
-    response = _build_alert_response(alert)
+    response = _build_alert_response(alert, request)
     # Ensure alert_id is included in response
     response.alert_id = str(alert.alert_id)
     return response
@@ -1295,7 +1381,7 @@ async def search_alerts(
         )
 
         alerts = [
-            _build_alert_response(alert)
+            _build_alert_response(alert, request)
             for alert in result.alerts
             if can_access_object(request, alert)
         ]
@@ -1725,7 +1811,7 @@ async def get_entity_detail(
                     aid_str = str(alert_obj.alert_id)
                     if aid_str not in seen_alert_ids:
                         seen_alert_ids.add(aid_str)
-                        alerts_for_key.append(_build_alert_response(alert_obj))
+                        alerts_for_key.append(_build_alert_response(alert_obj, request))
             except Exception as exc:
                 logger.warning("Failed to search alerts for entity key %s: %s", key, exc)
 
@@ -2296,18 +2382,37 @@ async def search_evidence(
         if scoped_event is None or not can_access_object(request, scoped_event):
             raise HTTPException(status_code=404, detail="Event not found")
 
+    restricted = (
+        getattr(request.app.state, "auth_enabled", False)
+        and getattr(getattr(request.state, "principal", None), "role", "anonymous") != "admin"
+    )
+    visible_event_ids = {
+        event_id
+        for event_id, event in result.events.items()
+        if not restricted or can_access_object(request, event)
+    }
     records = [
         EvidenceRecordResponse(
-            event_id=str(r.event_id),
-            provenance=r.provenance,
-            detection_result_id=str(r.detection_result_id) if r.detection_result_id else None,
-            contributing_event_ids=[str(eid) for eid in r.contributing_event_ids],
+            event_id=str(record.event_id),
+            provenance=record.provenance,
+            detection_result_id=str(record.detection_result_id)
+            if record.detection_result_id
+            else None,
+            contributing_event_ids=[
+                str(event_id)
+                for event_id in _filter_accessible_evidence_ids(
+                    request, record.contributing_event_ids
+                )
+            ],
         )
-        for r in result.records
+        for record in result.records
+        if not restricted or record.event_id in visible_event_ids
     ]
 
     events: dict[str, EvidenceEventResponse] = {}
     for eid, event in result.events.items():
+        if restricted and eid not in visible_event_ids:
+            continue
         events[str(eid)] = EvidenceEventResponse(
             event_id=str(event.event_id),
             timestamp=event.timestamp.isoformat(),
@@ -2422,7 +2527,12 @@ async def get_evidence_detail(event_id: str, request: Request) -> dict[str, Any]
             detection_result_id=str(record.detection_result_id)
             if record.detection_result_id
             else None,
-            contributing_event_ids=[str(eid) for eid in record.contributing_event_ids],
+            contributing_event_ids=[
+                str(event_id)
+                for event_id in _filter_accessible_evidence_ids(
+                    request, record.contributing_event_ids
+                )
+            ],
         )
 
     return EvidenceDetailResponse(

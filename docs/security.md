@@ -349,6 +349,13 @@ Missing ownership metadata is treated as unowned. Non-admin callers receive
 the same 404 response for unowned and nonexistent objects. Object-level
 denials are written to the append-only API audit log.
 
+Alert ownership does not automatically grant access to every telemetry event
+referenced by that alert. For non-admin principals, the API filters
+`detection_source_event_id`, `contributing_event_ids`, the duplicated
+`metadata.event_id`, and evidence-record contributor references against
+the event's own ownership metadata. Missing, evicted, or unverifiable referenced
+events are omitted. Administrators retain the complete provenance view.
+
 ATT&CK investigation filters every supplied alert through the same object
 ownership check; inaccessible alert IDs are treated as missing. Incident
 timelines are administrator-only while the timeline service aggregates alerts,
