@@ -50,10 +50,10 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Export locked dependency graph
-        run: uv export --locked --format requirements-txt --no-emit-project > /tmp/requirements.txt
+        run: uv export --locked --all-groups --all-extras --format requirements-txt --no-emit-project > /tmp/requirements.txt
 
       - name: Audit exact locked versions
-        run: uvx --from pip-audit pip-audit --strict -r /tmp/requirements.txt
+        run: uvx --from pip-audit pip-audit --strict --require-hashes -r /tmp/requirements.txt
 
   node:
     name: Audit locked frontend dependencies
