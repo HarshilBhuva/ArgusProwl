@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
+from argusprowl.collectors.suricata.config import SuricataCollectorConfig
 from argusprowl.collectors.suricata import (
     EveFileSource,
     ReplaySuricataEventSource,
@@ -357,6 +358,12 @@ def test_timestamp_parsing() -> None:
 
 
 # 35.11 FILE TAILING & OVERSIZED LINES
+def test_config_rejects_record_limit_above_parser_hard_cap() -> None:
+    config = SuricataCollectorConfig(max_record_size=MAX_RAW_RECORD_BYTES + 1)
+    with pytest.raises(ValueError, match="no greater than"):
+        config.validate()
+
+
 def test_file_tailing_and_oversized_line(tmp_path: Path) -> None:
     eve_file = tmp_path / "eve.json"
     eve_file.write_text(ALERT_EVE + "\n", encoding="utf-8")
