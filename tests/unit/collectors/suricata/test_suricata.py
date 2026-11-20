@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
 from argusprowl.collectors.suricata import (
     EveFileSource,
     ReplaySuricataEventSource,
@@ -310,6 +311,14 @@ def test_parse_unknown_event() -> None:
 
 
 # 35.9 MALFORMED JSON
+def test_parser_rejects_oversized_direct_records() -> None:
+    parser = SuricataParser()
+    oversized = '{"event_type":"alert","payload":"' + ("x" * MAX_RAW_RECORD_BYTES) + '"}'
+    assert not parser.can_parse(oversized)
+    with pytest.raises(ParserError, match="maximum allowed size limit"):
+        parser.parse(oversized)
+
+
 def test_parse_malformed_json() -> None:
     parser = SuricataParser()
 
