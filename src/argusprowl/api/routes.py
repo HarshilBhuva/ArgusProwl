@@ -2824,6 +2824,7 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    hunt_service = _owned_hunt_service(parsed_id, request)
     for event_id in payload.evidence_event_ids:
         _require_evidence_access(request, event_id)
     execution = HuntExecution(
@@ -2839,7 +2840,7 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         truncated=payload.truncated,
     )
     try:
-        hunt = _owned_hunt_service(parsed_id, request).record_execution(parsed_id, execution, _hunt_actor(request))
+        hunt = hunt_service.record_execution(parsed_id, execution, _hunt_actor(request))
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except (HuntConflictError, ValueError) as exc:
@@ -2856,6 +2857,7 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    hunt_service = _owned_hunt_service(parsed_id, request)
     _require_evidence_access(request, payload.event_id)
     reference = HuntEvidenceReference(
         event_id=payload.event_id,
@@ -2864,7 +2866,7 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         note=payload.note,
     )
     try:
-        hunt = _owned_hunt_service(parsed_id, request).attach_evidence(parsed_id, reference)
+        hunt = hunt_service.attach_evidence(parsed_id, reference)
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:
