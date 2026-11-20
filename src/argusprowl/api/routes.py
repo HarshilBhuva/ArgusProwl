@@ -442,7 +442,16 @@ async def get_incident_timeline(
     request: Request,
     limit: int = Query(50, ge=1, le=100, description="Maximum timeline items to return."),
 ) -> dict[str, Any]:
-    """Get investigation timeline for an incident by extracting entity keys from constituent alerts."""
+    """Get an administrator-scoped timeline for an incident's shared entity."""
+    principal = getattr(request.state, "principal", None)
+    if (
+        getattr(request.app.state, "auth_enabled", False)
+        and getattr(principal, "role", "anonymous") != "admin"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Incident timelines require administrator access until entity evidence is owner-filtered",
+        )
     import uuid
 
     from argusprowl.dependency_injection.container import ServiceContainer
@@ -2474,6 +2483,7 @@ async def get_attck_overview() -> AttckOverviewResponse:
     response_model=AttckInvestigationResponse,
 )
 async def get_attck_investigation(
+    request: Request,
     alert_ids: str = Query(
         ...,
         description="Comma-separated alert IDs to investigate for ATT&CK observations.",
@@ -2513,9 +2523,10 @@ async def get_attck_investigation(
         if alert is None and container.is_registered(AlertPersistence):
             with contextlib.suppress(Exception):
                 alert = container.resolve(AlertPersistence).load_alert(parsed)
-        if alert is not None:
+        if alert is not None and can_access_object(request, alert):
             alerts.append(alert)
         else:
+            # Conceal inaccessible alert IDs just like missing alert IDs.
             not_found.append(aid)
 
     if not alerts and not_found:
@@ -2579,6 +2590,33 @@ def _owned_hunt_service(hunt_id: UUID, request):
         # Use 404 to avoid disclosing another analyst's hunt identifiers.
         raise HTTPException(status_code=404, detail="Hunt not found")
     return service
+
+
+def _require_evidence_access(request: Request, event_id: UUID) -> None:
+    """Require a non-admin principal to own every telemetry event linked to a hunt."""
+    if (
+        not getattr(request.app.state, "auth_enabled", False)
+        or _hunt_role(request) == "admin"
+    ):
+        return
+
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(TelemetryEvidenceService):
+        raise HTTPException(status_code=503, detail="Telemetry evidence service not available")
+    try:
+        detail = container.resolve(TelemetryEvidenceService).get_detail(event_id)
+    except Exception as exc:
+        logger.warning("Could not verify hunt evidence ownership: %s", exc)
+        raise HTTPException(status_code=503, detail="Telemetry evidence lookup unavailable") from exc
+
+    if detail is None or detail.event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    require_object_access(
+        request, detail.event, resource_type="Event", resource_id=str(event_id)
+    )
 
 
 def _hunt_payload(hunt) -> dict[str, object]:
@@ -2730,6 +2768,31 @@ async def execute_hunt_query(hunt_id: str, query_id: str, request: Request, vers
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt or query not found") from exc
     service = _owned_hunt_service(parsed_hunt_id, request)
+    if (
+        getattr(request.app.state, "auth_enabled", False)
+        and _hunt_role(request) != "admin"
+    ):
+        hunt = service.get_hunt(parsed_hunt_id)
+        saved_query = next(
+            (
+                item for item in (hunt.queries if hunt is not None else ())
+                if item.query_id == parsed_query_id and item.version == version
+            ),
+            None,
+        )
+        if saved_query is not None:
+            if not isinstance(saved_query.definition, dict) or "event_id" not in saved_query.definition:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Analyst hunt queries require an exact event ID; broad evidence searches are administrator-only",
+                )
+            try:
+                scoped_event_id = UUID(str(saved_query.definition["event_id"]))
+            except (TypeError, ValueError):
+                # Preserve the query service's normal validation/failure receipt.
+                pass
+            else:
+                _require_evidence_access(request, scoped_event_id)
     container = ServiceContainer.get_instance()
     if not container.is_registered(HuntQueryExecutionService):
         raise HTTPException(status_code=503, detail="Hunt query execution service not available")
@@ -2772,6 +2835,9 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    hunt_service = _owned_hunt_service(parsed_id, request)
+    for event_id in payload.evidence_event_ids:
+        _require_evidence_access(request, event_id)
     execution = HuntExecution(
         query_id=payload.query_id,
         query_version=payload.query_version,
@@ -2785,7 +2851,7 @@ async def record_hunt_execution(hunt_id: str, payload: HuntExecutionRequest, req
         truncated=payload.truncated,
     )
     try:
-        hunt = _owned_hunt_service(parsed_id, request).record_execution(parsed_id, execution, _hunt_actor(request))
+        hunt = hunt_service.record_execution(parsed_id, execution, _hunt_actor(request))
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except (HuntConflictError, ValueError) as exc:
@@ -2802,6 +2868,8 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         parsed_id = UUID(hunt_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
+    hunt_service = _owned_hunt_service(parsed_id, request)
+    _require_evidence_access(request, payload.event_id)
     reference = HuntEvidenceReference(
         event_id=payload.event_id,
         role=payload.role,
@@ -2809,7 +2877,7 @@ async def attach_hunt_evidence(hunt_id: str, payload: HuntEvidenceRequest, reque
         note=payload.note,
     )
     try:
-        hunt = _owned_hunt_service(parsed_id, request).attach_evidence(parsed_id, reference)
+        hunt = hunt_service.attach_evidence(parsed_id, reference)
     except HuntNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Hunt not found") from exc
     except HuntConflictError as exc:

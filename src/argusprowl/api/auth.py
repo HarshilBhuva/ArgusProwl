@@ -42,7 +42,7 @@ _VIEWER_READ_PATTERNS = tuple(
         r"^/api/v1/auth/me$",
         r"^/api/v1/health/details$",
         r"^/api/v1/incidents$",
-        r"^/api/v1/incidents/[^/]+(?:/(?:alerts|timeline|annotations))?$",
+        r"^/api/v1/incidents/[^/]+(?:/(?:alerts|annotations))?$",
         r"^/api/v1/alerts(?:/[^/]+)?$",
         r"^/api/v1/metrics$",
         r"^/api/v1/entities(?:/intelligence|/[^/]+/[^/]+(?:/(?:relationships|evidence|annotations|timeline))?)?$",

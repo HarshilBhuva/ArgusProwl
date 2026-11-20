@@ -110,6 +110,12 @@ def test_incident_list_and_detail_are_owner_scoped(tmp_path) -> None:
     assert client.get(
         f"/api/v1/incidents/{incident.incident_id}", headers=_headers(ADMIN_KEY)
     ).status_code == 200
+    # The current timeline implementation aggregates all telemetry for a host;
+    # until it can apply owner filters before aggregation, non-admin access is denied.
+    assert client.get(
+        f"/api/v1/incidents/{incident.incident_id}/timeline",
+        headers=_headers(ALICE_KEY),
+    ).status_code == 403
     ServiceContainer.reset_instance()
 
 
@@ -167,4 +173,39 @@ def test_unowned_legacy_alerts_and_evidence_are_hidden_from_analysts(tmp_path) -
     assert client.get(
         f"/api/v1/alerts/{alert.alert_id}", headers=_headers(ADMIN_KEY)
     ).status_code == 200
+    ServiceContainer.reset_instance()
+
+
+def test_attck_investigation_filters_alerts_by_owner(tmp_path) -> None:
+    client = _client(tmp_path)
+    queue = ServiceContainer.get_instance().resolve(AlertQueue)
+    alert = Alert(
+        title="Alice ATT&CK alert",
+        description="Owner-scoped investigation source",
+        severity=Severity.HIGH,
+        source="test",
+        metadata={
+            "owner_subject": "alice",
+            "attck_observations": [
+                {
+                    "technique_id": "T1059",
+                    "mapping_type": "DIRECT",
+                    "version": "14.1",
+                    "technique_name": "Command and Scripting Interpreter",
+                    "tactic": "Execution",
+                    "rationale": "Observed command execution",
+                }
+            ],
+        },
+    )
+    queue.enqueue(alert)
+    path = f"/api/v1/attck/investigation?alert_ids={alert.alert_id}"
+
+    alice = client.get(path, headers=_headers(ALICE_KEY))
+    assert alice.status_code == 200
+    assert alice.json()["alert_count"] == 1
+
+    # An inaccessible alert is indistinguishable from a missing alert.
+    assert client.get(path, headers=_headers(BOB_KEY)).status_code == 404
+    assert client.get(path, headers=_headers(ADMIN_KEY)).status_code == 200
     ServiceContainer.reset_instance()
