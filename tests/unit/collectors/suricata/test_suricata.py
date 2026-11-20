@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
-from argusprowl.collectors.suricata.config import SuricataCollectorConfig
 from argusprowl.collectors.suricata import (
     EveFileSource,
     ReplaySuricataEventSource,
@@ -15,6 +14,7 @@ from argusprowl.collectors.suricata import (
     SuricataParser,
     SuricataRawRecord,
 )
+from argusprowl.collectors.suricata.config import SuricataCollectorConfig
 from argusprowl.exceptions.exceptions import ParserError
 from argusprowl.models.normalized_event import NormalizedEvent
 
