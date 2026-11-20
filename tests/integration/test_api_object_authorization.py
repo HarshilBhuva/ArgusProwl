@@ -233,7 +233,17 @@ def test_alert_and_evidence_provenance_hide_foreign_event_references(tmp_path) -
         event_type="network_connection",
         metadata={"owner_subject": "bob"},
     )
-    for event in (source_event, alice_contributor, bob_contributor):
+    foreign_source_event = NormalizedEvent(
+        source_type="test",
+        event_type="process_start",
+        metadata={"owner_subject": "bob"},
+    )
+    for event in (
+        source_event,
+        alice_contributor,
+        bob_contributor,
+        foreign_source_event,
+    ):
         evidence.record_event(event)
 
     detection_result_id = uuid4()
@@ -250,9 +260,9 @@ def test_alert_and_evidence_provenance_hide_foreign_event_references(tmp_path) -
         source="test",
         metadata={
             "owner_subject": "alice",
-            "event_id": str(source_event.event_id),
+            "event_id": str(foreign_source_event.event_id),
         },
-        detection_source_event_id=source_event.event_id,
+        detection_source_event_id=foreign_source_event.event_id,
         contributing_event_ids=(bob_contributor.event_id, alice_contributor.event_id),
     )
     queue.enqueue(alert)
@@ -262,8 +272,8 @@ def test_alert_and_evidence_provenance_hide_foreign_event_references(tmp_path) -
     )
     assert alice_alert.status_code == 200
     alert_data = alice_alert.json()
-    assert alert_data["detection_source_event_id"] == str(source_event.event_id)
-    assert alert_data["metadata"]["event_id"] == str(source_event.event_id)
+    assert alert_data["detection_source_event_id"] is None
+    assert "event_id" not in alert_data["metadata"]
     assert alert_data["contributing_event_ids"] == [str(alice_contributor.event_id)]
     assert set(alert_data["contributing_event_status"]) == {
         str(alice_contributor.event_id)
@@ -290,6 +300,12 @@ def test_alert_and_evidence_provenance_hide_foreign_event_references(tmp_path) -
         f"/api/v1/alerts/{alert.alert_id}", headers=_headers(ADMIN_KEY)
     )
     assert admin_alert.status_code == 200
+    assert admin_alert.json()["detection_source_event_id"] == str(
+        foreign_source_event.event_id
+    )
+    assert admin_alert.json()["metadata"]["event_id"] == str(
+        foreign_source_event.event_id
+    )
     assert set(admin_alert.json()["contributing_event_ids"]) == {
         str(alice_contributor.event_id),
         str(bob_contributor.event_id),
