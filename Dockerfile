@@ -7,7 +7,7 @@
 # and no Node/npm tooling remains in the runtime stage.
 
 # --- Stage 1: Frontend build (Node 22 LTS, pinned package-lock) ---
-FROM node:22-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 
 WORKDIR /build
 
