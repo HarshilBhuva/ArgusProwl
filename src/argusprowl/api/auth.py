@@ -318,7 +318,41 @@ class ApiKeyAuthService:
         return principal, f"{encoded_payload}.{self._encode_segment(signature)}"
 
     def authenticate_session(self, token: str | None) -> AuthPrincipal | None:
-        """Validate signature, expiry, and current credential state for a session."""
+        """Validate signature, expiry, credential state, and session revocation."""
+        return self._authenticate_session(token, check_revocation=True)
+
+    def revoke_session(self, token: str | None, *, revoked_by: str) -> bool:
+        """Persistently revoke a valid browser session, including copied tokens."""
+        if not self.auth_enabled or self._revocation_store is None:
+            return False
+        principal = self._authenticate_session(token, check_revocation=False)
+        if principal is None or token is None:
+            return False
+        try:
+            encoded_payload, _encoded_signature = token.split(".", 1)
+            payload = json.loads(self._decode_segment(encoded_payload))
+            token_id = payload["jti"]
+            expires_at = payload["exp"]
+            if (
+                not isinstance(token_id, str)
+                or not token_id
+                or not isinstance(expires_at, int)
+                or isinstance(expires_at, bool)
+            ):
+                return False
+            self._revocation_store.revoke_session(
+                token_id,
+                datetime.fromtimestamp(expires_at, UTC),
+                revoked_by=revoked_by,
+            )
+        except (KeyError, TypeError, ValueError):
+            return False
+        return True
+
+    def _authenticate_session(
+        self, token: str | None, *, check_revocation: bool
+    ) -> AuthPrincipal | None:
+        """Validate a signed session, optionally bypassing only its revocation lookup."""
         if not self.auth_enabled or not token or len(token) > 4096:
             return None
         try:
@@ -362,8 +396,17 @@ class ApiKeyAuthService:
                 return None
             if principal.subject != subject or principal.role != role:
                 return None
+            if check_revocation and self._revocation_store is not None:
+                try:
+                    if self._revocation_store.is_session_revoked(token_id):
+                        return None
+                except Exception:
+                    logger.exception(
+                        "Session revocation store unavailable; rejecting browser session"
+                    )
+                    return None
             return principal
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
             return None
 
 
