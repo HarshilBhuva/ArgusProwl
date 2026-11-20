@@ -1,4 +1,4 @@
-"""Persistent API-key revocation and bounded authentication throttling."""
+"""Persistent API-key/session revocation and bounded authentication throttling."""
 
 from __future__ import annotations
 
@@ -38,6 +38,22 @@ class ApiKeyRevocationStore:
                 )
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS api_session_revocations (
+                    token_id TEXT PRIMARY KEY,
+                    expires_at TEXT NOT NULL,
+                    revoked_at TEXT NOT NULL,
+                    revoked_by TEXT NOT NULL
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_api_session_revocations_expires_at
+                ON api_session_revocations (expires_at)
+                """
+            )
 
     def is_revoked(self, key_id: str) -> bool:
         """Check revocation state on every authentication attempt."""
@@ -59,6 +75,40 @@ class ApiKeyRevocationStore:
                 (key_id, datetime.now(UTC).isoformat(), revoked_by),
             )
         return cursor.rowcount == 1
+
+    def is_session_revoked(self, token_id: str) -> bool:
+        """Check whether a browser session token ID has been revoked."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT 1 FROM api_session_revocations WHERE token_id = ?",
+                (token_id,),
+            ).fetchone()
+        return row is not None
+
+    def revoke_session(
+        self,
+        token_id: str,
+        expires_at: datetime,
+        *,
+        revoked_by: str,
+    ) -> None:
+        """Persist a session revocation until its signed token expires."""
+        if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+            raise ValueError("Session expiry must be timezone-aware.")
+        now = datetime.now(UTC)
+        with self._lock, self._connection:
+            self._connection.execute(
+                "DELETE FROM api_session_revocations WHERE expires_at <= ?",
+                (now.isoformat(),),
+            )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO api_session_revocations
+                    (token_id, expires_at, revoked_at, revoked_by)
+                VALUES (?, ?, ?, ?)
+                """,
+                (token_id, expires_at.astimezone(UTC).isoformat(), now.isoformat(), revoked_by),
+            )
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
