@@ -6,6 +6,7 @@ from threading import Thread
 
 import pytest
 
+from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
 from argusprowl.collectors.state import CollectorState
 from argusprowl.collectors.windows_event_log import (
     ReplayWindowsEventSource,
@@ -169,6 +170,16 @@ def test_parser_handles_unknown_optional_and_invalid_records() -> None:
         parser.parse('<Event xmlns="urn:invalid"><System/></Event>')
     with pytest.raises(ParserError):
         parser.parse(_xml(4624, data={"IpPort": "invalid"}))
+
+
+def test_parser_rejects_oversized_xml_records() -> None:
+    parser = WindowsEventParser()
+    oversized = "<Event>" + ("x" * MAX_RAW_RECORD_BYTES) + "</Event>"
+    assert not parser.can_parse(oversized)
+    with pytest.raises(ParserError, match="maximum allowed size limit"):
+        parser.parse(oversized)
+    with pytest.raises(ParserError, match="maximum allowed size limit"):
+        parser.parse(WindowsEventRawRecord(oversized, "Security"))
 
 
 def test_parser_rejects_doctype_and_external_entities() -> None:

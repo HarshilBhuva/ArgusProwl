@@ -9,6 +9,7 @@ from xml.etree.ElementTree import Element
 from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
 
+from argusprowl.collectors.limits import exceeds_raw_record_limit
 from argusprowl.collectors.sysmon.events import SysmonRawRecord
 from argusprowl.constants.event_type import EventType
 from argusprowl.constants.source_type import SourceType
@@ -36,10 +37,16 @@ class SysmonParser(Parser):
     """Maps Sysmon's System/EventData XML to source-neutral NormalizedEvent."""
 
     def can_parse(self, raw_data: str) -> bool:
-        return isinstance(raw_data, str) and raw_data.lstrip().startswith("<Event")
+        return (
+            isinstance(raw_data, str)
+            and not exceeds_raw_record_limit(raw_data)
+            and raw_data.lstrip().startswith("<Event")
+        )
 
     def parse(self, raw_data: str | SysmonRawRecord) -> NormalizedEvent:
         record = raw_data if isinstance(raw_data, SysmonRawRecord) else SysmonRawRecord(raw_data)
+        if exceeds_raw_record_limit(record.xml):
+            raise ParserError("Sysmon XML record exceeds maximum allowed size limit")
         try:
             root = ElementTree.fromstring(record.xml)
         except (ElementTree.ParseError, DefusedXmlException) as exc:

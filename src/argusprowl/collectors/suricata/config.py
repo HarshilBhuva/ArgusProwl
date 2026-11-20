@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
+
 SUPPORTED_EVENT_TYPES = frozenset(
     {
         "alert",
@@ -51,8 +53,11 @@ class SuricataCollectorConfig:
             not isinstance(self.max_record_size, int)
             or isinstance(self.max_record_size, bool)
             or self.max_record_size <= 0
+            or self.max_record_size > MAX_RAW_RECORD_BYTES
         ):
-            raise ValueError("max_record_size must be a positive integer")
+            raise ValueError(
+                f"max_record_size must be a positive integer no greater than {MAX_RAW_RECORD_BYTES}"
+            )
         if not self.supported_event_types or any(
             value not in SUPPORTED_EVENT_TYPES for value in self.supported_event_types
         ):

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
 from argusprowl.collectors.sysmon import (
     ReplaySysmonEventSource,
     SysmonBookmarkStore,
@@ -84,6 +85,16 @@ def test_parser_handles_unknown_missing_and_malformed_events() -> None:
         parser.parse("<Event>")
     with pytest.raises(ParserError):
         parser.parse(_xml(1, data={"SourcePort": "bad"}))
+
+
+def test_parser_rejects_oversized_xml_records() -> None:
+    parser = SysmonParser()
+    oversized = "<Event>" + ("x" * MAX_RAW_RECORD_BYTES) + "</Event>"
+    assert not parser.can_parse(oversized)
+    with pytest.raises(ParserError, match="maximum allowed size limit"):
+        parser.parse(oversized)
+    with pytest.raises(ParserError, match="maximum allowed size limit"):
+        parser.parse(SysmonRawRecord(oversized))
 
 
 def test_parser_rejects_doctype_and_external_entities() -> None:
