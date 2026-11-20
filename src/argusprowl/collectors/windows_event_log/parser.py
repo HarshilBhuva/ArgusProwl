@@ -6,6 +6,7 @@ from xml.etree.ElementTree import Element
 from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
 
+from argusprowl.collectors.limits import exceeds_raw_record_limit
 from argusprowl.collectors.windows_event_log.events import WindowsEventRawRecord
 from argusprowl.constants.event_type import EventType
 from argusprowl.constants.source_type import SourceType
@@ -33,7 +34,11 @@ class WindowsEventParser(Parser):
     """Maps namespaced Event/System/EventData XML to NormalizedEvent."""
 
     def can_parse(self, raw_data: str) -> bool:
-        return isinstance(raw_data, str) and raw_data.lstrip().startswith("<Event")
+        return (
+            isinstance(raw_data, str)
+            and not exceeds_raw_record_limit(raw_data)
+            and raw_data.lstrip().startswith("<Event")
+        )
 
     def parse(self, raw_data: str | WindowsEventRawRecord) -> NormalizedEvent:
         record = (
@@ -41,6 +46,8 @@ class WindowsEventParser(Parser):
             if isinstance(raw_data, WindowsEventRawRecord)
             else WindowsEventRawRecord(raw_data, "Security")
         )
+        if exceeds_raw_record_limit(record.xml):
+            raise ParserError("Windows Event XML record exceeds maximum allowed size limit")
         try:
             root = ElementTree.fromstring(record.xml)
         except (ElementTree.ParseError, DefusedXmlException) as exc:
