@@ -6,8 +6,8 @@ from threading import Thread
 
 import pytest
 
-from argusprowl.collectors.state import CollectorState
 from argusprowl.collectors.limits import MAX_RAW_RECORD_BYTES
+from argusprowl.collectors.state import CollectorState
 from argusprowl.collectors.windows_event_log import (
     ReplayWindowsEventSource,
     WindowsEventBookmarkStore,
