@@ -63,11 +63,35 @@ def test_browser_login_issues_httponly_session_and_logout_clears_it(tmp_path) ->
     assert current.json()["subject"] == "analyst-operator"
     assert current.json()["role"] == "analyst"
 
+    stolen_token = client.cookies.get("argusprowl_session")
+    assert stolen_token
+
     logout = client.delete("/api/v1/auth/session")
     assert logout.status_code == 200
     assert logout.json() == {"authenticated": False}
     assert "Max-Age=0" in logout.headers["set-cookie"]
     assert client.get("/api/v1/auth/me").status_code == 401
+
+    # Clearing the browser cookie is not sufficient: a copied token must also
+    # fail after logout, including when checked by a fresh API process.
+    copied_cookie = {"Cookie": f"argusprowl_session={stolen_token}"}
+    assert client.get("/api/v1/auth/me", headers=copied_cookie).status_code == 401
+
+    restarted_app = create_api_app(
+        auth_enabled=True,
+        api_keys={
+            "analyst-key": {
+                "secret": secret,
+                "subject": "analyst-operator",
+                "role": "analyst",
+            }
+        },
+        audit_db_path=str(audit_path),
+    )
+    with TestClient(restarted_app) as restarted_client:
+        assert restarted_client.get(
+            "/api/v1/auth/me", headers=copied_cookie
+        ).status_code == 401
 
     events = AuditLog(str(audit_path)).list_events(limit=50)
     event_types = {event["event_type"] for event in events}
@@ -95,6 +119,55 @@ def test_logout_clears_cookie_even_if_audit_storage_fails(tmp_path, monkeypatch)
     assert "Max-Age=0" in logout.headers["set-cookie"]
     assert client.get("/api/v1/auth/me").status_code == 401
 
+
+
+def test_logout_reports_revocation_store_failure_and_still_clears_cookie(
+    tmp_path, monkeypatch
+) -> None:
+    client, secret, _audit_path = _client(tmp_path, "analyst")
+    login = client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    )
+    assert login.status_code == 200
+
+    def fail_revocation(*_args, **_kwargs):
+        raise OSError("revocation store unavailable")
+
+    monkeypatch.setattr(
+        client.app.state.api_key_revocation_store,
+        "revoke_session",
+        fail_revocation,
+    )
+    logout = client.delete("/api/v1/auth/session")
+
+    assert logout.status_code == 503
+    assert "Max-Age=0" in logout.headers["set-cookie"]
+
+
+def test_session_authentication_fails_closed_when_revocation_store_is_unavailable(
+    tmp_path, monkeypatch
+) -> None:
+    client, secret, _audit_path = _client(tmp_path, "analyst")
+    login = client.post(
+        "/api/v1/auth/session",
+        json={"api_key": secret},
+        headers={"Origin": "http://testserver"},
+    )
+    assert login.status_code == 200
+
+    def fail_lookup(_token_id):
+        raise OSError("revocation store unavailable")
+
+    monkeypatch.setattr(
+        client.app.state.api_key_revocation_store,
+        "is_session_revoked",
+        fail_lookup,
+    )
+    protected = client.get("/api/v1/auth/me")
+
+    assert protected.status_code == 401
 
 
 def test_browser_login_rejects_cross_origin_request(tmp_path) -> None:
@@ -126,6 +199,13 @@ def test_browser_session_cookie_is_secure_when_tls_terminates_at_proxy(tmp_path)
 
     assert response.status_code == 200
     assert "Secure" in response.headers["set-cookie"]
+
+    logout = client.delete(
+        "/api/v1/auth/session",
+        headers={"X-Forwarded-Proto": "https"},
+    )
+    assert logout.status_code == 200
+    assert "Secure" in logout.headers["set-cookie"]
 
 
 def test_invalid_browser_login_is_rejected_and_audited(tmp_path) -> None:
