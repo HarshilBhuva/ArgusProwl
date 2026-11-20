@@ -349,6 +349,13 @@ Missing ownership metadata is treated as unowned. Non-admin callers receive
 the same 404 response for unowned and nonexistent objects. Object-level
 denials are written to the append-only API audit log.
 
+ATT&CK investigation filters every supplied alert through the same object
+ownership check; inaccessible alert IDs are treated as missing. Incident
+timelines are administrator-only while the timeline service aggregates alerts,
+incidents, annotations, and behavior globally for a host. Re-enable analyst or
+viewer timeline access only after the aggregation layer applies owner filters
+before sorting and pagination.
+
 Evidence search is restricted to exact event-ID lookups for non-admin users.
 Global evidence statistics and entity-wide aggregates/relationships are
 administrator-only until the storage/query layer can apply owner filters before
