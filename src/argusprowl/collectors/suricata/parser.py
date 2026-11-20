@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from argusprowl.collectors.limits import exceeds_raw_record_limit
 from argusprowl.collectors.suricata.events import SuricataRawRecord
 from argusprowl.constants.event_type import EventType
 from argusprowl.constants.source_type import SourceType
@@ -39,7 +40,7 @@ class SuricataParser(Parser):
 
     def can_parse(self, raw_data: str) -> bool:
         """Check if raw_data appears to be valid EVE JSON with a timestamp or event_type."""
-        if not isinstance(raw_data, str):
+        if not isinstance(raw_data, str) or exceeds_raw_record_limit(raw_data):
             return False
         cleaned = raw_data.strip()
         if not (cleaned.startswith("{") and cleaned.endswith("}")):
@@ -65,6 +66,8 @@ class SuricataParser(Parser):
 
         if not isinstance(line, str) or not line.strip():
             raise ParserError("Suricata EVE JSON record is empty")
+        if exceeds_raw_record_limit(line):
+            raise ParserError("Suricata EVE record exceeds maximum allowed size limit")
 
         try:
             data = json.loads(line)
