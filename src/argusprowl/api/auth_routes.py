@@ -259,26 +259,41 @@ async def create_session(payload: SessionCreateRequest, request: Request) -> JSO
 @router.delete("/session", summary="End the current browser session")
 async def delete_session(request: Request) -> JSONResponse:
     service: ApiKeyAuthService = request.app.state.auth_service
-    principal = service.authenticate_session(request.cookies.get(service.cookie_name))
+    token = request.cookies.get(service.cookie_name)
+    principal = service.authenticate_session(token)
+    revocation_failed = False
+    if token:
+        try:
+            revoked = service.revoke_session(
+                token,
+                revoked_by=principal.subject if principal is not None else "session-logout",
+            )
+            revocation_failed = not revoked and principal is not None
+        except Exception:
+            # Clear the browser cookie, but report that server-side invalidation
+            # could not be guaranteed. A copied token must not be treated as revoked.
+            logger.exception("Could not persist browser session revocation")
+            revocation_failed = True
     if principal is not None:
         try:
             _audit_login(
                 request,
                 event_type="SESSION_TERMINATED",
                 principal=principal,
-                status_code=200,
+                status_code=200 if not revocation_failed else 503,
             )
         except Exception:
             # Logout must clear the browser credential even if audit storage is down.
             logger.exception("Could not persist browser session termination event")
     response = JSONResponse(
         {"authenticated": False},
+        status_code=503 if revocation_failed else 200,
         headers={"Cache-Control": "no-store"},
     )
     response.delete_cookie(
         key=service.cookie_name,
         path="/api",
-        secure=request.url.scheme == "https",
+        secure=_request_is_secure(request),
         httponly=True,
         samesite="strict",
     )
