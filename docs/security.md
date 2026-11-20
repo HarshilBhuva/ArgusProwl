@@ -164,16 +164,24 @@ When API authentication is enabled, the React client uses the following flow:
 The browser cookie is HttpOnly, SameSite=Strict, scoped to `/api`, and expires
 after one hour. It is marked Secure when the request uses HTTPS. The API key is
 not written to localStorage, sessionStorage, or returned in the login response.
-Session tokens are stateless HMAC-SHA-256 tokens signed with the associated API
-key secret. The API rechecks the credential's enabled and expiry state on every
-request. Browser login and unsafe cookie-authenticated requests require a
-same-origin Origin header; missing or mismatched origins are rejected. When
-deployed behind a TLS reverse proxy, preserve the external Host header and set
-`X-Forwarded-Proto` to the browser-facing scheme so Origin validation and the
-Secure cookie attribute use the public origin. Logout clears the current browser cookie; a copied token cannot be
-individually revoked and remains valid until expiry or credential revocation.
-Cross-origin browser clients should use a separately designed authentication
-boundary; browser sessions are intentionally same-origin only.
+Session tokens are HMAC-SHA-256 signed with the associated API key secret
+and contain a unique token ID. The API rechecks the credential's enabled,
+expiry, and revocation state on every request. Logout persists the token ID in
+the shared SQLite revocation store, so copied tokens are rejected immediately
+and remain revoked across process restarts. Expired session-revocation entries
+are pruned during subsequent revocation writes. If the revocation store cannot
+persist a logout, the browser cookie is still cleared but the endpoint returns
+HTTP 503; do not treat that response as confirmation that copied tokens were
+invalidated. API instances must share the same persistent audit/revocation
+database for revocation to be consistent across workers or replicas.
+
+Browser login and unsafe cookie-authenticated requests require a same-origin
+Origin header; missing or mismatched origins are rejected. When deployed
+behind a TLS reverse proxy, preserve the external Host header and set
+`X-Forwarded-Proto` to the browser-facing scheme so Origin validation and
+Secure cookie creation and deletion use the public origin. Cross-origin
+browser clients should use a separately designed authentication boundary;
+browser sessions are intentionally same-origin only.
 
 Non-browser clients may continue sending `X-ArgusProwl-Key` (or the configured
 header) directly. The detailed component diagnostics at
