@@ -148,11 +148,12 @@ def _parse_key_expiry(value: Any) -> datetime | None:
 
 
 class ApiKeyAuthService:
-    """Validate API keys and issue short-lived, stateless browser sessions.
+    """Validate API keys and issue short-lived, revocable browser sessions.
 
     Session tokens are HMAC-signed with the matching API key secret. Every
-    request revalidates the key's current enabled/expiry state, so rotating or
-    revoking a credential invalidates sessions signed by that credential.
+    request revalidates the key's current enabled/expiry state and the durable
+    session-revocation record, so key or session revocation takes effect
+    immediately across processes sharing the revocation database.
     """
 
     cookie_name = _SESSION_COOKIE_NAME
