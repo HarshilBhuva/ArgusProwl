@@ -1,0 +1,77 @@
+name: Dependency Security Audit
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/dependency-security.yml"
+      - ".github/dependabot.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/dependency-security.yml"
+      - ".github/dependabot.yml"
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Audit locked Python dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Export locked dependency graph
+        run: uv export --frozen --format requirements-txt --no-emit-project > /tmp/requirements.txt
+
+      - name: Audit exact locked versions
+        run: uvx --from pip-audit pip-audit --strict --require-hashes -r /tmp/requirements.txt
+
+  node:
+    name: Audit locked frontend dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Audit exact locked versions
+        run: npm audit --audit-level=high
