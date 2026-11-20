@@ -337,6 +337,14 @@ matches their API-key subject:
 - Telemetry evidence: set `NormalizedEvent.metadata.owner_subject` to that
   subject before persisting the event.
 
+Analyst-owned hunts enforce the same event ownership boundary when evidence is
+attached or execution receipts are recorded. Analysts may execute only exact
+event-ID hunt queries, and the referenced event must belong to their configured
+API-key subject. Broad telemetry searches through hunt execution and
+cross-owner evidence references are administrator-only. This prevents a hunt
+from becoming a path to associate another analyst's telemetry with an
+investigation the caller owns.
+
 Missing ownership metadata is treated as unowned. Non-admin callers receive
 the same 404 response for unowned and nonexistent objects. Object-level
 denials are written to the append-only API audit log.
