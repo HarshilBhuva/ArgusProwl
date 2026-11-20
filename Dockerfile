@@ -22,7 +22,7 @@ RUN npm run build
 # uv is installed via pip into /app/.venv; the venv (with uv as a tool) is
 # then copied to the runtime stage, where uv is available only during the
 # `uv sync` step. The final image retains the venv but uv is not on PATH.
-FROM python:3.13-slim AS dep-builder
+FROM python:3.15-slim AS dep-builder
 
 ARG UV_VERSION=0.7.13
 
@@ -38,7 +38,7 @@ RUN python -m venv /app/.venv \
  && /app/.venv/bin/uv pip uninstall --python /app/.venv/bin/python uv pip setuptools msgpack urllib3
 
 # --- Stage 3: Runtime (Python 3.13, non-root, no uv, no Node) ---
-FROM python:3.13-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 # Refresh Debian security updates in the final stage. The upstream slim tag can
 # lag fixed security packages between image rebuilds (for example, zlib1g).
