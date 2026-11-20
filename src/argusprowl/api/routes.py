@@ -442,7 +442,16 @@ async def get_incident_timeline(
     request: Request,
     limit: int = Query(50, ge=1, le=100, description="Maximum timeline items to return."),
 ) -> dict[str, Any]:
-    """Get investigation timeline for an incident by extracting entity keys from constituent alerts."""
+    """Get an administrator-scoped timeline for an incident's shared entity."""
+    principal = getattr(request.state, "principal", None)
+    if (
+        getattr(request.app.state, "auth_enabled", False)
+        and getattr(principal, "role", "anonymous") != "admin"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Incident timelines require administrator access until entity evidence is owner-filtered",
+        )
     import uuid
 
     from argusprowl.dependency_injection.container import ServiceContainer
@@ -2474,6 +2483,7 @@ async def get_attck_overview() -> AttckOverviewResponse:
     response_model=AttckInvestigationResponse,
 )
 async def get_attck_investigation(
+    request: Request,
     alert_ids: str = Query(
         ...,
         description="Comma-separated alert IDs to investigate for ATT&CK observations.",
@@ -2513,9 +2523,10 @@ async def get_attck_investigation(
         if alert is None and container.is_registered(AlertPersistence):
             with contextlib.suppress(Exception):
                 alert = container.resolve(AlertPersistence).load_alert(parsed)
-        if alert is not None:
+        if alert is not None and can_access_object(request, alert):
             alerts.append(alert)
         else:
+            # Conceal inaccessible alert IDs just like missing alert IDs.
             not_found.append(aid)
 
     if not alerts and not_found:
