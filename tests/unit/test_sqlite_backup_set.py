@@ -131,6 +131,7 @@ def test_backup_set_restores_every_database_into_new_isolated_directory(tmp_path
 
     assert len(document["databases"]) == 3
     assert (restored / "backup-set.json").is_file()
+    assert manager.verify_backup_set(restored) == document
     for name in sources:
         with sqlite3.connect(restored / f"{name}.db") as connection:
             assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"

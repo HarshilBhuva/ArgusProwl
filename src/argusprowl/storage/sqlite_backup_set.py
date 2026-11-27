@@ -114,6 +114,7 @@ class SQLiteBackupSetManager:
                 "databases": entries,
             }
             self._write_json(staging / "backup-set.json", document)
+            self.verify_backup_set(staging)
             self._sync_directory(staging)
             os.rename(staging, destination)
             self._sync_directory(destination.parent)
@@ -238,13 +239,12 @@ class SQLiteBackupSetManager:
             for entry in document["databases"]:
                 filename = str(entry["database_file"])
                 manifest_filename = str(entry["manifest_file"])
-                self._backup_manager.restore_backup(
-                    source / filename,
-                    staging / filename,
-                )
+                shutil.copy2(source / filename, staging / filename)
                 shutil.copy2(source / manifest_filename, staging / manifest_filename)
+                self._backup_manager.verify_backup(staging / filename)
 
             shutil.copy2(source / "backup-set.json", staging / "backup-set.json")
+            self.verify_backup_set(staging)
             self._sync_directory(staging)
             os.rename(staging, destination)
             self._sync_directory(destination.parent)
