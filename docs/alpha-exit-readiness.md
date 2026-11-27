@@ -9,9 +9,9 @@ This document separates verified implementation facts from release requirements 
 
 ## Executive assessment
 
-ArgusProwl now has additional verified reliability coverage: API startup test-harness cleanup, evidence-outage isolation, graceful-shutdown timeout handling, a role/method authorization matrix, a read-only alert/evidence reconciliation CLI, a cross-store partial-commit regression test, a three-store SQLite restore drill, and a real Zeek PCAP replay through a production detection rule.
+ArgusProwl now has additional verified reliability coverage: API startup test-harness cleanup, evidence-outage isolation, graceful-shutdown timeout handling, a role/method authorization matrix, a durable alert/evidence recovery outbox with idempotent replay, startup recovery and an explicit `reconcile alert-evidence --repair` workflow, cross-store partial-commit and restart-recovery tests, a three-store SQLite restore drill, and a real Zeek PCAP replay through a production detection rule.
 
-The current evidence still does **not** justify removing the Alpha designation. Cross-store commits remain non-atomic, missing telemetry cannot be reconstructed automatically, off-host backup automation is absent, and the real-PCAP acceptance case is a benign baseline rather than a malicious efficacy/false-positive evaluation.
+The current evidence still does **not** justify removing the Alpha designation. Alert and evidence stores remain independently committed; the outbox provides at-least-once recovery, not cross-store atomicity or exactly-once processing. Telemetry that was unavailable when an alert's recovery envelope was written cannot be reconstructed. Off-host backup automation is absent, and the real-PCAP acceptance case is a benign baseline rather than a malicious efficacy/false-positive evaluation.
 
 The v1 release target should remain deliberately narrow:
 
@@ -29,7 +29,7 @@ The v1 release target should remain deliberately narrow:
 | Authentication throttling | 10 failures per client IP in 60 seconds, followed by a 5-minute lockout; limiter is process-local | Multi-replica use requires a shared reverse-proxy rate limit or a distributed limiter. |
 | Ingestion overload | Bounded FIFO buffer supports block, drop-newest, and drop-oldest; receive/buffer/process/failure/drop/reject counters and queue-depth metrics are present | Do not treat overflow as invisible. Verify each configured policy and expose loss counters operationally. |
 | Alert queue | Bounded, process-local queue rejects new alerts at capacity; queue state is lost on restart | Do not mistake the analyst workflow queue for durable alert storage. Verify durable alert recovery separately. |
-| Alert/evidence persistence | Independent stores and commits; evidence-write failure is fault-injected; a read-only reconciliation command reports missing references and provenance mismatches; an end-to-end partial-commit test exercises the diagnostic | Cross-store atomicity and automatic retry remain absent. Missing event payloads cannot be rebuilt automatically; keep this as a Beta gate. |
+| Alert/evidence persistence | Independent stores and commits; alert plus recovery envelope share one alert-database transaction; source and available contributor payloads are replayed idempotently at startup and through `reconcile alert-evidence --repair`; replay verifies provenance and retains failed rows with attempt diagnostics; outage and restart paths are tested | Cross-store atomicity and exactly-once processing remain absent. Recovery cannot recreate contributor payloads unavailable when the envelope was captured. Monitor pending count/age and protect duplicated telemetry in the alert database; keep this as a Beta gate. |
 | Evidence persistence | SQLite authoritative JSON records and derived search index are updated transactionally; evidence cache is bounded independently of durable retention | Monitor disk/WAL growth and verify index rebuild/recovery from malformed legacy rows. |
 | Retention | Evidence retention is opt-in and SQLite-only; alert, incident, hunt and audit lifecycles are not governed by the same policy | Define product-level retention and dangling-reference expectations before Stable. |
 | Backup/restore | Online backup/manifest verification and staged restore; an automated restore drill verifies event/evidence, alert, audit, and credential-revocation state across the configured core SQLite stores | Scheduling, off-host copy, encryption, generation retention, and last-success/failure reporting remain open. No RPO/RTO claim. |
@@ -43,8 +43,8 @@ The v1 release target should remain deliberately narrow:
 
 1. **Prove alert/evidence failure behavior — partially validated; recovery remains open.**
    - CI now injects evidence-store failure after a production alert commit and verifies that core processing succeeds while reconciliation reports the missing event reference.
-   - Provider exception logging and evidence persistence counters are covered; the `reconcile alert-evidence` CLI emits bounded JSON findings and a non-zero exit for incomplete/degraded state.
-   - The command is diagnostic only. It does not reconstruct missing telemetry, retry commits, or make the two stores atomic. A durable replay identity/outbox or an explicit repair workflow is still required before Beta.
+   - Provider exception logging and evidence persistence counters are covered; `reconcile alert-evidence` emits bounded JSON findings, and `reconcile alert-evidence --repair` replays pending outbox envelopes before reporting the remaining consistency state.
+   - Repair is at-least-once and idempotent, not a cross-database transaction. It can restore only source/contributor payloads captured in the outbox; unavailable telemetry remains unresolved. Alert persistence and telemetry evidence must both be enabled.
    - Preserve idempotency; do not claim exactly-once delivery.
 
 2. **Prove overload and shutdown behavior — core cases covered.**
