@@ -14,7 +14,9 @@ from argusprowl.core.application import Application
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.detection.detection_manager import DetectionManager
 from argusprowl.interfaces.storage import Storage
+from argusprowl.metrics.collector import MetricsCollector
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.services.telemetry_evidence_service import (
     PROVENANCE_DETECTION_SOURCE,
     TelemetryEvidenceService,
@@ -185,3 +187,39 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
         ) == 1
     finally:
         recovered_app.shutdown()
+
+def test_evidence_persistence_failure_does_not_fail_core_pipeline(tmp_path, monkeypatch, caplog) -> None:
+    """Evidence is a side channel: its outage must be visible but not drop telemetry."""
+    import logging
+
+    config_path = _write_config(tmp_path)
+    app, container, evidence = _start_application(config_path)
+    event = NormalizedEvent(
+        source_type="integration-test",
+        event_type="process_start",
+        hostname="endpoint-evidence-failure-01",
+        process_name="evidence-failure-fixture",
+        raw_event={"fixture": "evidence-persistence-failure"},
+    )
+
+    def fail_record_event(*args, **kwargs):
+        raise StorageError("synthetic evidence-store outage")
+
+    try:
+        detector = container.resolve(DetectionManager)
+        monkeypatch.setattr(detector, "process_feature_vector", lambda _feature: [])
+        monkeypatch.setattr(detector, "process_event", lambda _event: [])
+        monkeypatch.setattr(evidence, "record_event", fail_record_event)
+
+        with caplog.at_level(logging.ERROR):
+            assert app._process_event(event) is True
+
+        metrics = container.resolve(MetricsCollector)
+        assert metrics.get_counter("evidence_persistence_errors").get_value() == 1
+        assert any(
+            "Telemetry evidence persistence failed" in record.getMessage()
+            for record in caplog.records
+        )
+        assert not any("Error processing event" in record.getMessage() for record in caplog.records)
+    finally:
+        app.shutdown()
