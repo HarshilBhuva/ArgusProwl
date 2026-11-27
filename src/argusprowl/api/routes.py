@@ -72,6 +72,7 @@ from argusprowl.api.response_models import (
     RuleListResponse,
     TimelineResponse,
 )
+from argusprowl.api.rule_models import RuleRollbackRequest, RuleUpdateRequest
 from argusprowl.constants.lifecycle import AlertLifecycleState
 from argusprowl.constants.priority import AlertPriority
 from argusprowl.constants.severity import Severity
@@ -3064,3 +3065,143 @@ async def transition_hunt_status(hunt_id: str, payload: HuntStatusRequest, reque
     except HuntServiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _hunt_payload(hunt)
+
+
+def _require_rule_admin(request: Request) -> str:
+    """Fail closed unless a validated admin principal is present."""
+    principal = getattr(request.state, "principal", None)
+    if (
+        not getattr(request.app.state, "auth_enabled", False)
+        or getattr(principal, "role", None) != "admin"
+        or not getattr(principal, "subject", "")
+    ):
+        raise HTTPException(status_code=403, detail="Rule administration requires an authenticated admin")
+    return principal.subject
+
+
+def _rule_lifecycle_service(request: Request):
+    """Resolve lifecycle dependencies only after the admin gate."""
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.detection.detection_manager import DetectionManager
+    from argusprowl.detection.rule_lifecycle_service import RuleLifecycleService
+
+    container = ServiceContainer.get_instance()
+    if not container.is_registered(DetectionManager):
+        raise HTTPException(status_code=503, detail="Detection manager not available")
+    return RuleLifecycleService(
+        rules_dir=request.app.state.rules_dir,
+        revision_store=request.app.state.rule_revision_store,
+        detection_manager=container.resolve(DetectionManager),
+        audit_log=request.app.state.audit_log,
+    )
+
+
+@router.get("/rules/{rule_id}/revisions", summary="List immutable rule revisions")
+async def list_rule_revisions(
+    rule_id: str,
+    request: Request,
+    limit: int = Query(100, ge=1, le=1000),
+) -> dict[str, object]:
+    """Return bounded immutable revision history for a rule."""
+    if len(rule_id) > 128:
+        raise HTTPException(status_code=400, detail="rule_id parameter exceeds maximum length")
+    store = request.app.state.rule_revision_store
+    revisions = store.history(rule_id, limit=limit)
+    return {
+        "rule_id": rule_id,
+        "revisions": [
+            {
+                "rule_id": item.rule_id,
+                "version": item.version,
+                "content_sha256": item.content_sha256,
+                "detector": item.detector,
+                "enabled": item.enabled,
+                "confidence_threshold": item.confidence_threshold,
+                "parameters": item.parameters,
+                "tactic": item.tactic,
+                "technique": item.technique,
+                "source_path": item.source_path,
+                "actor": item.actor,
+                "change_reason": item.change_reason,
+                "created_at": item.created_at,
+                "revision_id": item.revision_id,
+                "rollback_from_version": item.rollback_from_version,
+            }
+            for item in revisions
+        ],
+        "total_count": len(revisions),
+    }
+
+
+@router.put("/rules/{rule_id}", summary="Create and activate a new rule revision")
+async def update_detection_rule(
+    rule_id: str,
+    payload: RuleUpdateRequest,
+    request: Request,
+) -> dict[str, object]:
+    """Validate, persist, audit, and activate an immutable rule revision."""
+    actor = _require_rule_admin(request)
+    try:
+        result = _rule_lifecycle_service(request).update(
+            rule_id,
+            expected_version=payload.expected_version,
+            actor=actor,
+            change_reason=payload.change_reason,
+            enabled=payload.enabled,
+            confidence_threshold=payload.confidence_threshold,
+            parameters=payload.parameters,
+            tactic=payload.tactic,
+            technique=payload.technique,
+            request_id=getattr(request.state, "request_id", None),
+            client_ip=request.client.host if request.client else None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Rule not found") from exc
+    except Exception as exc:
+        from argusprowl.detection.rule_lifecycle_service import RuleVersionConflictError
+        from argusprowl.exceptions.exceptions import DetectionError
+
+        if isinstance(exc, RuleVersionConflictError):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if isinstance(exc, (ValueError, DetectionError)):
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if isinstance(exc, HTTPException):
+            raise
+        logger.exception("Rule revision activation failed")
+        raise HTTPException(status_code=503, detail="Rule revision could not be activated") from exc
+    return result
+
+
+@router.post("/rules/{rule_id}/rollback", summary="Rollback a rule by creating a forward revision")
+async def rollback_detection_rule(
+    rule_id: str,
+    payload: RuleRollbackRequest,
+    request: Request,
+) -> dict[str, object]:
+    """Restore historical rule content as a new, audited forward revision."""
+    actor = _require_rule_admin(request)
+    try:
+        result = _rule_lifecycle_service(request).rollback(
+            rule_id,
+            target_version=payload.target_version,
+            expected_version=payload.expected_version,
+            actor=actor,
+            change_reason=payload.change_reason,
+            request_id=getattr(request.state, "request_id", None),
+            client_ip=request.client.host if request.client else None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Rule not found") from exc
+    except Exception as exc:
+        from argusprowl.detection.rule_lifecycle_service import RuleVersionConflictError
+        from argusprowl.exceptions.exceptions import DetectionError
+
+        if isinstance(exc, RuleVersionConflictError):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if isinstance(exc, (ValueError, DetectionError)):
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if isinstance(exc, HTTPException):
+            raise
+        logger.exception("Rule rollback activation failed")
+        raise HTTPException(status_code=503, detail="Rule rollback could not be activated") from exc
+    return result

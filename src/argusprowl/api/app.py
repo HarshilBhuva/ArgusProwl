@@ -120,6 +120,9 @@ def create_api_app(
     from argusprowl.api.auth_routes import router as auth_router
     from argusprowl.api.auth_store import ApiKeyRevocationStore, FirstRunBootstrapStore
     from argusprowl.api.routes import operational_router, router
+    from argusprowl.constants.paths import ProjectPath
+    from argusprowl.detection.rule_revision_store import RuleRevisionStore
+    from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
     audit_log = AuditLog(audit_db_path)
     revocation_store = ApiKeyRevocationStore(audit_db_path)
@@ -149,6 +152,15 @@ def create_api_app(
             "available only from loopback; read the owner-only token at %s",
             bootstrap_store.token_path,
         )
+    rule_database_path = (
+        Path(f"{audit_db_path}.rules.sqlite")
+        if audit_db_path != ":memory:"
+        else ProjectPath.DATA_DIR / "rule-revisions.sqlite"
+    )
+    rule_storage = SQLiteAdapter(rule_database_path)
+    app.state.rule_revision_store = RuleRevisionStore(rule_storage)
+    app.state.rule_storage = rule_storage
+    app.state.rules_dir = ProjectPath.RULES_DIR
     app.state.audit_log = audit_log
     app.state.auth_enabled = auth_enabled
     app.state.api_key_revocation_store = revocation_store
