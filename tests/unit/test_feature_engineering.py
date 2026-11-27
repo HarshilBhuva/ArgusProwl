@@ -1,7 +1,6 @@
 """Tests for feature engineering module."""
 
 import threading
-import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
