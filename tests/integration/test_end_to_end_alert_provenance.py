@@ -17,6 +17,9 @@ from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.interfaces.storage import Storage
 from argusprowl.metrics.collector import MetricsCollector
 from argusprowl.models.normalized_event import NormalizedEvent
+from argusprowl.services.alert_evidence_reconciliation import (
+    AlertEvidenceReconciliationService,
+)
 from argusprowl.services.telemetry_evidence_service import (
     PROVENANCE_DETECTION_SOURCE,
     TelemetryEvidenceService,
@@ -224,5 +227,55 @@ def test_evidence_persistence_failure_does_not_fail_core_pipeline(
             for record in caplog.records
         )
         assert not any("Error processing event" in record.getMessage() for record in caplog.records)
+    finally:
+        app.shutdown()
+
+def test_persisted_alert_with_evidence_outage_is_reported_as_incomplete(
+    tmp_path, monkeypatch
+) -> None:
+    """A partial cross-store commit must be visible to the reconciliation report."""
+    config_path = _write_config(tmp_path)
+    event_id = uuid4()
+    event = NormalizedEvent(
+        source_type="integration-test",
+        event_type="process_start",
+        event_id=event_id,
+        hostname="endpoint-reconciliation-01",
+        process_name="reconciliation-fixture-process",
+        command_line="reconciliation-fixture-process --test",
+        source_record_id="reconciliation-fixture-001",
+    )
+
+    app, container, evidence = _start_application(config_path)
+    try:
+        manager = container.resolve(DetectionManager)
+        detector = manager.get_detector(PRODUCTION_RULE_ID)
+        assert detector is not None and detector.is_enabled()
+
+        def fail_evidence_write(*args, **kwargs):
+            raise StorageError("injected evidence-store outage after alert commit")
+
+        monkeypatch.setattr(evidence, "record_event", fail_evidence_write)
+
+        # The core detection path completes and commits the alert; the
+        # independent evidence side-channel failure is not a processing failure.
+        assert app._process_event(event) is True
+
+        alert_persistence = container.resolve(AlertPersistence)
+        alerts = alert_persistence.list_all()
+        matching = [
+            alert for alert in alerts.alerts
+            if alert.detection_source_event_id == event_id
+        ]
+        assert len(matching) == 1
+        assert matching[0].source == PRODUCTION_RULE_ID
+
+        report = AlertEvidenceReconciliationService(
+            alert_persistence, evidence
+        ).inspect()
+        assert report.status == "INCOMPLETE"
+        assert report.alerts_checked == 1
+        assert report.incomplete == 1
+        assert report.findings[0].missing_event_ids == (event_id,)
     finally:
         app.shutdown()
