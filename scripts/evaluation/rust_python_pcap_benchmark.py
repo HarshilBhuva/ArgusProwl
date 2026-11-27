@@ -393,22 +393,32 @@ def boundary_checks(binary: Path, workspace: Path) -> dict[str, Any]:
         stream.write((6).to_bytes(4, "little"))
         stream.write((16 * 1024 * 1024 + 4100).to_bytes(4, "little"))
     checks = {}
-    for name, path, expected in (
-        ("capture_size", over_capture, "configured safety limit"),
-        ("packet_record_size", oversized_packet, "packet record exceeds"),
-        ("pcapng_block_size", oversized_block, "PCAPNG block exceeds"),
-    ):
+    cases = (
+        # Use inspect for the whole-file limit: it exercises read_path's metadata
+        # guard directly, before detection-engine initialization.
+        ("capture_size", over_capture, "configured safety limit", "inspect"),
+        ("packet_record_size", oversized_packet, "packet record exceeds", "detect"),
+        ("pcapng_block_size", oversized_block, "PCAPNG block exceeds", "detect"),
+    )
+    for name, path, expected, subcommand in cases:
+        actual_size = path.stat().st_size
+        command = [str(binary), "capture", subcommand, str(path), "--json"]
         completed = subprocess.run(
-            [str(binary), "capture", "detect", str(path), "--json"],
-            capture_output=True, text=True, timeout=30, check=False,
+            command, capture_output=True, text=True, timeout=30, check=False,
         )
         checks[name] = {
+            "file_bytes": actual_size,
             "rejected": completed.returncode != 0,
             "expected_error": expected in completed.stderr,
-            "stderr": completed.stderr[-500:],
+            "returncode": completed.returncode,
+            "stderr": completed.stderr[-1000:],
         }
         if not checks[name]["rejected"] or not checks[name]["expected_error"]:
-            raise EvaluationError(f"PacketHawk boundary check failed: {name}")
+            raise EvaluationError(
+                f"PacketHawk boundary check failed: {name}; "
+                f"file_bytes={actual_size}; returncode={completed.returncode}; "
+                f"stdout={completed.stdout[-500:]!r}; stderr={completed.stderr[-1000:]!r}"
+            )
     return checks
 
 
