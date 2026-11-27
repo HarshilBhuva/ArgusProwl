@@ -34,8 +34,9 @@ and emit an audit event before activation.
 
 This service is persistence infrastructure, not an administrative API. The caller
 must supply the authenticated actor; do not pass user-controlled identity strings
-as actor attribution. The generic Storage contract is used, but production durability
-depends on the selected backend. SQLite is the supported application store today.
+as actor attribution. The Storage contract is used with an atomic insert-if-absent operation. SQLite implements
+that operation transactionally; other backends fail closed until they provide an atomic
+implementation. SQLite is the supported application store today.
 The current release does not expose rule revision history or rollback through the
 HTTP API, and it does not yet pin each generated alert to a rule content hash.
 Those are explicit follow-on integration requirements.
