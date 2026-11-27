@@ -26,6 +26,7 @@ from argusprowl.services.alert_evidence_reconciliation import AlertEvidenceRecon
 from argusprowl.services.alert_evidence_recovery_service import AlertEvidenceRecoveryService
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 from argusprowl.storage.sqlite_backup import SQLiteBackupManager
+from argusprowl.storage.sqlite_backup_set import SQLiteBackupSetError, SQLiteBackupSetManager
 from argusprowl.storage.sqlite_diagnostics import (
     SQLiteDiagnosticsError,
     SQLiteDiagnosticsService,
@@ -186,6 +187,23 @@ def create_parser() -> argparse.ArgumentParser:
         "--confirm-offline",
         action="store_true",
         help="Confirm ArgusProwl and all writers are stopped before offline restore.",
+    )
+
+    backup_set_create_parser = backup_subparsers.add_parser(
+        "set-create", help="Create a coordinated backup generation for all configured SQLite stores."
+    )
+    backup_set_create_parser.add_argument(
+        "--output-dir", required=True, type=str, help="New backup generation directory."
+    )
+    backup_set_create_parser.add_argument(
+        "--confirm-offline", action="store_true",
+        help="Confirm ArgusProwl and every process that can write to these stores are stopped.",
+    )
+    backup_set_verify_parser = backup_subparsers.add_parser(
+        "set-verify", help="Verify every database and manifest in a backup generation."
+    )
+    backup_set_verify_parser.add_argument(
+        "backup_directory", type=str, help="Backup generation directory."
     )
 
     # Signed, independently retained checkpoints for the API audit chain.
@@ -395,6 +413,55 @@ def main() -> int:
                 alert_store.close()
 
         if command == "backup":
+            if args.backup_action == "set-verify":
+                try:
+                    document = SQLiteBackupSetManager().verify_backup_set(args.backup_directory)
+                except SQLiteBackupSetError as exc:
+                    print(f"[!] Backup-set verification failed: {exc}", file=sys.stderr)
+                    return ExitCode.RUNTIME_ERROR
+                print("[+] Complete SQLite backup set verified.")
+                print(f"    Created: {document['created_at']}")
+                print(f"    Application version: {document['application_version']}")
+                print(f"    Databases: {len(document['databases'])}")
+                for entry in document["databases"]:
+                    print(f"    - {entry['name']}: {entry['database_size_bytes']} bytes")
+                return ExitCode.SUCCESS
+
+            if args.backup_action == "set-create":
+                if not args.confirm_offline:
+                    print(
+                        "[!] Backup-set creation requires an offline application. "
+                        "Stop ArgusProwl and all database writers, then rerun with --confirm-offline.",
+                        file=sys.stderr,
+                    )
+                    return ExitCode.CONFIG_ERROR
+                app_config = ConfigManager().load(config_path)
+                if app_config.storage.backend.lower() != "sqlite":
+                    print("[!] Backup sets currently require storage.backend=sqlite.", file=sys.stderr)
+                    return ExitCode.CONFIG_ERROR
+                databases = {
+                    "evidence": app_config.storage.database_path,
+                    "audit": app_config.api.audit_db_path,
+                }
+                if app_config.alert_persistence.enabled:
+                    databases["alerts"] = app_config.alert_persistence.db_path
+                if app_config.behavior_persistence.enabled:
+                    databases["behavior"] = app_config.behavior_persistence.db_path
+                if app_config.analyst_annotations.enabled:
+                    databases["annotations"] = app_config.analyst_annotations.db_path
+                try:
+                    document = SQLiteBackupSetManager().create_backup_set(
+                        databases, args.output_dir, application_version=argusprowl.__version__
+                    )
+                except (SQLiteBackupSetError, FileExistsError, ValueError) as exc:
+                    print(f"[!] Backup-set creation failed: {exc}", file=sys.stderr)
+                    return ExitCode.RUNTIME_ERROR
+                print("[+] Complete SQLite backup set created.")
+                print(f"    Directory: {args.output_dir}")
+                print(f"    Databases: {len(document['databases'])}")
+                print("    Verify with: argusprowl backup set-verify <directory>")
+                return ExitCode.SUCCESS
+
             backup_manager = SQLiteBackupManager()
 
             if args.backup_action == "verify":
