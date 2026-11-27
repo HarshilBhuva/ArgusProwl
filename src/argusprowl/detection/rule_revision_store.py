@@ -112,7 +112,7 @@ class RuleRevisionStore:
                 )
             return self._from_record(existing)
 
-        history = self.history(rule.rule_id, limit=_MAX_HISTORY_SCAN)
+        history = self.history(rule.rule_id, limit=1000)
         latest_version = history[0].version if history else 0
         if rule.version != latest_version + 1:
             raise DetectionError(
