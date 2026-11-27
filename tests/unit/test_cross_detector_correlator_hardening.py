@@ -519,17 +519,12 @@ class TestDuplicateCorrelations:
         results1 = correlator.process(event2, [result_b])
         assert len(results1) == 1
 
-        # Wait for expiration
-        import time
-
-        time.sleep(1.1)
-
-        # New sequence after expiration
-        event3 = create_event(datetime.now(UTC), src_ip="192.168.1.1")
+        # Advance event time beyond the prior sequence's window without sleeping.
+        event3 = create_event(t0 + timedelta(seconds=2), src_ip="192.168.1.1")
         result_a2 = create_detection_result("rule_a", event3.event_id)
         correlator.process(event3, [result_a2])
 
-        event4 = create_event(datetime.now(UTC) + timedelta(seconds=0.5), src_ip="192.168.1.1")
+        event4 = create_event(t0 + timedelta(seconds=2.5), src_ip="192.168.1.1")
         result_b2 = create_detection_result("rule_b", event4.event_id)
         results2 = correlator.process(event4, [result_b2])
         assert len(results2) == 1  # New sequence should work
