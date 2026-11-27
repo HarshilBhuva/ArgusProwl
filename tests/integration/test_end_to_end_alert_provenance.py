@@ -191,6 +191,8 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
 
 def test_evidence_persistence_failure_does_not_fail_core_pipeline(tmp_path, monkeypatch, caplog) -> None:
     """Evidence is a side channel: its outage must be visible but not drop telemetry."""
+    import logging
+
     config_path = _write_config(tmp_path)
     app, container, evidence = _start_application(config_path)
     event = NormalizedEvent(
