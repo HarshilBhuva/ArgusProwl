@@ -3,6 +3,8 @@
 Provides plugin-like registration and management of threat detectors.
 """
 
+import threading
+
 from argusprowl.interfaces.detector import Detector
 
 # Classes the detection manager is able to construct. RuleLoader.DETECTORS
@@ -25,6 +27,7 @@ class DetectorRegistry:
     def __init__(self) -> None:
         """Initialize detector registry."""
         self._detectors: dict[str, Detector] = {}
+        self._lock = threading.RLock()
 
     def register(self, detector: Detector) -> None:
         """Register a detector instance.
@@ -123,9 +126,21 @@ class DetectorRegistry:
         if hasattr(detector, "disable"):
             detector.disable()
 
+    def replace(self, name: str, detector: Detector) -> None:
+        """Atomically replace one registered detector implementation."""
+        if not isinstance(detector, Detector):
+            raise TypeError(f"Object must implement Detector interface: {type(detector)}")
+        if detector.name != name:
+            raise ValueError("Replacement detector name must match the registered rule ID.")
+        with self._lock:
+            if name not in self._detectors:
+                raise KeyError(f"Detector '{name}' not found in registry.")
+            self._detectors[name] = detector
+
     def clear(self) -> None:
         """Remove all registered detectors."""
-        self._detectors.clear()
+        with self._lock:
+            self._detectors.clear()
 
     def __contains__(self, name: str) -> bool:
         """Check if detector is registered."""
