@@ -19,7 +19,7 @@ from rust_python_pcap_benchmark import (
 
 def _write_classic_pcap(path: Path, packet_count: int = 1) -> bytes:
     frame = bytearray(54)
-    frame[12:14] = b"\\x08\\x00"
+    frame[12:14] = b"\x08\x00"
     frame[14] = 0x45
     frame[16:18] = (40).to_bytes(2, "big")
     frame[22] = 64
@@ -66,15 +66,15 @@ def test_saturation_capture_mutates_unique_flow_keys_from_real_frame(tmp_path: P
     assert result["packets"] == 12
     assert result["file_bytes"] > source.stat().st_size
     _, frame = find_template(destination)
-    assert frame[12:14] == b"\\x08\\x00"
+    assert frame[12:14] == b"\x08\x00"
 
 
 def test_python_stress_log_uses_unique_ids_and_monotonic_timestamps(tmp_path: Path):
     source = tmp_path / "conn.log"
     source.write_text(
-        "#separator \\x09\n"
-        "#fields\\tts\\tuid\\tid.orig_h\\tid.orig_p\\tid.resp_h\\tid.resp_p\\tproto\n"
-        "1.0\\tC123\\t192.0.2.1\\t12345\\t198.51.100.1\\t443\\ttcp\n",
+        "#separator \x09\n"
+        "#fields\tts\tuid\tid.orig_h\tid.orig_p\tid.resp_h\tid.resp_p\tproto\n"
+        "1.0\tC123\t192.0.2.1\t12345\t198.51.100.1\t443\ttcp\n",
         encoding="utf-8",
     )
     destination = tmp_path / "stress.log"
@@ -84,7 +84,7 @@ def test_python_stress_log_uses_unique_ids_and_monotonic_timestamps(tmp_path: Pa
     lines = [line for line in destination.read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
     assert result["events"] == 3
     assert len(lines) == 3
-    assert len({line.split("\\t")[1] for line in lines}) == 3
-    assert [float(line.split("\\t")[0]) for line in lines] == sorted(
-        float(line.split("\\t")[0]) for line in lines
+    assert len({line.split("\t")[1] for line in lines}) == 3
+    assert [float(line.split("\t")[0]) for line in lines] == sorted(
+        float(line.split("\t")[0]) for line in lines
     )
