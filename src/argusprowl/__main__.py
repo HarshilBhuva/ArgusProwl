@@ -25,11 +25,11 @@ from argusprowl.exceptions.exceptions import ThreatHunterError
 from argusprowl.services.alert_evidence_reconciliation import AlertEvidenceReconciliationService
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 from argusprowl.storage.sqlite_backup import SQLiteBackupManager
-from argusprowl.storage.sqlite_storage import SQLiteAdapter
 from argusprowl.storage.sqlite_diagnostics import (
     SQLiteDiagnosticsError,
     SQLiteDiagnosticsService,
 )
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def _validate_stix_url(url: str) -> str:
