@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "evaluation"))
 
-from rust_python_pcap_benchmark import (  # noqa: E402
+from rust_python_pcap_benchmark import (
     create_python_stress_log,
     create_saturation_pcap,
     find_template,
