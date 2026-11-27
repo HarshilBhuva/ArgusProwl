@@ -7,13 +7,13 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID, uuid5
+from uuid import UUID
 
 from argusprowl.detection.rule_loader import RuleDefinition
 from argusprowl.exceptions.exceptions import DetectionError
+from argusprowl.detection.rule_fingerprint import rule_revision_id, rule_snapshot
 from argusprowl.interfaces.storage import Storage
 
-_RULE_REVISION_NAMESPACE = UUID("af1a4b3d-93b8-4e93-b6f1-24aaf1d57a5e")
 _RULE_REVISION_COLLECTION = "detector_rule_revisions"
 _MAX_HISTORY_SCAN = 10_000
 
@@ -51,17 +51,7 @@ class RuleRevisionStore:
 
     @staticmethod
     def _snapshot(rule: RuleDefinition) -> dict[str, object]:
-        return {
-            "rule_id": rule.rule_id,
-            "version": rule.version,
-            "detector": rule.detector,
-            "enabled": rule.enabled,
-            "confidence_threshold": float(rule.confidence),
-            "parameters": rule.parameters,
-            "tactic": rule.tactic,
-            "technique": rule.technique,
-            "source_path": rule.path.as_posix(),
-        }
+        return rule_snapshot(rule)
 
     @staticmethod
     def _canonical_json(value: object) -> str:
@@ -78,7 +68,7 @@ class RuleRevisionStore:
 
     @staticmethod
     def _revision_uuid(rule_id: str, version: int) -> UUID:
-        return uuid5(_RULE_REVISION_NAMESPACE, f"{rule_id}:{version}")
+        return UUID(rule_revision_id(rule_id, version))
 
     def record_revision(
         self,
