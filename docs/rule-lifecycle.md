@@ -30,6 +30,12 @@ If activation fails after the file replacement, the service restores the origina
 file bytes and leaves the previous registry entry intact. Temporary files are
 removed on both success and failure.
 
+## Alert provenance
+
+Each detector loaded from YAML receives the same canonical SHA-256 fingerprint and stable revision ID used by the revision store. The detection manager copies these identifiers into matched detection results. The decision engine pins `rule_id`, `rule_version`, `rule_content_sha256`, and `rule_revision_id` into alert metadata. Alert serialization and persistence retain these fields, allowing an investigator to identify the exact rule content that produced an alert even after later edits or rollbacks.
+
+Rules created programmatically without a validated YAML revision keep the existing behavior and do not receive a fabricated content hash.
+
 ## Boundaries
 
 - The detector type remains constrained by the existing `RuleLoader.DETECTORS`
