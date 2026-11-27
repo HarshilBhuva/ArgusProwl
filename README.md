@@ -60,25 +60,23 @@ The standard Docker Compose deployment packages the **web application and API** 
 
 ## Architecture
 
-The system separates source-specific ingestion from normalized event processing and analyst-facing services.
+The platform is organized as a staged telemetry pipeline, with clear boundaries between ingestion, detection, persistence, and analyst access.
 
-```mermaid
-flowchart LR
-    A["Telemetry sources"] --> B["Collectors and replay"]
-    B --> C["Parsers"]
-    C --> D["Normalized events"]
-    D --> E["Bounded event queue"]
-    E --> F["Processing and features"]
-    F --> G["Detection manager"]
-    G --> H["Decision engine"]
-    H --> I["Alerts and evidence"]
-    I --> J["SQLite persistence"]
-    I --> K["API"]
-    J --> K
-    K --> L["React analyst UI"]
-    D --> M["Entity intelligence"]
-    M --> J
-```
+<p align="center">
+  <img src="docs/assets/architecture-overview.svg" alt="ArgusProwl platform architecture" width="100%" />
+</p>
+
+### Detection lifecycle
+
+<p align="center">
+  <img src="docs/assets/detection-lifecycle.svg" alt="ArgusProwl detection lifecycle" width="100%" />
+</p>
+
+### Analyst investigation workflow
+
+<p align="center">
+  <img src="docs/assets/analyst-workflow.svg" alt="ArgusProwl analyst investigation workflow" width="100%" />
+</p>
 
 **Key boundaries**
 
