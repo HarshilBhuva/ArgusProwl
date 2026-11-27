@@ -190,8 +190,17 @@ def test_application_api_startup_failure_not_reported_as_success(temp_dir, caplo
 
     app_instance = Application(config_path=cfg_file)
 
+    mock_config = MagicMock()
+    mock_server = MagicMock()
+    mock_server.started = False
+    mock_server.should_exit = False
+    mock_server.startup = AsyncMock(
+        side_effect=RuntimeError("simulated uvicorn startup failure")
+    )
+
     with (
-        patch("asyncio.run", side_effect=RuntimeError("simulated uvicorn startup failure")),
+        patch("uvicorn.Config", return_value=mock_config),
+        patch("uvicorn.Server", return_value=mock_server),
         caplog.at_level(logging.INFO),
     ):
         with pytest.raises(LifecycleError):
