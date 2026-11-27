@@ -614,6 +614,23 @@ class SQLiteAdapter(Storage):
         except (sqlite3.Error, TypeError, ValueError) as exc:
             raise StorageError("Unable to persist record", {"collection": collection}) from exc
 
+    def save_if_absent(
+        self, collection: str, record_id: UUID, data: dict[str, object]
+    ) -> bool:
+        """Atomically insert a record without replacing an existing value."""
+        try:
+            payload = json.dumps(data, default=str, separators=(",", ":"))
+            with self._lock, self._connection:
+                inserted = self._connection.execute(
+                    "INSERT OR IGNORE INTO records(collection, record_id, payload) VALUES(?, ?, ?)",
+                    (collection, str(record_id), payload),
+                )
+                return inserted.rowcount == 1
+        except (sqlite3.Error, TypeError, ValueError) as exc:
+            raise StorageError(
+                "Unable to persist immutable record", {"collection": collection}
+            ) from exc
+
     def load(self, collection: str, record_id: UUID) -> dict[str, object] | None:
         try:
             with self._lock:
