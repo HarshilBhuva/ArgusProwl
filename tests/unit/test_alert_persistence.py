@@ -128,6 +128,7 @@ class TestTableCreation:
         assert "idx_alerts_created_at" in index_names
         assert "idx_alerts_entity" in index_names
         assert "idx_alerts_incident" in index_names
+        assert "idx_evidence_recovery_created_at" in index_names
 
     def test_initialize_idempotent(self, persistence: AlertPersistence) -> None:
         """Calling initialize() multiple times is safe."""
