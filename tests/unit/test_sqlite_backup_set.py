@@ -86,3 +86,31 @@ def test_backup_set_rejects_missing_source_before_publishing(tmp_path):
         )
     assert not destination.exists()
     assert not list(tmp_path.glob(".*.staging"))
+
+def test_backup_set_rejects_duplicate_database_paths(tmp_path):
+    source = tmp_path / "source.db"
+    _database(source, "shared")
+    manager = SQLiteBackupSetManager()
+
+    with pytest.raises(ValueError, match="distinct"):
+        manager.create_backup_set(
+            {"evidence": source, "alerts": source},
+            tmp_path / "generation",
+            application_version="0.1.0",
+        )
+    assert not (tmp_path / "generation").exists()
+
+
+def test_backup_set_rejects_boolean_format_version(tmp_path):
+    source = tmp_path / "source.db"
+    _database(source, "evidence")
+    destination = tmp_path / "generation"
+    manager = SQLiteBackupSetManager()
+    manager.create_backup_set({"evidence": source}, destination, application_version="0.1.0")
+    manifest_path = destination / "backup-set.json"
+    document = json.loads(manifest_path.read_text())
+    document["format_version"] = True
+    manifest_path.write_text(json.dumps(document))
+
+    with pytest.raises(SQLiteBackupSetError, match="Unsupported"):
+        manager.verify_backup_set(destination)

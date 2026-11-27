@@ -66,12 +66,17 @@ class SQLiteBackupSetManager:
         if not databases:
             raise ValueError("At least one SQLite database is required.")
         normalized: dict[str, Path] = {}
+        resolved_sources: set[Path] = set()
         for name, source_value in databases.items():
             if not isinstance(name, str) or not self._NAME_PATTERN.fullmatch(name):
                 raise ValueError(f"Invalid backup database name: {name!r}")
             source = Path(source_value)
             if not source.is_file():
                 raise SQLiteBackupSetError(f"Configured SQLite database is missing: {name}")
+            resolved_source = source.resolve()
+            if resolved_source in resolved_sources:
+                raise ValueError("Each configured SQLite store must use a distinct database file.")
+            resolved_sources.add(resolved_source)
             normalized[name] = source
         destination = Path(output_directory)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +133,11 @@ class SQLiteBackupSetManager:
             "format_version", "created_at", "application_version", "databases"
         }:
             raise SQLiteBackupSetError("Backup-set manifest fields are invalid.")
-        if document["format_version"] != self.FORMAT_VERSION:
+        if (
+            not isinstance(document["format_version"], int)
+            or isinstance(document["format_version"], bool)
+            or document["format_version"] != self.FORMAT_VERSION
+        ):
             raise SQLiteBackupSetError("Unsupported backup-set format.")
         if not isinstance(document["application_version"], str) or not document["application_version"].strip():
             raise SQLiteBackupSetError("Backup-set application version is invalid.")

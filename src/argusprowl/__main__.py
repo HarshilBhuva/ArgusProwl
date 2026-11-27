@@ -414,7 +414,11 @@ def main() -> int:
 
         if command == "backup":
             if args.backup_action == "set-verify":
-                document = SQLiteBackupSetManager().verify_backup_set(args.backup_directory)
+                try:
+                    document = SQLiteBackupSetManager().verify_backup_set(args.backup_directory)
+                except SQLiteBackupSetError as exc:
+                    print(f"[!] Backup-set verification failed: {exc}", file=sys.stderr)
+                    return ExitCode.RUNTIME_ERROR
                 print("[+] Complete SQLite backup set verified.")
                 print(f"    Created: {document['created_at']}")
                 print(f"    Application version: {document['application_version']}")
