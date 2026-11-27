@@ -16,7 +16,6 @@ import os
 import platform
 import re
 import resource
-import shutil
 import statistics
 import subprocess
 import sys
