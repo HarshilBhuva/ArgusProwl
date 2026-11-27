@@ -1,9 +1,9 @@
-# Alpha Exit Readiness Audit
+# Beta Entry and Stable Release Readiness Audit
 
-**Baseline:** `main` after PR #94 (2026-11-27)  
-**Audit branch:** `audit/alpha-exit-readiness`  
+**Baseline:** `main` after PR #99 (2026-11-27)  
+**Audit branch:** `docs/beta-entry-readiness`  
 **Scope:** release gates for a single-tenant, SQLite-backed deployment  
-**Status:** updated after reliability validation; remains Alpha and is not a production certification
+**Status:** P0 Alpha-exit gates closed; Beta entry is justified for the narrow single-node scope. This is not a production certification.
 
 This document separates verified implementation facts from release requirements that still need runtime validation. Passing CI is necessary, but it is not evidence of operational readiness by itself.
 
@@ -11,7 +11,7 @@ This document separates verified implementation facts from release requirements 
 
 ArgusProwl now has additional verified reliability coverage: API startup test-harness cleanup, evidence-outage isolation, graceful-shutdown timeout handling, a role/method authorization matrix, a durable alert/evidence recovery outbox with idempotent replay, startup recovery and an explicit `reconcile alert-evidence --repair` workflow, cross-store partial-commit and restart-recovery tests, a three-store SQLite restore drill, and a real Zeek PCAP replay through a production detection rule.
 
-The current evidence still does **not** justify removing the Alpha designation. Alert and evidence stores remain independently committed; the outbox provides at-least-once recovery, not cross-store atomicity or exactly-once processing. Telemetry that was unavailable when an alert's recovery envelope was written cannot be reconstructed. Off-host backup automation is absent, and the real-PCAP acceptance case is a benign baseline rather than a malicious efficacy/false-positive evaluation.
+The P0 gates required before Beta are now closed by implementation and CI evidence, including real container replacement with a persistent SQLite volume (PR #99). ArgusProwl can therefore move from Alpha to Beta within the deliberately narrow scope below. This does **not** establish Stable or production readiness. Alert and evidence stores remain independently committed; the outbox provides at-least-once recovery, not cross-store atomicity or exactly-once processing. Telemetry unavailable when a recovery envelope is written cannot be reconstructed. Scheduled encrypted off-host backups are absent, and the real-PCAP acceptance case is a benign baseline rather than a malicious efficacy/false-positive evaluation.
 
 The v1 release target should remain deliberately narrow:
 
@@ -29,7 +29,7 @@ The v1 release target should remain deliberately narrow:
 | Authentication throttling | 10 failures per client IP in 60 seconds, followed by a 5-minute lockout; limiter is process-local | Multi-replica use requires a shared reverse-proxy rate limit or a distributed limiter. |
 | Ingestion overload | Bounded FIFO buffer supports block, drop-newest, and drop-oldest; receive/buffer/process/failure/drop/reject counters and queue-depth metrics are present | Do not treat overflow as invisible. Verify each configured policy and expose loss counters operationally. |
 | Alert queue | Bounded, process-local queue rejects new alerts at capacity; queue state is lost on restart | Do not mistake the analyst workflow queue for durable alert storage. Verify durable alert recovery separately. |
-| Alert/evidence persistence | Independent stores and commits; alert plus recovery envelope share one alert-database transaction; source and available contributor payloads are replayed idempotently at startup and through `reconcile alert-evidence --repair`; replay verifies provenance and retains failed rows with attempt diagnostics; outage and restart paths are tested | Cross-store atomicity and exactly-once processing remain absent. Recovery cannot recreate contributor payloads unavailable when the envelope was captured. Monitor pending count/age and protect duplicated telemetry in the alert database; keep this as a Beta gate. |
+| Alert/evidence persistence | Independent stores and commits; alert plus recovery envelope share one alert-database transaction; source and available contributor payloads are replayed idempotently at startup and through `reconcile alert-evidence --repair`; replay verifies provenance and retains failed rows with attempt diagnostics; outage, restart, and repair paths are tested | Beta scope accepts at-least-once recovery. Cross-store atomicity and exactly-once processing remain absent. Recovery cannot recreate contributor payloads unavailable when the envelope was captured. Monitor pending count/age and protect duplicated telemetry in the alert database; close operational monitoring before Stable. |
 | Evidence persistence | SQLite authoritative JSON records and derived search index are updated transactionally; evidence cache is bounded independently of durable retention | Monitor disk/WAL growth and verify index rebuild/recovery from malformed legacy rows. |
 | Retention | Evidence retention is opt-in and SQLite-only; alert, incident, hunt and audit lifecycles are not governed by the same policy | Define product-level retention and dangling-reference expectations before Stable. |
 | Backup/restore | Online backup/manifest verification and staged restore; an automated restore drill verifies event/evidence, alert, audit, and credential-revocation state across the configured core SQLite stores | Scheduling, off-host copy, encryption, generation retention, and last-success/failure reporting remain open. No RPO/RTO claim. |
@@ -39,23 +39,23 @@ The v1 release target should remain deliberately narrow:
 
 ## Release blockers and work order
 
-### P0 — must be closed before Beta
+### P0 — closed for Beta entry
 
-1. **Prove alert/evidence failure behavior — partially validated; recovery remains open.**
+1. **Prove alert/evidence failure behavior — closed for Beta entry.**
    - CI now injects evidence-store failure after a production alert commit and verifies that core processing succeeds while reconciliation reports the missing event reference.
    - Provider exception logging and evidence persistence counters are covered; `reconcile alert-evidence` emits bounded JSON findings, and `reconcile alert-evidence --repair` replays pending outbox envelopes before reporting the remaining consistency state.
    - Repair is at-least-once and idempotent, not a cross-database transaction. It can restore only source/contributor payloads captured in the outbox; unavailable telemetry remains unresolved. Alert persistence and telemetry evidence must both be enabled.
    - Preserve idempotency; do not claim exactly-once delivery.
 
-2. **Prove overload and shutdown behavior — core cases covered.**
+2. **Prove overload and shutdown behavior — closed for Beta entry.**
    - Existing live-buffer tests cover drop-newest, drop-oldest, block timeout, blocked producer/consumer wake-up on close, queue metrics, and provider delivery during alert-queue saturation.
    - Shutdown tests verify accepted-event draining and that a timed-out worker retains its dependencies until a second shutdown completes.
-   - Continue testing real deployment interruption and persistent-volume restart behavior.
+   - PR #99 extends the Docker image smoke test: it writes a probe row into the configured SQLite database, removes and recreates the application container with the same named data volume, and verifies the row after restart. The Docker Build workflow passed this check. This proves container replacement persistence, not host-loss recovery or backup correctness.
 
-3. **Complete authorization acceptance matrix — route and ownership coverage added.**
+3. **Complete authorization acceptance matrix — closed for Beta entry within the single-tenant scope.**
    - A viewer/analyst/admin method-and-endpoint matrix now checks read, investigation-write, admin, audit-read-only, unknown-role, unsupported-method, and full-path matching behavior.
    - Existing integration tests cover missing ownership metadata, foreign-owned embedded evidence references, revoked/expired credentials, copied browser cookies after logout, restart, and object-level concealment.
-   - Continue adding cases for new routes and verify authorization remains before pagination, aggregation, and lookup side effects.
+   - Global evidence searches are rejected for non-admin callers before the evidence search/pagination operation; exact event-ID access is checked against event ownership. Global entity/IOC investigations and incident timelines remain administrator-only where owner-filtered aggregation is not implemented. Keep adding matrix cases whenever routes or roles change.
 
 ### P1 — required for a supported Stable single-node deployment
 
@@ -73,7 +73,7 @@ The v1 release target should remain deliberately narrow:
 6. **Deployment hardening.**
    - Publish a single-instance deployment profile covering persistent volumes, TLS/reverse proxy, secrets, permissions, health checks, upgrades, and offline restore.
    - Explicitly warn that process-local authentication throttling is not a multi-replica control.
-   - Test restart and interrupted shutdown with persistent volumes.
+   - PR #99 verifies container replacement with a persistent volume. A production-like host interruption and full restore drill remain Stable-release requirements.
 
 ### P1 — detection acceptance
 
@@ -101,7 +101,7 @@ The v1 release target should remain deliberately narrow:
 
 ## CI coverage: what it proves and what it does not
 
-The backend workflow now runs compile checks, Ruff, the full pytest suite, configuration validation, Bandit, PostgreSQL adapter integration, a Docker Compose startup/health probe, and a dedicated real-PCAP-to-Zeek-to-production-detection acceptance job. The frontend workflow runs TypeScript checks, Vitest, a production build, and Playwright E2E when frontend files change.
+The backend workflow now runs compile checks, Ruff, the full pytest suite, configuration validation, Bandit, PostgreSQL adapter integration, a Docker Compose startup/health probe, and a dedicated real-PCAP-to-Zeek-to-production-detection acceptance job. The Docker Build workflow also replaces a running product container while retaining its named SQLite data volume and verifies the database probe after restart. The frontend workflow runs TypeScript checks, Vitest, a production build, and Playwright E2E when frontend files change.
 
 The Docker integration job still verifies API health rather than telemetry detection; the separate real-telemetry job covers the narrow Zeek quickstart baseline. PostgreSQL CI validates the generic adapter contract, not full application persistence parity.
 
@@ -135,4 +135,4 @@ Green CI does not close off-host backup operations, missing-event reconstruction
 - `docs/real-telemetry-validation.md` and `tests/integration/test_real_pcap_detection_replay.py`: pinned Zeek quickstart PCAP acceptance path.
 - `docs/single-process.md` and `docs/productization.md`: historical documentation warnings.
 
-This audit records verified implementation and CI evidence, not operational certification. Alert/evidence recovery remains a Beta blocker; operational backup automation and malicious telemetry evaluation remain Stable-release work.
+This audit records verified implementation and CI evidence, not operational certification. The three P0 gates are closed and Beta entry is supported for a single-instance, single-tenant SQLite deployment. Scheduled encrypted off-host backups, production-like restore/host-loss drills, complete retention policy, rule lifecycle evidence, and malicious telemetry efficacy/false-positive measurement remain Stable-release gates. Do not advertise production certification or multi-tenant/multi-replica support.
