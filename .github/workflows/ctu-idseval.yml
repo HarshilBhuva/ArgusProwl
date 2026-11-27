@@ -1,0 +1,79 @@
+name: CTU-IDSEVAL-6 Detection Efficacy
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ctu-idseval-\${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Replay labeled real PCAPs through Zeek and ArgusProwl
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run CTU-IDSEVAL-6 benchmark
+        run: |
+          uv run python scripts/evaluation/ctu_idseval.py \
+            --workspace .tmp/ctu-idseval \
+            --output .tmp/ctu-idseval-results.json \
+            --zeek-image zeek/zeek:9.0.1
+      - name: Publish evaluation summary
+        if: always()
+        run: |
+          if [ -f .tmp/ctu-idseval-results.json ]; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          report = json.loads(Path(".tmp/ctu-idseval-results.json").read_text())
+          overall = report["overall"]
+          lines = [
+              "## CTU-IDSEVAL-6 detection efficacy",
+              "",
+              f"- Dataset: https://doi.org/{report['dataset']['doi']}",
+              f"- Zeek: {report['zeek_version']}",
+              f"- Captures: {len(report['captures'])}",
+              f"- Precision / Recall / F1: {overall['precision']} / {overall['recall']} / {overall['f1']}",
+              f"- False-positive rate: {overall['false_positive_rate']}",
+              "",
+              "| Capture | Flows | Alerts | Precision | Recall | F1 |",
+              "|---|---:|---:|---:|---:|---:|",
+          ]
+          for item in report["captures"]:
+              metrics = item["metrics"]
+              lines.append(
+                  f"| {item['capture_id']} | {item['generated_flows']} | {item['alerts']} | "
+                  f"{metrics['precision']} | {metrics['recall']} | {metrics['f1']} |"
+              )
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY
+          fi
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ctu-idseval-6-report
+          path: .tmp/ctu-idseval-results.json
+          if-no-files-found: ignore
+          retention-days: 90
