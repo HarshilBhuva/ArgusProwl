@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "argusprowl-backup-restic.sh"
@@ -95,15 +97,19 @@ def test_restic_runner_verifies_snapshot_before_retention_and_records_success(tm
     assert Path(status["last_generation"]).name in local_sets
 
 
-def test_restic_runner_does_not_prune_after_repository_verification_failure(tmp_path):
-    env = _runner_environment(tmp_path, fail_on="check")
+@pytest.mark.parametrize("fail_on", ["check", "forget"])
+def test_restic_runner_does_not_prune_after_remote_verification_or_retention_failure(
+    tmp_path, fail_on
+):
+    env = _runner_environment(tmp_path, fail_on=fail_on)
     result = subprocess.run(
         ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, check=False
     )
 
     assert result.returncode == 23
     commands = (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines()
-    assert not any(item.startswith("restic forget") for item in commands)
+    forget_attempted = any(item.startswith("restic forget") for item in commands)
+    assert forget_attempted is (fail_on == "forget")
     assert len(list((tmp_path / "backups").glob("argusprowl-*"))) == 4
     status = json.loads((tmp_path / "backups" / "backup-status.json").read_text())
     assert status["state"] == "failed"
