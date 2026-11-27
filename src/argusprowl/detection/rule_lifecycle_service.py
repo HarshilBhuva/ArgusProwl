@@ -22,7 +22,7 @@ class RuleLifecycleError(RuntimeError):
     """Base error for rule lifecycle operations."""
 
 
-class RuleVersionConflict(RuleLifecycleError):
+class RuleVersionConflictError(RuleLifecycleError):
     """Raised when the caller's expected version is stale."""
 
 
@@ -85,7 +85,7 @@ class RuleLifecycleService:
     ) -> dict[str, object]:
         current = self._find_rule(rule_id)
         if current.version != expected_version:
-            raise RuleVersionConflict(
+            raise RuleVersionConflictError(
                 f"Expected rule version {expected_version}, current version is {current.version}."
             )
         candidate = replace(
@@ -119,7 +119,7 @@ class RuleLifecycleService:
     ) -> dict[str, object]:
         current = self._find_rule(rule_id)
         if current.version != expected_version:
-            raise RuleVersionConflict(
+            raise RuleVersionConflictError(
                 f"Expected rule version {expected_version}, current version is {current.version}."
             )
         revisions = self._revision_store.history(rule_id, limit=1000)
