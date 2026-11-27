@@ -138,12 +138,12 @@ def create_python_stress_log(source: Path, destination: Path, event_count: int) 
     with source.open(encoding="utf-8") as stream:
         for line in stream:
             if line.startswith("#fields"):
-                fields = line.rstrip("\\n").split("\\t")[1:]
+                fields = line.rstrip("\n").split("\t")[1:]
                 headers.append(line)
             elif line.startswith("#") or not line.strip():
                 headers.append(line)
             else:
-                sample = line.rstrip("\\r\\n").split("\\t")
+                sample = line.rstrip("\r\n").split("\t")
                 break
     if sample is None or "ts" not in fields or "uid" not in fields:
         raise EvaluationError(f"Cannot derive stress rows from Zeek log: {source}")
@@ -158,7 +158,7 @@ def create_python_stress_log(source: Path, destination: Path, event_count: int) 
             row = sample.copy()
             row[ts_index] = f"{base_timestamp + index / 1_000_000:.6f}"
             row[uid_index] = f"AP{index:010d}"
-            output.write("\\t".join(row) + "\\n")
+            output.write("\t".join(row) + "\n")
     return {
         "classification": "derived_zeek_event_stress_not_real_capture",
         "source_conn_log_sha256": digest(source),
@@ -177,7 +177,7 @@ def run_python_stress_worker(args: argparse.Namespace) -> None:
     state_dir = workspace / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     config_path = state_dir / "evaluation.yaml"
-    config_path.write_text("\\n".join([
+    config_path.write_text("\n".join([
         "app_name: ArgusProwl Rust/Python stress evaluation",
         "logging:",
         "  console_enabled: false",
@@ -382,9 +382,9 @@ def boundary_checks(binary: Path, workspace: Path) -> dict[str, Any]:
     oversized_block = workspace / "over-pcapng-block.pcapng"
     with oversized_block.open("wb") as stream:
         stream.write(
-            b"\\x0a\\x0d\\x0d\\x0a"
+            b"\x0a\x0d\x0d\x0a"
             + (28).to_bytes(4, "little")
-            + b"\\x4d\\x3c\\x2b\\x1a"
+            + b"\x4d\x3c\x2b\x1a"
             + (1).to_bytes(2, "little")
             + (0).to_bytes(2, "little")
             + (0xFFFFFFFFFFFFFFFF).to_bytes(8, "little")
