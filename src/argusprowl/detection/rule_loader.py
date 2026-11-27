@@ -13,7 +13,6 @@ import yaml
 from argusprowl.behavior.entity_behavior_detector import EntityBehaviorDetector
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.detection.cross_detector_correlator import CrossDetectorCorrelator
-from argusprowl.detection.rule_fingerprint import rule_content_sha256, rule_revision_id
 from argusprowl.detection.detection_manager import DetectionManager
 from argusprowl.detection.detector_registry import DetectorRegistry
 from argusprowl.detection.detectors.beaconing_detector import BeaconingDetector
@@ -28,6 +27,7 @@ from argusprowl.detection.detectors.ordered_sequence_correlation import OrderedS
 from argusprowl.detection.detectors.port_scan import PortScanDetector
 from argusprowl.detection.detectors.syn_scan import SynScanDetector
 from argusprowl.detection.detectors.vertical_scan import VerticalScanDetector
+from argusprowl.detection.rule_fingerprint import rule_content_sha256, rule_revision_id
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
 from argusprowl.interfaces.storage import Storage
