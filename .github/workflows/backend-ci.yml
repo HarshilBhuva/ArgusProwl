@@ -55,7 +55,7 @@ jobs:
         run: uv run ruff check src tests
 
       - name: Run full test suite
-        run: uv run pytest -q --maxfail=1
+        run: uv run pytest -q --maxfail=1 --durations=15
 
       - name: Validate config (no external services)
         run: uv run python -m argusprowl validate-config
