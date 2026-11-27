@@ -10,7 +10,7 @@ import yaml
 from argusprowl.api.audit import AuditLog
 from argusprowl.detection.rule_lifecycle_service import (
     RuleLifecycleService,
-    RuleVersionConflict,
+    RuleVersionConflictError,
 )
 from argusprowl.detection.rule_loader import RuleLoader
 from argusprowl.detection.rule_revision_store import RuleRevisionStore
@@ -106,7 +106,7 @@ def test_stale_rule_update_is_rejected_without_mutation(lifecycle) -> None:
     service, _, rule_path, _ = lifecycle
     before = rule_path.read_bytes()
 
-    with pytest.raises(RuleVersionConflict):
+    with pytest.raises(RuleVersionConflictError):
         service.update(
             "port_scan",
             expected_version=7,
