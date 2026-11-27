@@ -102,7 +102,7 @@ def test_restic_runner_does_not_prune_after_repository_verification_failure(tmp_
     assert result.returncode == 23
     commands = (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines()
     assert not any(item.startswith("restic forget") for item in commands)
-    assert len(list((tmp_path / "backups").glob("argusprowl-*"))) == 3
+    assert len(list((tmp_path / "backups").glob("argusprowl-*"))) == 4
     status = json.loads((tmp_path / "backups" / "backup-status.json").read_text())
     assert status["state"] == "failed"
     assert status["last_failure_at"]

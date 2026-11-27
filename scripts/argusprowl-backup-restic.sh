@@ -149,7 +149,7 @@ restic forget --tag argusprowl --group-by host --keep-last 2 --keep-daily 7 --ke
 # that fails verification rather than deleting a potentially useful recovery copy.
 mapfile -t local_generations < <(
     find "$ARGUSPROWL_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
-        -name 'argusprowl-*' -printf '%f\\n' | sort -r
+        -name 'argusprowl-*' -printf '%f\n' | sort -r
 )
 verified_generations=()
 for generation_name in "${local_generations[@]}"; do
