@@ -28,12 +28,24 @@ class Storage(ABC):
             StorageError: If the write fails.
         """
 
+    def save_if_absent(
+        self, collection: str, record_id: UUID, data: dict[str, object]
+    ) -> bool:
+        """Insert a record only when its key does not already exist.
+
+        Backends must override this method with an atomic implementation before
+        they can support append-only records. The default fails closed.
+        """
+        raise NotImplementedError(
+            "This storage backend does not support atomic insert-if-absent."
+        )
+
     @abstractmethod
     def load(self, collection: str, record_id: UUID) -> dict[str, object] | None:
         """Retrieve a record by its identifier.
 
         Args:
-            collection: The logical grouping to search.
+            collection: The logical grouping.
             record_id: The record's unique ID.
 
         Returns:
