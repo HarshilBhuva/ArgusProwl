@@ -1,6 +1,6 @@
 # Beta Entry and Stable Release Readiness Audit
 
-**Baseline:** `main` after PR #99 (2026-11-27)  
+**Baseline:** `main` after PR #101 (2026-11-27)  
 **Audit branch:** `docs/beta-entry-readiness`  
 **Scope:** release gates for a single-tenant, SQLite-backed deployment  
 **Status:** P0 Alpha-exit gates closed; Beta entry is justified for the narrow single-node scope. This is not a production certification.
@@ -11,7 +11,7 @@ This document separates verified implementation facts from release requirements 
 
 ArgusProwl now has additional verified reliability coverage: API startup test-harness cleanup, evidence-outage isolation, graceful-shutdown timeout handling, a role/method authorization matrix, a durable alert/evidence recovery outbox with idempotent replay, startup recovery and an explicit `reconcile alert-evidence --repair` workflow, cross-store partial-commit and restart-recovery tests, a three-store SQLite restore drill, and a real Zeek PCAP replay through a production detection rule.
 
-The P0 gates required before Beta are now closed by implementation and CI evidence, including real container replacement with a persistent SQLite volume (PR #99). ArgusProwl can therefore move from Alpha to Beta within the deliberately narrow scope below. This does **not** establish Stable or production readiness. Alert and evidence stores remain independently committed; the outbox provides at-least-once recovery, not cross-store atomicity or exactly-once processing. Telemetry unavailable when a recovery envelope is written cannot be reconstructed. Scheduled encrypted off-host backups are absent, and the real-PCAP acceptance case is a benign baseline rather than a malicious efficacy/false-positive evaluation.
+The P0 gates required before Beta are now closed by implementation and CI evidence, including real container replacement with a persistent SQLite volume (PR #99). ArgusProwl can therefore move from Alpha to Beta within the deliberately narrow scope below. This does **not** establish Stable or production readiness. Alert and evidence stores remain independently committed; the outbox provides at-least-once recovery, not cross-store atomicity or exactly-once processing. Telemetry unavailable when a recovery envelope is written cannot be reconstructed. A restic-based encrypted S3-compatible backup runner, daily systemd timer, generation retention, status reporting, and isolated set restore are now implemented. They still require customer-specific repository/key configuration and a successful host-loss drill; no RPO/RTO is claimed. The real-PCAP acceptance case remains a benign baseline rather than a malicious efficacy/false-positive evaluation.
 
 The v1 release target should remain deliberately narrow:
 
@@ -32,7 +32,7 @@ The v1 release target should remain deliberately narrow:
 | Alert/evidence persistence | Independent stores and commits; alert plus recovery envelope share one alert-database transaction; source and available contributor payloads are replayed idempotently at startup and through `reconcile alert-evidence --repair`; replay verifies provenance and retains failed rows with attempt diagnostics; outage, restart, and repair paths are tested | Beta scope accepts at-least-once recovery. Cross-store atomicity and exactly-once processing remain absent. Recovery cannot recreate contributor payloads unavailable when the envelope was captured. Monitor pending count/age and protect duplicated telemetry in the alert database; close operational monitoring before Stable. |
 | Evidence persistence | SQLite authoritative JSON records and derived search index are updated transactionally; evidence cache is bounded independently of durable retention | Monitor disk/WAL growth and verify index rebuild/recovery from malformed legacy rows. |
 | Retention | Evidence retention is opt-in and SQLite-only; alert, incident, hunt and audit lifecycles are not governed by the same policy | Define product-level retention and dangling-reference expectations before Stable. |
-| Backup/restore | Online backup/manifest verification and staged restore; an automated restore drill verifies event/evidence, alert, audit, and credential-revocation state across the configured core SQLite stores | Scheduling, off-host copy, encryption, generation retention, and last-success/failure reporting remain open. No RPO/RTO claim. |
+| Backup/restore | WAL-safe single-store backups; coordinated multi-store backup sets; isolated all-member set restore; restic client-side encryption to S3-compatible storage; daily systemd schedule; repository checks; host-grouped retention; last-success/failure status; CI restore drill for evidence, alerts, audit, and credential revocation | Implementation is present, but each deployment must configure its own S3 repository and recovery key and complete an isolated host-loss drill. No RPO/RTO claim until measured. |
 | Audit integrity | SHA-256 chain and HMAC external checkpoints are implemented | Checkpoint scheduling, transport, key rotation/recovery and audit retention remain operational tasks. |
 | Storage | SQLite is the active application store. PostgreSQL adapter is not a drop-in application-store replacement; evidence search/entity projections/retention parity are missing | Officially scope v1 to SQLite; do not advertise PostgreSQL application parity. |
 | Tenancy | Single-tenant-per-instance model; owner scoping is not tenant isolation | Separate instances and volumes per customer until tenant IDs are enforced in every query and relationship. |
@@ -59,9 +59,10 @@ The v1 release target should remain deliberately narrow:
 
 ### P1 — required for a supported Stable single-node deployment
 
-4. **Operational backup lifecycle — restore drill added; automation remains open.**
+4. **Operational backup lifecycle — automation and isolated set restore implemented; deployment validation remains open.**
    - CI creates independent online backups, simulates loss of the event/evidence, alert, and security (audit plus credential/session revocation) SQLite stores, restores them offline, and verifies schema, evidence provenance, alerts, audit-chain integrity, and key revocation.
-   - Still required: scheduled execution, off-host encrypted copies, backup-generation retention, last-success/last-failure state, and a production-like restore drill that starts the full application.
+   - PR #102 adds a restic runner for client-side encrypted S3-compatible copies, repository/data verification, host-grouped generation retention, atomic last-success/last-failure status, and a daily systemd timer. PR #101 adds coordinated backup sets and isolated all-member restore.
+   - Still required per deployment: provision and initialize the remote repository, protect/recover the restic password independently, enable the timer, alert on stale/failed status, and complete a host-loss restore drill that starts the full application on an isolated host.
    - Publish an explicit RPO/RTO statement only after operational drills support it.
 
 5. **Storage and retention lifecycle.**
@@ -71,7 +72,7 @@ The v1 release target should remain deliberately narrow:
    - Keep SQLite as the supported application backend until another backend has full feature parity.
 
 6. **Deployment hardening.**
-   - Publish a single-instance deployment profile covering persistent volumes, TLS/reverse proxy, secrets, permissions, health checks, upgrades, and offline restore.
+   - Publish a single-instance deployment profile covering persistent volumes, TLS/reverse proxy, secrets, permissions, health checks, upgrades, and offline restore. `docs/backup-operations.md` now provides the restic/S3/systemd setup and recovery runbook.
    - Explicitly warn that process-local authentication throttling is not a multi-replica control.
    - PR #99 verifies container replacement with a persistent volume. A production-like host interruption and full restore drill remain Stable-release requirements.
 
@@ -105,7 +106,7 @@ The backend workflow now runs compile checks, Ruff, the full pytest suite, confi
 
 The Docker integration job still verifies API health rather than telemetry detection; the separate real-telemetry job covers the narrow Zeek quickstart baseline. The persistent-volume replacement check passed in [Docker Build run 46061146209](https://github.com/HarshilBhuva/ArgusProwl/actions/runs/46061146209). Backend CI passed in [run 46061146214](https://github.com/HarshilBhuva/ArgusProwl/actions/runs/46061146214). PostgreSQL CI validates the generic adapter contract, not full application persistence parity.
 
-Green CI does not close off-host backup operations, missing-event reconstruction, malicious detection efficacy, false-positive measurement, or production restore drills.
+Green CI validates the backup-set and restic orchestration code paths with stubs; it does not prove a live S3 repository, customer secret recovery, timer execution, missing-event reconstruction, malicious detection efficacy, false-positive measurement, or a production host-loss restore drill.
 
 ## Explicitly out of scope for v1
 
@@ -131,8 +132,9 @@ Green CI does not close off-host backup operations, missing-event reconstruction
 - `tests/unit/test_api_role_authorization_matrix.py` and existing API ownership/revocation integration tests: role and object-level authorization coverage.
 - `tests/integration/test_queue_saturation_live.py` and `tests/unit/test_application_shutdown_drain.py`: overload, close/unblock, drain, and shutdown-timeout behavior.
 - `tests/integration/test_end_to_end_alert_provenance.py`, `tests/unit/test_alert_evidence_reconciliation.py`, and the reconciliation CLI tests: partial-commit behavior and diagnostic coverage.
-- `tests/integration/test_sqlite_restore_drill.py`: configured core SQLite store restore drill.
+- `tests/integration/test_sqlite_restore_drill.py` and `tests/unit/test_sqlite_backup_set.py`: core-store and isolated backup-set restore coverage.
+- `docs/backup-operations.md`, `scripts/argusprowl-backup-restic.sh`, and `deploy/systemd/argusprowl-backup.*`: encrypted off-host backup operations and scheduling.
 - `docs/real-telemetry-validation.md` and `tests/integration/test_real_pcap_detection_replay.py`: pinned Zeek quickstart PCAP acceptance path.
 - `docs/single-process.md` and `docs/productization.md`: historical documentation warnings.
 
-This audit records verified implementation and CI evidence, not operational certification. The three P0 gates are closed and Beta entry is supported for a single-instance, single-tenant SQLite deployment. Scheduled encrypted off-host backups, production-like restore/host-loss drills, complete retention policy, rule lifecycle evidence, and malicious telemetry efficacy/false-positive measurement remain Stable-release gates. Do not advertise production certification or multi-tenant/multi-replica support.
+This audit records verified implementation and CI evidence, not operational certification. The three P0 gates are closed and Beta entry is supported for a single-instance, single-tenant SQLite deployment. Customer-specific S3/key/timer configuration and a production-like restore/host-loss drill, complete product retention semantics, rule lifecycle evidence, and malicious telemetry efficacy/false-positive measurement remain Stable-release gates. Do not advertise production certification or multi-tenant/multi-replica support.

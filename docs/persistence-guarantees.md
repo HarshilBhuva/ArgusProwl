@@ -89,7 +89,7 @@ The repair mode is idempotent and at-least-once. It reports the number attempted
 - `SQLiteBackupManager.restore_backup()` verifies first, copies the backup into a staging database, checks integrity and schema version again, then atomically replaces the destination database file. A failed verification or staging step leaves the existing destination file unchanged.
 - Restore is an **offline operation**. Stop ArgusProwl and all processes that can write to the target database before restoring. The manager refuses to proceed when target `-wal` or `-shm` sidecars exist; it does not attempt to terminate processes or remove sidecars automatically.
 - The manifest checksum detects accidental corruption or tampering only when the manifest itself is trusted. It is not a digital signature, does not provide authenticity against an attacker who can replace both files, and does not encrypt backup contents.
-- This capability creates and verifies local backup files on demand. It does not schedule backups, upload them offsite, implement retention of backup generations, encrypt backups, or guarantee a particular RPO/RTO. Operators remain responsible for protected off-host copies, access controls, backup cadence, and periodic restore drills.
+- The base SQLite manager creates and verifies local backups. The separate `docs/backup-operations.md` runbook adds an optional restic profile for client-side encryption, S3-compatible off-host storage, systemd scheduling, repository verification, and generation retention. These are operator-configured external operations; CI cannot prove that a customer's credentials, bucket policy, timer, or recovery key are correct. No RPO/RTO is claimed until a production-like host-loss drill has been completed.
 
 
 ### Coordinated SQLite backup sets
@@ -111,7 +111,7 @@ python -m argusprowl backup set-verify backups/argusprowl-20261128T020000Z
 - Every database is snapshotted with SQLite's online backup API, then checked against its individual manifest. A set-level manifest records the complete member list and each member's checksum, size, schema version, and snapshot time.
 - Files are built in a private staging directory and the generation is published by one same-filesystem directory rename. An interrupted run leaves no published generation; an existing generation is never overwritten.
 - **Stop all writers before creating a set.** SQLite can make each database snapshot internally consistent, but independent SQLite files do not share a cross-database transaction. The offline operator barrier is what makes the set a coordinated recovery point. The CLI's `--confirm-offline` flag is an operator attestation, not process detection.
-- `set-verify` validates every database and its manifest. It does not restore the set, encrypt it, upload it, schedule it, or enforce retention. Do not copy an unverified generation off-host.
+- `set-verify` validates every database and its manifest. `set-restore` verifies the complete generation, restores every database into a new isolated directory, and publishes that directory only after all members succeed; it never overwrites an existing destination. The isolated output can be used with a recovery YAML after the operator maps each configured store to its matching file.
 
 ### SQLite backup operator CLI
 

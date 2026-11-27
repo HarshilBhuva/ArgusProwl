@@ -106,10 +106,18 @@ Perform this drill on a separate host or isolated restore environment. Do not ov
    restic restore latest --target /srv/argusprowl-restore
    ```
 
-4. Locate the restored `backup-set.json` and run `argusprowl backup set-verify <generation-directory>`.
-5. Restore each SQLite database into an isolated test data directory using the existing `backup restore` command or the offline SQLite restore API. Verify evidence provenance, alerts, audit-chain integrity, and credential/session revocation state using the restore-drill acceptance test.
-6. Start the application against the isolated restored configuration, run health checks, and confirm expected API/authentication behavior.
-7. Record backup age, time to retrieve, time to verify, time to restore, application recovery time, and any missing state. Repeat after application upgrades and periodically thereafter.
+4. Locate the restored `backup-set.json` in the restic restore output.
+5. Use ArgusProwl's isolated set-restore command to verify and restore every member without touching production data:
+
+   ```bash
+   python -m argusprowl backup set-verify <generation-directory>
+   python -m argusprowl backup set-restore <generation-directory> \
+     --output-dir /srv/argusprowl-restore/sqlite
+   ```
+
+6. Create a recovery YAML from the production configuration and point `storage.database_path`, `api.audit_db_path`, `alert_persistence.db_path`, and any enabled behavior/annotation database paths at their matching restored files (`evidence.db`, `audit.db`, `alerts.db`, `behavior.db`, `annotations.db`). Keep the recovery directory isolated.
+7. Start the application against that recovery YAML, run health checks, and verify evidence provenance, alerts, audit-chain integrity, and credential/session revocation state using the restore-drill acceptance test.
+8. Record backup age, time to retrieve, time to verify, time to restore, application recovery time, and any missing state. Repeat after application upgrades and periodically thereafter.
 
 A green backup job is not a successful disaster-recovery drill. The acceptance test must restore data and start the application in an isolated environment.
 

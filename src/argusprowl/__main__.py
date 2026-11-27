@@ -206,6 +206,16 @@ def create_parser() -> argparse.ArgumentParser:
         "backup_directory", type=str, help="Backup generation directory."
     )
 
+    backup_set_restore_parser = backup_subparsers.add_parser(
+        "set-restore", help="Restore a verified backup generation into a new isolated directory."
+    )
+    backup_set_restore_parser.add_argument(
+        "backup_directory", type=str, help="Verified backup generation directory."
+    )
+    backup_set_restore_parser.add_argument(
+        "--output-dir", required=True, type=str, help="New isolated restore directory."
+    )
+
     # Signed, independently retained checkpoints for the API audit chain.
     audit_checkpoint_parser = subparsers.add_parser(
         "audit-checkpoint",
@@ -425,6 +435,20 @@ def main() -> int:
                 print(f"    Databases: {len(document['databases'])}")
                 for entry in document["databases"]:
                     print(f"    - {entry['name']}: {entry['database_size_bytes']} bytes")
+                return ExitCode.SUCCESS
+
+            if args.backup_action == "set-restore":
+                try:
+                    document = SQLiteBackupSetManager().restore_backup_set(
+                        args.backup_directory, args.output_dir
+                    )
+                except (SQLiteBackupSetError, FileExistsError, ValueError) as exc:
+                    print(f"[!] Backup-set restore failed: {exc}", file=sys.stderr)
+                    return ExitCode.RUNTIME_ERROR
+                print("[+] Complete SQLite backup set restored to an isolated directory.")
+                print(f"    Directory: {args.output_dir}")
+                print(f"    Databases: {len(document['databases'])}")
+                print("    Configure a recovery YAML to point each SQLite store at its restored file.")
                 return ExitCode.SUCCESS
 
             if args.backup_action == "set-create":

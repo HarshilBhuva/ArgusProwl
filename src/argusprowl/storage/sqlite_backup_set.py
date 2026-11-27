@@ -116,6 +116,46 @@ class SQLiteBackupSetManager:
             os.rename(staging, destination)
             self._sync_directory(destination.parent)
             return document
+
+    def restore_backup_set(
+        self,
+        backup_directory: str | Path,
+        output_directory: str | Path,
+    ) -> dict[str, object]:
+        """Restore every member into a new isolated directory.
+
+        The destination is published with one directory rename only after every
+        member has been verified and restored. This never modifies live stores.
+        """
+        source = Path(backup_directory)
+        document = self.verify_backup_set(source)
+        destination = Path(output_directory)
+        source_resolved = source.resolve()
+        destination_resolved = destination.resolve()
+        if destination_resolved == source_resolved or source_resolved in destination_resolved.parents:
+            raise ValueError("Restore output must not be inside the source backup generation.")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            raise FileExistsError(f"Restore output already exists: {destination}")
+
+        staging = Path(tempfile.mkdtemp(
+            prefix=f".{destination.name}.", suffix=".restore", dir=destination.parent
+        ))
+        try:
+            for entry in document["databases"]:
+                filename = str(entry["database_file"])
+                self._backup_manager.restore_backup(source / filename, staging / filename)
+                shutil.copy2(source / str(entry["manifest_file"]), staging / str(entry["manifest_file"]))
+            shutil.copy2(source / "backup-set.json", staging / "backup-set.json")
+            self._sync_directory(staging)
+            os.rename(staging, destination)
+            self._sync_directory(destination.parent)
+            return document
+        except (OSError, SQLiteBackupError, ValueError) as exc:
+            raise SQLiteBackupSetError("Unable to restore complete SQLite backup set.") from exc
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
         except (OSError, SQLiteBackupError, ValueError) as exc:
             raise SQLiteBackupSetError("Unable to create complete SQLite backup set.") from exc
         finally:
