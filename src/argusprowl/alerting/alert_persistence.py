@@ -350,7 +350,7 @@ class AlertPersistence:
         try:
             with self._lock:
                 conn = self._get_connection()
-                cursor = conn.execute(
+                conn.execute(
                     "DELETE FROM evidence_recovery_outbox WHERE alert_id = ?",
                     (str(alert_id),),
                 )
