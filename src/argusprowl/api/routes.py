@@ -33,7 +33,6 @@ from argusprowl.api.object_authorization import (
     filter_accessible,
     require_object_access,
 )
-from argusprowl.api.rule_models import RuleRollbackRequest, RuleUpdateRequest
 from argusprowl.api.response_models import (
     AlertResponse,
     AlertSearchResponse,
@@ -73,6 +72,7 @@ from argusprowl.api.response_models import (
     RuleListResponse,
     TimelineResponse,
 )
+from argusprowl.api.rule_models import RuleRollbackRequest, RuleUpdateRequest
 from argusprowl.constants.lifecycle import AlertLifecycleState
 from argusprowl.constants.priority import AlertPriority
 from argusprowl.constants.severity import Severity
@@ -3158,10 +3158,10 @@ async def update_detection_rule(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Rule not found") from exc
     except Exception as exc:
-        from argusprowl.detection.rule_lifecycle_service import RuleVersionConflict
+        from argusprowl.detection.rule_lifecycle_service import RuleVersionConflictError
         from argusprowl.exceptions.exceptions import DetectionError
 
-        if isinstance(exc, RuleVersionConflict):
+        if isinstance(exc, RuleVersionConflictError):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         if isinstance(exc, (ValueError, DetectionError)):
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -3193,10 +3193,10 @@ async def rollback_detection_rule(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Rule not found") from exc
     except Exception as exc:
-        from argusprowl.detection.rule_lifecycle_service import RuleVersionConflict
+        from argusprowl.detection.rule_lifecycle_service import RuleVersionConflictError
         from argusprowl.exceptions.exceptions import DetectionError
 
-        if isinstance(exc, RuleVersionConflict):
+        if isinstance(exc, RuleVersionConflictError):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         if isinstance(exc, (ValueError, DetectionError)):
             raise HTTPException(status_code=422, detail=str(exc)) from exc
