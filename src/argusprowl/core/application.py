@@ -93,6 +93,7 @@ class Application:
             self._logger = LoggerFactory.get_logger(LogName.CORE)
             self._start_time = datetime.now(UTC)
             self._register_services()
+            self._recover_pending_evidence()
             self._running = True
             self._logger.info("%s started", self._config.app_name)
             if self._config.api.enabled:
@@ -926,6 +927,31 @@ class Application:
             self._event_queue.put(event)
 
 
+    def _recover_pending_evidence(self) -> None:
+        """Replay committed alert/evidence recovery work before ingestion starts."""
+        if not (
+            self._container.is_registered(AlertPersistence)
+            and self._container.is_registered(Storage)
+        ):
+            return
+        from argusprowl.services.alert_evidence_recovery_service import (
+            AlertEvidenceRecoveryService,
+        )
+        from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
+
+        if not self._container.is_registered(TelemetryEvidenceService):
+            return
+        try:
+            service = AlertEvidenceRecoveryService(
+                self._container.resolve(AlertPersistence),
+                self._container.resolve(TelemetryEvidenceService),
+            )
+            report = service.recover_pending()
+            if report.attempted:
+                self._logger.info("Startup alert/evidence recovery: %s", report.to_dict())
+        except Exception:
+            self._logger.exception("Unable to run startup alert/evidence recovery")
+
     def _increment_metric_counter(self, name: str) -> None:
         """Increment a bounded operational counter without affecting event processing."""
         try:
@@ -1003,6 +1029,13 @@ class Application:
                     self._increment_metric_counter("correlation_detector_errors")
 
             # Decision and alerting
+            recovery_work_created = False
+            evidence_service = None
+            if self._container.is_registered(AlertPersistence):
+                from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
+
+                if self._container.is_registered(TelemetryEvidenceService):
+                    evidence_service = self._container.resolve(TelemetryEvidenceService)
             for result in detection_results:
                 # Enrich with contextual intelligence
                 assessment = intelligence_service.evaluate(result, event)
@@ -1010,7 +1043,23 @@ class Application:
                 # Process detection result with contextual assessment, event=event
                 alert = decision_engine.process_detection_result(result, assessment=assessment)
                 if alert is not None:
-                    alert_manager.send_alert(alert)
+                    recovery_payload = None
+                    if evidence_service is not None:
+                        from argusprowl.services.alert_evidence_recovery_service import (
+                            AlertEvidenceRecoveryService,
+                        )
+
+                        recovery_payload = AlertEvidenceRecoveryService.build_payload(
+                            alert,
+                            event,
+                            result,
+                            evidence_service,
+                        )
+                    if recovery_payload is None:
+                        alert_manager.send_alert(alert)
+                    else:
+                        alert_manager.send_alert(alert, recovery_payload=recovery_payload)
+                        recovery_work_created = True
 
             # Phase 7.8: Insert event into evidence store (side-channel, never blocks)
             try:
@@ -1048,6 +1097,9 @@ class Application:
                     "Telemetry evidence persistence failed for event_id=%s", event.event_id
                 )
                 self._increment_metric_counter("evidence_persistence_errors")
+
+            if recovery_work_created:
+                self._recover_pending_evidence()
 
         except Exception as exc:
             self._logger.error("Error processing event: %s", exc, exc_info=True)

@@ -65,7 +65,12 @@ class AlertManager:
             raise KeyError(f"Alert provider '{name}' not found.")
         del self._providers[name]
 
-    def send_alert(self, alert: Alert) -> dict[str, bool]:
+    def send_alert(
+        self,
+        alert: Alert,
+        *,
+        recovery_payload: dict[str, object] | None = None,
+    ) -> dict[str, bool]:
         if self._deduplication_engine is not None:
             decision = self._deduplication_engine.process(alert)
             if not decision.emit:
@@ -88,7 +93,12 @@ class AlertManager:
                     self._last_queue_full_log_time = now
         if self._alert_persistence is not None:
             try:
-                persisted = self._alert_persistence.save_alert(alert)
+                if recovery_payload is None:
+                    persisted = self._alert_persistence.save_alert(alert)
+                else:
+                    persisted = self._alert_persistence.save_alert(
+                        alert, recovery_payload=recovery_payload
+                    )
                 if persisted:
                     self._total_persistence_successes += 1
                 else:
@@ -165,6 +175,10 @@ class AlertManager:
             "alert_persistence_writes_succeeded": self._total_persistence_successes,
             "alert_persistence_writes_failed": self._total_persistence_failures,
         }
+        if self._alert_persistence is not None:
+            stats["evidence_recovery_outbox"] = (
+                self._alert_persistence.get_evidence_recovery_stats()
+            )
         if self._alert_queue is not None:
             stats.update(
                 {
