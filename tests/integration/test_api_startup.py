@@ -107,12 +107,16 @@ def test_run_api_server_passes_app_instance():
     mock_config.lifespan_class = MagicMock(return_value=MagicMock())
     mock_server = MagicMock()
     mock_server.started = False
-    mock_server.should_exit = False
+    mock_server.should_exit = True
+    mock_server.startup = AsyncMock()
 
     def _fake_asyncio_run(coro):
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(coro)
+        # Use a private runner rather than the deprecated implicit event-loop
+        # lookup. This also guarantees the coroutine is awaited in this test.
+        with asyncio.Runner() as runner:
+            runner.run(coro)
 
     with (
         patch("uvicorn.Config", return_value=mock_config) as mock_config_cls,
@@ -148,7 +152,10 @@ def test_run_api_server_preserves_host_port_logging_accesslog():
     def _fake_asyncio_run(coro):
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(coro)
+        # Use a private runner rather than the deprecated implicit event-loop
+        # lookup. This also guarantees the coroutine is awaited in this test.
+        with asyncio.Runner() as runner:
+            runner.run(coro)
 
     with (
         patch("uvicorn.Config", return_value=mock_config) as mock_config_cls,
@@ -227,7 +234,10 @@ def test_application_api_startup_timeout_not_reported_as_success(temp_dir, caplo
     def _fake_asyncio_run(coro):
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(coro)
+        # Use a private runner rather than the deprecated implicit event-loop
+        # lookup. This also guarantees the coroutine is awaited in this test.
+        with asyncio.Runner() as runner:
+            runner.run(coro)
 
     with (
         patch("argusprowl.api.app.create_api_app", return_value=MagicMock()),
@@ -266,7 +276,10 @@ def test_application_logs_api_started_when_uvicorn_succeeds(temp_dir, caplog):
     def _fake_asyncio_run(coro):
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(coro)
+        # Use a private runner rather than the deprecated implicit event-loop
+        # lookup. This also guarantees the coroutine is awaited in this test.
+        with asyncio.Runner() as runner:
+            runner.run(coro)
 
     with (
         patch("uvicorn.Config", return_value=mock_config),
