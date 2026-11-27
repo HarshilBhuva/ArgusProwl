@@ -171,8 +171,8 @@ def create_python_stress_log(source: Path, destination: Path, event_count: int) 
 def run_python_stress_worker(args: argparse.Namespace) -> None:
     from argusprowl.core.application import Application
     from argusprowl.dependency_injection.container import ServiceContainer
-    from argusprowl.replay.replay_reader import ReplayReader
     from argusprowl.alerting.alert_persistence import AlertPersistence
+    from ctu_idseval import CTUIDSEvalRunner
 
     workspace = Path(args.worker_workspace)
     state_dir = workspace / "state"
@@ -227,7 +227,8 @@ def run_python_stress_worker(args: argparse.Namespace) -> None:
     accepted = rejected = 0
     try:
         app.startup(start_api=False)
-        for event in ReplayReader(args.conn_log).read_events():
+        generated_text = Path(args.conn_log).read_text(encoding="utf-8")
+        for _, event in CTUIDSEvalRunner._iter_generated_events(generated_text):
             if app._process_event(event):
                 accepted += 1
             else:
