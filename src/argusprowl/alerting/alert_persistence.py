@@ -349,11 +349,12 @@ class AlertPersistence:
             return False
         try:
             with self._lock:
-                cursor = self._get_connection().execute(
+                conn = self._get_connection()
+                cursor = conn.execute(
                     "DELETE FROM evidence_recovery_outbox WHERE alert_id = ?",
                     (str(alert_id),),
                 )
-                self._connection.commit()
+                conn.commit()
                 return cursor.rowcount > 0
         except sqlite3.Error as exc:
             logger.exception("Unable to complete evidence recovery alert_id=%s", alert_id)
@@ -367,7 +368,8 @@ class AlertPersistence:
         safe_reason = str(reason).replace("\\x00", "")[:1000]
         try:
             with self._lock:
-                cursor = self._get_connection().execute(
+                conn = self._get_connection()
+                cursor = conn.execute(
                     """
                     UPDATE evidence_recovery_outbox
                     SET attempts = attempts + 1, last_error = ?
@@ -375,7 +377,7 @@ class AlertPersistence:
                     """,
                     (safe_reason, str(alert_id)),
                 )
-                self._connection.commit()
+                conn.commit()
                 return cursor.rowcount > 0
         except sqlite3.Error:
             logger.exception("Unable to record evidence recovery failure alert_id=%s", alert_id)
