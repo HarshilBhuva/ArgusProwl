@@ -215,7 +215,7 @@ The installer verifies the downloaded artifact before writing it to ignored loca
 
 ## Security and operational boundaries
 
-ArgusProwl is **Alpha software**. Evaluate it with representative telemetry in a controlled environment before relying on it for production monitoring.
+ArgusProwl is **Beta software**. Evaluate it with representative telemetry in a controlled environment before relying on it for production monitoring.
 
 - **Authentication:** local default configuration has authentication disabled for development compatibility. Docker Compose enables it. Use unique, high-entropy credentials and named role-bearing keys for multi-operator deployments.
 - **Authorization:** named credentials support `viewer`, `analyst`, and `admin` roles. Authorization is deny-by-default; the legacy single API key is administrator-level. See [Security and API access](docs/security.md).
