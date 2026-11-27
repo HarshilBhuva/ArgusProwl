@@ -164,6 +164,10 @@ class AlertPersistence:
                     )
                 """)
                 conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_evidence_recovery_created_at
+                    ON evidence_recovery_outbox(created_at ASC, alert_id ASC)
+                """)
+                conn.execute("""
                     CREATE TABLE IF NOT EXISTS metadata (
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
