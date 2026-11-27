@@ -1960,3 +1960,21 @@ class TestEvidenceRecoveryOutbox:
         )
         assert initialized_persistence.load_alert(sample_alert.alert_id) is None
         assert initialized_persistence.list_pending_evidence_recovery() == ()
+
+
+    def test_alert_retention_does_not_evict_pending_recovery(
+        self,
+        initialized_persistence: AlertPersistence,
+        sample_alert: Alert,
+    ) -> None:
+        initialized_persistence._max_alerts = 1
+        assert initialized_persistence.save_alert(
+            sample_alert, recovery_payload={"schema_version": 1, "events": []}
+        )
+        newer_alert = make_alert()
+        assert initialized_persistence.save_alert(newer_alert)
+
+        assert initialized_persistence.load_alert(sample_alert.alert_id) is None
+        pending = initialized_persistence.list_pending_evidence_recovery()
+        assert len(pending) == 1
+        assert pending[0]["alert_id"] == str(sample_alert.alert_id)
