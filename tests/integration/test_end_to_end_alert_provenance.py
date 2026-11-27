@@ -6,7 +6,7 @@ the alert and evidence through durable storage and a fresh application lifecycle
 Source-specific raw-log parsing remains covered upstream of this boundary.
 """
 
-from threading import Event
+import threading
 from uuid import UUID, uuid4
 
 from argusprowl.alerting.alert_persistence import AlertPersistence
