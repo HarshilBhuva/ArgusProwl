@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from argusprowl.detection.rule_fingerprint import rule_revision_id, rule_snapshot
 from argusprowl.detection.rule_loader import RuleDefinition
 from argusprowl.exceptions.exceptions import DetectionError
-from argusprowl.detection.rule_fingerprint import rule_revision_id, rule_snapshot
 from argusprowl.interfaces.storage import Storage
 
 _RULE_REVISION_COLLECTION = "detector_rule_revisions"
