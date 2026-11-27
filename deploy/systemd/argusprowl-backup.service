@@ -1,0 +1,20 @@
+[Unit]
+Description=ArgusProwl encrypted off-host backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+EnvironmentFile=/etc/argusprowl/backup.env
+ExecStartPre=/usr/bin/systemctl stop argusprowl.service
+ExecStart=/usr/local/libexec/argusprowl-backup-restic.sh
+# ExecStopPost runs after success and failure, restoring the product service.
+ExecStopPost=/usr/bin/systemctl start argusprowl.service
+TimeoutStartSec=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/argusprowl/backups /var/lib/argusprowl/data /var/cache/argusprowl/restic
