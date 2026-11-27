@@ -1,0 +1,160 @@
+name: Rust vs Python real-PCAP and saturation benchmark
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rust-python-pcap-benchmark.yml"
+      - "scripts/evaluation/rust_python_pcap_benchmark.py"
+      - "scripts/evaluation/ctu_idseval.py"
+      - "tests/unit/test_rust_python_pcap_benchmark.py"
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: "Measured repetitions per real capture"
+        required: true
+        default: "2"
+        type: string
+      stress_packets:
+        description: "Packets/events in derived bounded-state saturation workload"
+        required: true
+        default: "262144"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-python-pcap-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: CTU real PCAPs + bounded-state stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out ArgusProwl
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Check out pinned PacketHawk revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: HarshilBhuva/PacketHawk
+          ref: 1166dd76767f533a04a20c749632122f0e119b17
+          path: .tmp/PacketHawk
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+
+      - name: Record runner and toolchain
+        run: |
+          uname -a
+          lscpu
+          free -h
+          df -h .
+          python --version
+          rustc --version --verbose
+          cargo --version
+          docker version
+
+      - name: Build PacketHawk release binary
+        working-directory: .tmp/PacketHawk
+        run: cargo build --locked --release
+
+      - name: Install ArgusProwl dependencies
+        run: uv sync --frozen
+
+      - name: Validate benchmark harness
+        run: |
+          uv run python -m py_compile scripts/evaluation/rust_python_pcap_benchmark.py
+          uv run pytest -q tests/unit/test_rust_python_pcap_benchmark.py
+
+      - name: Pull pinned Zeek image
+        run: docker pull zeek/zeek:9.0.1
+
+      - name: Run real-PCAP and saturation benchmark
+        env:
+          BENCH_REPEATS: ${{ github.event.inputs.repeats || '1' }}
+          BENCH_STRESS_PACKETS: ${{ github.event.inputs.stress_packets || '262144' }}
+        run: |
+          uv run python scripts/evaluation/rust_python_pcap_benchmark.py \
+            --workspace .tmp/rust-python-benchmark \
+            --output .tmp/rust-python-benchmark/report.json \
+            --packethawk-bin .tmp/PacketHawk/target/release/packethawk \
+            --repeats "$BENCH_REPEATS" \
+            --stress-packets "$BENCH_STRESS_PACKETS"
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if [ -f .tmp/rust-python-benchmark/report.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path(".tmp/rust-python-benchmark/report.json").read_text())
+          lines = [
+              "## Rust vs Python real-PCAP benchmark",
+              "",
+              f"- Dataset: [CTU-IDSEVAL-6](https://doi.org/{report['dataset']['doi']})",
+              f"- PacketHawk commit: `{report['packethawk_commit']}`",
+              f"- Zeek: {report['zeek_version']}",
+              f"- Runner: {report['runner']['os']} / {report['runner']['cpu_count']} logical CPUs",
+              "",
+              "> These are different pipelines, not equivalent detectors. PacketHawk consumes raw packets; ArgusProwl consumes Zeek-normalized connection events. Zeek conversion is reported separately and included in ArgusProwl's end-to-end wall time.",
+              "",
+              "| Capture | PCAP MiB | Rust packets/s | Rust peak RSS MiB | Python flows/s | Python peak RSS MiB | Python F1 |",
+              "|---|---:|---:|---:|---:|---:|---:|",
+          ]
+          for item in report["captures"]:
+              rust = item["packethawk"][0]
+              py = item["argusprowl"][0]
+              rust_packets = rust["detection_stats"].get("packets_seen", 0)
+              rust_rate = rust_packets / (rust["detect_metrics"]["wall_ms"] / 1000) if rust["detect_metrics"]["wall_ms"] else 0
+              py_flows = py.get("generated_flows", 0)
+              py_rate = py_flows / (py.get("event_processing_ms", 0) / 1000) if py.get("event_processing_ms") else 0
+              lines.append(
+                  f"| {item['capture_id']} | {item['pcap_bytes'] / 1048576:.2f} | {rust_rate:.0f} | "
+                  f"{rust['detect_metrics']['peak_rss_mib']:.1f} | {py_rate:.0f} | "
+                  f"{py['peak_rss_mib']:.1f} | {py['metrics']['f1']} |"
+              )
+          stress = report.get("stress", {})
+          lines.extend([
+              "",
+              "### Bounded-state saturation",
+              f"- Derived stress packets: {stress.get('packets')}",
+              f"- PacketHawk detection-state evictions: {stress.get('state_evictions')}",
+              f"- PacketHawk flow-table evictions: {stress.get('flow_evictions')}",
+              f"- Saturation observed: {stress.get('expected_saturation_observed')}",
+              "",
+              "### Parser boundary checks",
+          ])
+          for name, result in report.get("packethawk_boundary_checks", {}).items():
+              lines.append(f"- {name}: rejected={result['rejected']}, expected_error={result['expected_error']}")
+          with Path("$GITHUB_STEP_SUMMARY").open("a") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY
+          fi
+
+      - name: Upload benchmark report and raw dataset metadata
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rust-python-real-pcap-benchmark-${{ github.sha }}
+          path: |
+            .tmp/rust-python-benchmark/report.json
+            .tmp/rust-python-benchmark/dataset-work/archive-checksums.json
+          if-no-files-found: warn
+          retention-days: 90
