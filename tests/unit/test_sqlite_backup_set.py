@@ -56,7 +56,7 @@ def test_backup_set_verification_rejects_missing_member(tmp_path):
     manager.create_backup_set({"evidence": source}, destination, application_version="0.1.0")
     (destination / "evidence.db").unlink()
 
-    with pytest.raises(SQLiteBackupSetError, match="verification failed"):
+    with pytest.raises(SQLiteBackupSetError, match="missing or symlinked"):
         manager.verify_backup_set(destination)
 
 
