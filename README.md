@@ -64,19 +64,19 @@ The system separates source-specific ingestion from normalized event processing 
 
 ```mermaid
 flowchart LR
-    A["Telemetry sources<br/>Zeek · Suricata · Sysmon<br/>Windows Event Log · Linux Audit"] --> B["Collectors / Replay"]
+    A["Telemetry sources"] --> B["Collectors and replay"]
     B --> C["Parsers"]
-    C --> D["NormalizedEvent"]
+    C --> D["Normalized events"]
     D --> E["Bounded event queue"]
-    E --> F["Processing & feature engineering"]
+    E --> F["Processing and features"]
     F --> G["Detection manager"]
-    G --> H["Decision engine<br/>deduplication · correlation"]
-    H --> I["Alerts & evidence"]
+    G --> H["Decision engine"]
+    H --> I["Alerts and evidence"]
     I --> J["SQLite persistence"]
     I --> K["API"]
     J --> K
-    K --> L["React analyst interface"]
-    D --> M["Entity intelligence projection"]
+    K --> L["React analyst UI"]
+    D --> M["Entity intelligence"]
     M --> J
 ```
 
