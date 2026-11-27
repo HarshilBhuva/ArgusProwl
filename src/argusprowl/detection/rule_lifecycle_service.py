@@ -90,7 +90,7 @@ class RuleLifecycleService:
             )
         candidate = replace(
             current,
-            version=current.version + 1,
+            version=self._next_revision_version(current),
             enabled=current.enabled if enabled is None else enabled,
             confidence=current.confidence if confidence_threshold is None else confidence_threshold,
             parameters=current.parameters if parameters is None else parameters,
@@ -131,7 +131,7 @@ class RuleLifecycleService:
             )
         candidate = replace(
             current,
-            version=current.version + 1,
+            version=self._next_revision_version(current),
             detector=target.detector,
             enabled=target.enabled,
             confidence=target.confidence_threshold,
@@ -148,6 +148,18 @@ class RuleLifecycleService:
             client_ip=client_ip,
             rollback_from_version=target_version,
         )
+
+    def _next_revision_version(self, current: RuleDefinition) -> int:
+        """Allocate the next immutable version, including prepared-but-not-active revisions."""
+        history = self._revision_store.history(current.rule_id, limit=1)
+        if history:
+            return history[0].version + 1
+        if current.version != 1:
+            raise DetectionError(
+                "Existing rule history must be imported before changing a rule "
+                "whose active version is greater than 1."
+            )
+        return 2
 
     def _find_rule(self, rule_id: str) -> RuleDefinition:
         if not rule_id or len(rule_id) > 128:
@@ -237,9 +249,21 @@ class RuleLifecycleService:
             )
 
             original = target_path.read_bytes()
+            registry = self._manager.get_registry()
+            previous_detector = registry.get(candidate.rule_id)
             try:
                 os.replace(temporary_path, target_path)
-                self._manager.get_registry().replace(candidate.rule_id, detector)
+                registry.replace(candidate.rule_id, detector)
+                self._audit_log.append(
+                    event_type="RULE_REVISION_ACTIVATED",
+                    actor_id=actor,
+                    role="admin",
+                    method="PUT",
+                    path=f"/api/v1/rules/{candidate.rule_id}",
+                    status_code=200,
+                    request_id=revision.revision_id,
+                    client_ip=client_ip,
+                )
             except Exception:
                 restore_descriptor, restore_name = tempfile.mkstemp(
                     prefix=f".{target_path.stem}.restore.", dir=target_path.parent
@@ -249,18 +273,8 @@ class RuleLifecycleService:
                     stream.flush()
                     os.fsync(stream.fileno())
                 os.replace(restore_name, target_path)
+                registry.replace(candidate.rule_id, previous_detector)
                 raise
-
-            self._audit_log.append(
-                event_type="RULE_REVISION_ACTIVATED",
-                actor_id=actor,
-                role="admin",
-                method="PUT",
-                path=f"/api/v1/rules/{candidate.rule_id}",
-                status_code=200,
-                request_id=revision.revision_id,
-                client_ip=client_ip,
-            )
             return {
                 "rule_id": revision.rule_id,
                 "version": revision.version,
