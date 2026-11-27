@@ -52,10 +52,7 @@ jobs:
         run: uv run python -m compileall -q src tests scripts
 
       - name: Lint (ruff) - check
-        run: |
-          uv run ruff check --fix tests/unit/test_backup_restic_runner.py
-          git diff -- tests/unit/test_backup_restic_runner.py
-          uv run ruff check src tests
+        run: uv run ruff check src tests
 
       - name: Run full test suite
         run: uv run pytest -q --maxfail=1 --durations=15

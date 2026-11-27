@@ -92,7 +92,7 @@ The timer runs daily at 02:15 local system time with a randomized delay and catc
 ## Verify and inspect
 
 ```bash
-sudo bash -c 'set -a; source /etc/argusprowl/backup.env; set +a; restic snapshots --tag argusprowl'
+sudo bash -c 'set -a; source /etc/argusprowl/backup.env; set +a; restic snapshots --tag argusprowl --host "$RESTIC_HOST"'
 sudo bash -c 'set -a; source /etc/argusprowl/backup.env; set +a; restic check --read-data'
 sudo cat /var/lib/argusprowl/backups/backup-status.json
 ```
@@ -108,8 +108,8 @@ Perform this drill on a separate host or isolated restore environment. Do not ov
 3. List snapshots and restore the latest tagged generation to an isolated directory:
 
    ```bash
-   restic snapshots --tag argusprowl
-   restic restore latest --target /srv/argusprowl-restore
+   restic snapshots --tag argusprowl --host "$RESTIC_HOST"
+   restic restore latest --tag argusprowl --host "$RESTIC_HOST" --target /srv/argusprowl-restore
    ```
 
 4. Locate the restored `backup-set.json` in the restic restore output.

@@ -11,10 +11,10 @@ WorkingDirectory=/var/lib/argusprowl
 EnvironmentFile=/etc/argusprowl/backup.env
 RuntimeDirectory=argusprowl-backup
 RuntimeDirectoryMode=0700
-ExecStartPre=/usr/bin/bash -c 'if /usr/bin/systemctl is-active --quiet argusprowl.service; then /usr/bin/touch /run/argusprowl-backup/was-active; /usr/bin/systemctl stop argusprowl.service; fi'
+ExecStartPre=/usr/bin/bash -ec 'if /usr/bin/systemctl is-active --quiet argusprowl.service; then /usr/bin/touch /run/argusprowl-backup/was-active; /usr/bin/systemctl stop argusprowl.service; fi'
 ExecStart=/usr/local/libexec/argusprowl-backup-restic.sh
 # Restore the service only when it was active before this maintenance run.
-ExecStopPost=/usr/bin/bash -c 'if [ -e /run/argusprowl-backup/was-active ]; then /usr/bin/systemctl start argusprowl.service; /usr/bin/rm -f /run/argusprowl-backup/was-active; fi'
+ExecStopPost=/usr/bin/bash -ec 'if [ -e /run/argusprowl-backup/was-active ]; then /usr/bin/systemctl start argusprowl.service; /usr/bin/rm -f /run/argusprowl-backup/was-active; fi'
 TimeoutStartSec=0
 NoNewPrivileges=true
 PrivateTmp=true

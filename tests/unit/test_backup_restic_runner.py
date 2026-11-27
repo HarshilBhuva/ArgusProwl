@@ -7,7 +7,6 @@ import subprocess
 
 import pytest
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "argusprowl-backup-restic.sh"
 
