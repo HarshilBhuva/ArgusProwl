@@ -41,11 +41,18 @@ def test_revision_history_is_append_only_and_survives_restart(tmp_path: Path, st
         actor="analyst@example.test",
         change_reason="Reduce scan noise",
     )
+    database_path = tmp_path / "rule-revisions.db"
+    storage._connection.close()
 
-    assert second.version == 2
-    assert second.content_sha256 != first.content_sha256
-    assert [item.version for item in RuleRevisionStore(storage).history("port_scan")] == [2, 1]
-    assert RuleRevisionStore(storage).history("port_scan")[1].parameters == {"min_unique_ports": 10}
+    reopened = SQLiteAdapter(database_path)
+    try:
+        history = RuleRevisionStore(reopened).history("port_scan")
+        assert second.version == 2
+        assert second.content_sha256 != first.content_sha256
+        assert [item.version for item in history] == [2, 1]
+        assert history[1].parameters == {"min_unique_ports": 10}
+    finally:
+        reopened._connection.close()
 
 
 def test_same_revision_write_is_idempotent(tmp_path: Path, storage):
