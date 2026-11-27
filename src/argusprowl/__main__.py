@@ -23,6 +23,7 @@ from argusprowl.constants.paths import ProjectPath
 from argusprowl.core.application import Application
 from argusprowl.exceptions.exceptions import ThreatHunterError
 from argusprowl.services.alert_evidence_reconciliation import AlertEvidenceReconciliationService
+from argusprowl.services.alert_evidence_recovery_service import AlertEvidenceRecoveryService
 from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 from argusprowl.storage.sqlite_backup import SQLiteBackupManager
 from argusprowl.storage.sqlite_diagnostics import (
@@ -135,7 +136,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Read-only consistency inspection across the independent alert/evidence stores.
     reconcile_parser = subparsers.add_parser(
-        "reconcile", help="Inspect cross-store alert/evidence consistency without mutation."
+        "reconcile", help="Inspect or repair cross-store alert/evidence consistency."
     )
     reconcile_parser.add_argument(
         "--config",
@@ -146,9 +147,14 @@ def create_parser() -> argparse.ArgumentParser:
     reconcile_subparsers = reconcile_parser.add_subparsers(
         dest="reconcile_action", required=True
     )
-    reconcile_subparsers.add_parser(
+    reconcile_alert_parser = reconcile_subparsers.add_parser(
         "alert-evidence",
         help="Compare persisted alert event references with durable evidence provenance.",
+    )
+    reconcile_alert_parser.add_argument(
+        "--repair",
+        action="store_true",
+        help="Replay pending durable evidence recovery envelopes before reporting consistency.",
     )
 
     # Explicit operator workflow for local SQLite backup lifecycle.
@@ -354,6 +360,26 @@ def main() -> int:
                     storage=evidence_storage,
                     max_retained_events=app_config.telemetry_evidence.max_retained_events,
                 )
+                if args.repair:
+                    recovery = AlertEvidenceRecoveryService(
+                        alert_store, evidence_service
+                    ).recover_pending()
+                    report = AlertEvidenceReconciliationService(
+                        alert_store, evidence_service
+                    ).inspect()
+                    output = {
+                        "recovery": recovery.to_dict(),
+                        "reconciliation": report.to_dict(),
+                    }
+                    print(json.dumps(output, indent=2, sort_keys=True))
+                    return (
+                        ExitCode.SUCCESS
+                        if recovery.failed == 0
+                        and recovery.pending == 0
+                        and report.status == "COMPLETE"
+                        else ExitCode.RUNTIME_ERROR
+                    )
+
                 report = AlertEvidenceReconciliationService(
                     alert_store, evidence_service
                 ).inspect()

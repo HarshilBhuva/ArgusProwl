@@ -68,6 +68,31 @@ class _Reconciler:
         return _Report(type(self).status)
 
 
+
+class _RecoveryReport:
+    attempted = 1
+    completed = 1
+    failed = 0
+    pending = 0
+
+    def to_dict(self):
+        return {
+            "attempted": self.attempted,
+            "completed": self.completed,
+            "failed": self.failed,
+            "pending": self.pending,
+        }
+
+
+class _Recovery:
+    def __init__(self, alert_store, evidence_service):
+        self.alert_store = alert_store
+        self.evidence_service = evidence_service
+
+    def recover_pending(self):
+        return _RecoveryReport()
+
+
 def _run(monkeypatch, *argv):
     from argusprowl import __main__ as cli
 
@@ -93,6 +118,7 @@ def _patch_dependencies(monkeypatch):
     monkeypatch.setattr(cli, "SQLiteAdapter", _EvidenceStorage)
     monkeypatch.setattr(cli, "TelemetryEvidenceService", _EvidenceService)
     monkeypatch.setattr(cli, "AlertEvidenceReconciliationService", _Reconciler)
+    monkeypatch.setattr(cli, "AlertEvidenceRecoveryService", _Recovery)
 
 
 def test_reconcile_alert_evidence_reports_json_and_closes_stores(monkeypatch, capsys):
@@ -105,6 +131,23 @@ def test_reconcile_alert_evidence_reports_json_and_closes_stores(monkeypatch, ca
     assert payload == {"status": "COMPLETE", "alerts_checked": 2}
     assert _AlertStore.last_instance.closed is True
     assert _EvidenceStorage.last_instance.closed is True
+
+
+
+def test_reconcile_alert_evidence_repair_replays_and_reports(monkeypatch, capsys):
+    _patch_dependencies(monkeypatch)
+    _Reconciler.status = "COMPLETE"
+
+    assert _run(monkeypatch, "reconcile", "alert-evidence", "--repair") == ExitCode.SUCCESS
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["recovery"] == {
+        "attempted": 1,
+        "completed": 1,
+        "failed": 0,
+        "pending": 0,
+    }
+    assert payload["reconciliation"]["status"] == "COMPLETE"
 
 
 def test_reconcile_alert_evidence_returns_nonzero_for_incomplete_report(monkeypatch):
@@ -127,3 +170,5 @@ def test_reconcile_alert_evidence_parser_accepts_config_before_and_after_action(
 
     assert before.config == "custom.yaml"
     assert after.config == "custom.yaml"
+    repair = parser.parse_args(["reconcile", "alert-evidence", "--repair"])
+    assert repair.repair is True

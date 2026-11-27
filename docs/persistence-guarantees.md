@@ -20,7 +20,12 @@ An event and its current provenance metadata are serialized into one storage pay
 Alert persistence and telemetry evidence persistence are separate stores and are **not one cross-database transaction**. Therefore:
 - If an alert is persisted but evidence persistence fails, the alert remains committed and retains its source/contributing event IDs, but the referenced event may be unavailable in evidence search. The evidence failure is logged and counted separately; core processing success remains independent.
 - If evidence is persisted but alert persistence fails, the evidence remains available, but there may be no durable alert record. Alert persistence failure is logged and exposed in alert-manager statistics.
-- Neither failure triggers automatic retries. The event consumer continues; operators can investigate persistence counters/logs. Exactly-once processing is not guaranteed.
+- A failed evidence write for an alert with alert persistence enabled leaves a recovery envelope in the alert database. The alert row and its envelope are committed in the same SQLite transaction. The envelope snapshots the source event and any contributing event payloads still available at detection time.
+- Recovery runs before ingestion starts and after an alert's evidence side-channel write. It replays evidence writes idempotently, verifies every referenced event and provenance value, and removes the outbox row only after verification. Failed or incomplete attempts remain pending with an incremented attempt count and bounded error text; they are retried on a later startup or subsequent alert-processing pass.
+- The outbox is **at-least-once**, not exactly-once. A crash after evidence commit but before outbox deletion can replay the same event; event identity and evidence-store duplicate semantics make that replay idempotent. Alert/evidence stores are still not one cross-database transaction.
+- Recovery is available only when both alert persistence and telemetry evidence are enabled. If a contributing event was already unavailable when the envelope was created, the outbox records the unresolved reference but cannot synthesize telemetry that was never captured. The row remains pending for diagnosis.
+- Recovery envelopes temporarily duplicate normalized telemetry in the alert database. Protect the alert database and its backups accordingly. Pending rows are intentionally not evicted with alert retention; operators must monitor the pending count/oldest timestamp in alert-manager statistics and investigate persistent failures. No automatic dead-letter deletion is performed.
+- If alert persistence fails, no durable outbox exists; the original evidence side-channel behavior remains best-effort. Exactly-once processing is not guaranteed.
 
 ## Duplicate behavior
 
@@ -33,19 +38,25 @@ Alert persistence and telemetry evidence persistence are separate stores and are
 
 Committed evidence is reloaded into the bounded hot cache from the configured SQLite database on service initialization. The indexed search path can query durable history outside that cache. Recovery requires the same `storage.database_path` and a healthy readable database. Durable alert recovery additionally requires `alert_persistence.enabled` and the same `alert_persistence.db_path` across restarts. SQLite WAL and the adapter's commit boundary provide local transactional durability; this does not protect against disk loss, manual database deletion, or corruption.
 
-The evidence and alert stores remain independently committed. A future transactional outbox or unified transaction boundary could reduce orphaned alert/evidence references, but that would be a separate architectural change. The current design deliberately avoids retry loops, a new backend, and exactly-once claims.
+The evidence and alert stores remain independently committed. The SQLite alert store now provides a transactional recovery outbox so a committed alert carries the event snapshots needed to repair the evidence side-channel after a crash or transient write failure. This narrows the recovery gap but does not make the two databases atomic, guarantee recovery of telemetry that was never snapshotted, or provide exactly-once processing.
 
-### Read-only alert/evidence reconciliation
+### Alert/evidence reconciliation and recovery
 
 When alert persistence and telemetry evidence are both enabled on SQLite, operators can inspect cross-store references with:
 
 ```bash
-python -m argusprowl reconcile alert-evidence --config config.yaml
+python -m argusprowl reconcile --config config.yaml alert-evidence
 ```
 
 The command reads the bounded durable alert set and resolves each alert's detection-source and contributing-event references against the evidence store. It reports complete, missing, mismatched-provenance, degraded, and unavailable references as JSON. It exits non-zero when the report is incomplete, degraded, or unavailable, making it suitable for a scheduled operational check.
 
-This is a diagnostic, not a repair or transaction coordinator. It does not recreate missing telemetry, rewrite alerts, retry provider delivery, or guarantee that a process crash can be repaired automatically. Keep both configured database files available and back them up independently. A report with no evidence references is explicitly identified rather than silently counted as a successful provenance check.
+To explicitly replay pending recovery envelopes before inspecting consistency:
+
+```bash
+python -m argusprowl reconcile --config config.yaml alert-evidence --repair
+```
+
+The repair mode is idempotent and at-least-once. It reports the number attempted, completed, failed, and still pending alongside the post-replay reconciliation report. It does not rewrite alerts, retry external alert-provider delivery, or recover telemetry payloads that were unavailable when the envelope was created. Keep both configured database files available and back them up independently. A report with no evidence references is explicitly identified rather than silently counted as a successful provenance check.
 
 
 ## Indexed search boundaries

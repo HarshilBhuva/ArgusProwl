@@ -270,6 +270,11 @@ def test_persisted_alert_with_evidence_outage_is_reported_as_incomplete(
         assert len(matching) == 1
         assert matching[0].source == PRODUCTION_RULE_ID
 
+        recovery_stats = alert_persistence.get_evidence_recovery_stats()
+        assert recovery_stats["pending"] == 1
+        pending = alert_persistence.list_pending_evidence_recovery()
+        assert pending[0]["attempts"] >= 1
+
         report = AlertEvidenceReconciliationService(
             alert_persistence, evidence
         ).inspect()
@@ -277,5 +282,66 @@ def test_persisted_alert_with_evidence_outage_is_reported_as_incomplete(
         assert report.alerts_checked == 1
         assert report.incomplete == 1
         assert report.findings[0].missing_event_ids == (event_id,)
+    finally:
+        app.shutdown()
+
+    # Simulate the evidence store recovering while ArgusProwl is offline.
+    # The next startup must replay the durable envelope before ingestion starts.
+    monkeypatch.undo()
+    recovered_app, recovered_container, recovered_evidence = _start_application(config_path)
+    try:
+        recovered_alerts = recovered_container.resolve(AlertPersistence)
+        assert recovered_alerts.get_evidence_recovery_stats()["pending"] == 0
+        assert recovered_alerts.list_pending_evidence_recovery() == ()
+        detail = recovered_evidence.get_detail(event_id)
+        assert detail is not None
+        assert detail.event is not None
+        assert detail.event.event_id == event_id
+        assert detail.record is not None
+        assert detail.record.provenance == PROVENANCE_DETECTION_SOURCE
+    finally:
+        recovered_app.shutdown()
+
+
+def test_transient_evidence_failure_is_recovered_from_durable_outbox(
+    tmp_path, monkeypatch
+) -> None:
+    """A transient side-channel failure is repaired without reprocessing detection."""
+    config_path = _write_config(tmp_path)
+    event_id = uuid4()
+    event = NormalizedEvent(
+        source_type="integration-test",
+        event_type="process_start",
+        event_id=event_id,
+        hostname="endpoint-outbox-recovery-01",
+        process_name="outbox-recovery-fixture",
+        command_line="outbox-recovery-fixture --test",
+        source_record_id="outbox-recovery-fixture-001",
+    )
+    app, container, evidence = _start_application(config_path)
+    try:
+        original_record_event = evidence.record_event
+        attempts = 0
+
+        def fail_once(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise StorageError("one-time evidence write failure")
+            return original_record_event(*args, **kwargs)
+
+        monkeypatch.setattr(evidence, "record_event", fail_once)
+        assert app._process_event(event) is True
+
+        alert_persistence = container.resolve(AlertPersistence)
+        assert alert_persistence.get_evidence_recovery_stats()["pending"] == 0
+        assert alert_persistence.list_pending_evidence_recovery() == ()
+        detail = evidence.get_detail(event_id)
+        assert detail is not None
+        assert detail.event is not None
+        assert detail.event.to_dict() == event.to_dict()
+        assert detail.record is not None
+        assert detail.record.provenance == PROVENANCE_DETECTION_SOURCE
+        assert attempts >= 2
     finally:
         app.shutdown()
