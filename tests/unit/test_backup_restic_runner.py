@@ -54,6 +54,7 @@ def _runner_environment(tmp_path: Path, *, fail_on: str = "") -> dict[str, str]:
         "ARGUSPROWL_BACKUP_ROOT": str(backup_root),
         "RESTIC_REPOSITORY": "s3:https://s3.example.invalid/argusprowl/test",
         "RESTIC_PASSWORD_FILE": str(password),
+        "RESTIC_HOST": "argusprowl-test-host",
         "RESTIC_CHECK_DATA_PERCENT": "5",
         "FAIL_ON": fail_on,
     }
