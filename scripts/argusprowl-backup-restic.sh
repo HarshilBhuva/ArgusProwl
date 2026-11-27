@@ -157,7 +157,7 @@ for generation_name in "${local_generations[@]}"; do
         backup set-verify "$ARGUSPROWL_BACKUP_ROOT/$generation_name" >/dev/null; then
         verified_generations+=("$generation_name")
     else
-        printf '[argusprowl-backup] Retaining unverified local generation %s\\n' \
+        printf '[argusprowl-backup] Retaining unverified local generation %s\n' \
             "$generation_name" >&2
     fi
 done
