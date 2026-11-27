@@ -14,8 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import argusprowl
-from argusprowl.api.audit_checkpoint import AuditCheckpointError, AuditCheckpointManager
 from argusprowl.alerting.alert_persistence import AlertPersistence
+from argusprowl.api.audit_checkpoint import AuditCheckpointError, AuditCheckpointManager
 from argusprowl.attck.knowledge_service import AttckKnowledgeService
 from argusprowl.config.config_manager import ConfigManager
 from argusprowl.constants.exit_codes import ExitCode
