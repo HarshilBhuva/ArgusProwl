@@ -14,7 +14,7 @@ ARGUSPROWL_LOCAL_KEEP="${ARGUSPROWL_LOCAL_KEEP:-2}"
 STATUS_FILE="$ARGUSPROWL_BACKUP_ROOT/backup-status.json"
 
 fail() {
-    printf '[argusprowl-backup] ERROR: %s\\n' "$*" >&2
+    printf '[argusprowl-backup] ERROR: %s\n' "$*" >&2
     exit 1
 }
 
