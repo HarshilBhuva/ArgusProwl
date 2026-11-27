@@ -35,6 +35,18 @@ Committed evidence is reloaded into the bounded hot cache from the configured SQ
 
 The evidence and alert stores remain independently committed. A future transactional outbox or unified transaction boundary could reduce orphaned alert/evidence references, but that would be a separate architectural change. The current design deliberately avoids retry loops, a new backend, and exactly-once claims.
 
+### Read-only alert/evidence reconciliation
+
+When alert persistence and telemetry evidence are both enabled on SQLite, operators can inspect cross-store references with:
+
+```bash
+python -m argusprowl reconcile alert-evidence --config config.yaml
+```
+
+The command reads the bounded durable alert set and resolves each alert's detection-source and contributing-event references against the evidence store. It reports complete, missing, mismatched-provenance, degraded, and unavailable references as JSON. It exits non-zero when the report is incomplete, degraded, or unavailable, making it suitable for a scheduled operational check.
+
+This is a diagnostic, not a repair or transaction coordinator. It does not recreate missing telemetry, rewrite alerts, retry provider delivery, or guarantee that a process crash can be repaired automatically. Keep both configured database files available and back them up independently. A report with no evidence references is explicitly identified rather than silently counted as a successful provenance check.
+
 
 ## Indexed search boundaries
 

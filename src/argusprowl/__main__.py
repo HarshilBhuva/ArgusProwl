@@ -6,6 +6,7 @@ and verifying configuration.
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -13,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import argusprowl
+from argusprowl.alerting.alert_persistence import AlertPersistence
 from argusprowl.api.audit_checkpoint import AuditCheckpointError, AuditCheckpointManager
 from argusprowl.attck.knowledge_service import AttckKnowledgeService
 from argusprowl.config.config_manager import ConfigManager
@@ -20,11 +22,14 @@ from argusprowl.constants.exit_codes import ExitCode
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.core.application import Application
 from argusprowl.exceptions.exceptions import ThreatHunterError
+from argusprowl.services.alert_evidence_reconciliation import AlertEvidenceReconciliationService
+from argusprowl.services.telemetry_evidence_service import TelemetryEvidenceService
 from argusprowl.storage.sqlite_backup import SQLiteBackupManager
 from argusprowl.storage.sqlite_diagnostics import (
     SQLiteDiagnosticsError,
     SQLiteDiagnosticsService,
 )
+from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
 def _validate_stix_url(url: str) -> str:
@@ -126,6 +131,24 @@ def create_parser() -> argparse.ArgumentParser:
     )
     storage_subparsers.add_parser(
         "stats", help="Report SQLite capacity and record metrics without an integrity scan."
+    )
+
+    # Read-only consistency inspection across the independent alert/evidence stores.
+    reconcile_parser = subparsers.add_parser(
+        "reconcile", help="Inspect cross-store alert/evidence consistency without mutation."
+    )
+    reconcile_parser.add_argument(
+        "--config",
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Path to YAML configuration file.",
+    )
+    reconcile_subparsers = reconcile_parser.add_subparsers(
+        dest="reconcile_action", required=True
+    )
+    reconcile_subparsers.add_parser(
+        "alert-evidence",
+        help="Compare persisted alert event references with durable evidence provenance.",
     )
 
     # Explicit operator workflow for local SQLite backup lifecycle.
@@ -290,6 +313,60 @@ def main() -> int:
                     return ExitCode.RUNTIME_ERROR
             print("=================================\n")
             return ExitCode.SUCCESS
+
+        if command == "reconcile":
+            app_config = ConfigManager().load(config_path)
+            if app_config.storage.backend.lower() != "sqlite":
+                print(
+                    "[!] Alert/evidence reconciliation currently requires storage.backend=sqlite.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+            if not app_config.alert_persistence.enabled:
+                print(
+                    "[!] Enable alert_persistence before running alert/evidence reconciliation.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+            if not app_config.telemetry_evidence.enabled:
+                print(
+                    "[!] Enable telemetry_evidence before running alert/evidence reconciliation.",
+                    file=sys.stderr,
+                )
+                return ExitCode.CONFIG_ERROR
+
+            alert_store = AlertPersistence(
+                db_path=app_config.alert_persistence.db_path,
+                max_alerts=app_config.alert_persistence.max_alerts,
+            )
+            evidence_storage = None
+            try:
+                alert_store.initialize()
+                if alert_store.get_status().value == "UNAVAILABLE":
+                    print(
+                        "[!] Alert persistence is unavailable: "
+                        f"{alert_store.get_status_reason()}",
+                        file=sys.stderr,
+                    )
+                    return ExitCode.RUNTIME_ERROR
+                evidence_storage = SQLiteAdapter(app_config.storage.database_path)
+                evidence_service = TelemetryEvidenceService(
+                    storage=evidence_storage,
+                    max_retained_events=app_config.telemetry_evidence.max_retained_events,
+                )
+                report = AlertEvidenceReconciliationService(
+                    alert_store, evidence_service
+                ).inspect()
+                print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+                return (
+                    ExitCode.SUCCESS
+                    if report.status == "COMPLETE"
+                    else ExitCode.RUNTIME_ERROR
+                )
+            finally:
+                if evidence_storage is not None:
+                    evidence_storage.close()
+                alert_store.close()
 
         if command == "backup":
             backup_manager = SQLiteBackupManager()
