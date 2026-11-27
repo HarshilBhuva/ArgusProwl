@@ -36,8 +36,6 @@ def _write_config(tmp_path: Path) -> str:
                 "  enabled: false",
                 "temporal:",
                 "  enabled: false",
-                "endpoint_correlation:",
-                "  enabled: false",
                 "",
             ]
         ),
