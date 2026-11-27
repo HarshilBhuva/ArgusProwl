@@ -1,4 +1,5 @@
 """Tests for the restic off-host backup runner."""
+
 from __future__ import annotations
 
 import json
