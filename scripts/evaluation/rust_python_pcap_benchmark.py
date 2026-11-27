@@ -443,9 +443,11 @@ def main() -> None:
     workspace = args.workspace.resolve()
     output = args.output.resolve()
     binary = args.packethawk_bin.resolve()
+    print("Preparing and checksum-validating CTU-IDSEVAL-6 archives...", flush=True)
     runner = CTUIDSEvalRunner(workspace / "dataset-work", workspace / "dataset-work" / "unused.json")
     archive_checksums = runner._download()
     runner._prepare_dataset(archive_checksums)
+    print("Dataset ready; probing startup and preparing capture runs...", flush=True)
     zeek_version = subprocess.run(
         ["docker", "run", "--rm", runner.zeek_image, "zeek", "--version"],
         capture_output=True, text=True, check=True, timeout=120,
@@ -502,6 +504,7 @@ def main() -> None:
 
     for capture in CAPTURES:
         pcap = next(runner.pcap_root.rglob(f"{capture}.pcap"))
+        print(f"[{capture}] Zeek PCAP conversion...", flush=True)
         generated_dir = workspace / "generated-zeek" / capture
         started = time.perf_counter()
         runner._run_zeek(pcap, generated_dir)
@@ -517,6 +520,7 @@ def main() -> None:
             "argusprowl": [],
         }
         for repeat in range(args.repeats):
+            print(f"[{capture}] repeat {repeat + 1}/{args.repeats}: PacketHawk detect + flow aggregation...", flush=True)
             rust_detect, rust_detect_metrics = run_packethawk(binary, pcap, "detect")
             rust_flows, rust_flow_metrics = run_packethawk(binary, pcap, "flows")
             capture_result["packethawk"].append({
@@ -531,6 +535,7 @@ def main() -> None:
                 "dns_anomaly_alerts": rust_detect.get("dns_anomaly", {}).get("stats", {}).get("anomalous_queries"),
             })
             python_workspace = workspace / "python-workers" / capture / f"run-{repeat + 1}"
+            print(f"[{capture}] repeat {repeat + 1}/{args.repeats}: ArgusProwl application replay...", flush=True)
             python_result = run_python_pipeline(
                 Path(__file__).resolve(), capture, conn_log,
                 runner.pcap_root, runner.reference_root, python_workspace,
@@ -542,7 +547,9 @@ def main() -> None:
                 "end_to_end_ms_including_zeek": round(zeek_ms + python_result["worker_wall_ms"], 3),
             })
         report["captures"].append(capture_result)
+        print(f"[{capture}] completed: {capture_result['pcap_bytes']} PCAP bytes", flush=True)
 
+    print("Generating derived PacketHawk and ArgusProwl saturation fixtures...", flush=True)
     first_pcap = next(runner.pcap_root.rglob(f"{CAPTURES[0]}.pcap"))
     stress_path = workspace / "stress" / "derived-state-saturation.pcap"
     stress_fixture = create_saturation_pcap(first_pcap, stress_path, args.stress_packets)
@@ -585,10 +592,12 @@ def main() -> None:
         raise EvaluationError("ArgusProwl stress worker emitted invalid JSON") from exc
     report["stress"]["argusprowl_fixture"] = python_stress_fixture
     report["stress"]["argusprowl"] = python_stress_result
+    print("Checking PacketHawk capture, packet-record, and PCAPNG block-size limits...", flush=True)
     report["packethawk_boundary_checks"] = boundary_checks(binary, workspace / "boundary")
     if not report["stress"]["expected_saturation_observed"]:
         raise EvaluationError("Derived saturation workload did not exercise bounded state eviction")
 
+    print("All real-capture, saturation, and parser-boundary workloads passed; writing report.", flush=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({
