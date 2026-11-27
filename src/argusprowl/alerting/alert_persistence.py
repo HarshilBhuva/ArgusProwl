@@ -31,7 +31,7 @@ from argusprowl.models.alert import Alert
 logger = logging.getLogger(__name__)
 
 # Schema version for migration tracking
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 # Maximum query limit to prevent abuse
 _MAX_QUERY_LIMIT: int = 1000
@@ -155,6 +155,19 @@ class AlertPersistence:
                     ON alerts(incident_id, created_at DESC, alert_id DESC)
                 """)
                 conn.execute("""
+                    CREATE TABLE IF NOT EXISTS evidence_recovery_outbox (
+                        alert_id TEXT PRIMARY KEY,
+                        payload TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_evidence_recovery_created_at
+                    ON evidence_recovery_outbox(created_at ASC, alert_id ASC)
+                """)
+                conn.execute("""
                     CREATE TABLE IF NOT EXISTS metadata (
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
@@ -183,7 +196,9 @@ class AlertPersistence:
                 self._status = AlertPersistenceStatus.UNAVAILABLE
                 self._status_reason = str(exc)
 
-    def save_alert(self, alert: Alert) -> bool:
+    def save_alert(
+        self, alert: Alert, recovery_payload: dict[str, object] | None = None
+    ) -> bool:
         """Persist an alert to SQLite.
 
         Returns True only when the alert is durably persisted.
@@ -228,6 +243,22 @@ class AlertPersistence:
                         return False
                     # The committed payload already matches. Do not replace it:
                     # lifecycle_state may have advanced independently since save.
+                    # A recovery payload may still be added for an earlier alert
+                    # that predates the outbox migration or whose enqueue was retried.
+                    if recovery_payload is not None:
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO evidence_recovery_outbox
+                            (alert_id, payload, created_at)
+                            VALUES (?, ?, ?)
+                            """,
+                            (
+                                str(alert.alert_id),
+                                json.dumps(recovery_payload, sort_keys=True),
+                                alert.created_at.isoformat(),
+                            ),
+                        )
+                        conn.commit()
                     return True
 
                 # A repeat save for the same immutable alert is idempotent and
@@ -250,6 +281,19 @@ class AlertPersistence:
                         incident_id,
                     ),
                 )
+                if recovery_payload is not None:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO evidence_recovery_outbox
+                        (alert_id, payload, created_at)
+                        VALUES (?, ?, ?)
+                        """,
+                        (
+                            str(alert.alert_id),
+                            json.dumps(recovery_payload, sort_keys=True),
+                            alert.created_at.isoformat(),
+                        ),
+                    )
                 conn.commit()
 
                 # Update status
@@ -268,6 +312,98 @@ class AlertPersistence:
             logger.warning("Failed to save alert %s: %s", alert.alert_id, exc)
             self._mark_degraded("write_failure")
             return False
+
+    def list_pending_evidence_recovery(self, limit: int = 100) -> tuple[dict[str, object], ...]:
+        """Return pending recovery envelopes in stable creation order."""
+        if not self._initialized:
+            return ()
+        bounded_limit = min(max(1, int(limit)), _MAX_QUERY_LIMIT)
+        try:
+            with self._lock:
+                rows = self._get_connection().execute(
+                    """
+                    SELECT alert_id, payload, created_at, attempts, last_error
+                    FROM evidence_recovery_outbox
+                    ORDER BY created_at ASC, alert_id ASC
+                    LIMIT ?
+                    """,
+                    (bounded_limit,),
+                ).fetchall()
+            pending: list[dict[str, object]] = []
+            for alert_id, payload, created_at, attempts, last_error in rows:
+                decoded = json.loads(payload)
+                if not isinstance(decoded, dict):
+                    raise ValueError("Evidence recovery payload must be a JSON object")
+                pending.append({
+                    "alert_id": alert_id,
+                    "payload": decoded,
+                    "created_at": created_at,
+                    "attempts": attempts,
+                    "last_error": last_error,
+                })
+            return tuple(pending)
+        except (sqlite3.Error, json.JSONDecodeError, ValueError) as exc:
+            logger.exception("Unable to read evidence recovery outbox")
+            self._mark_degraded("evidence_recovery_read_failure")
+            raise RuntimeError("Unable to read evidence recovery outbox") from exc
+
+    def complete_evidence_recovery(self, alert_id: UUID) -> bool:
+        """Remove an outbox row only after all referenced evidence is durable."""
+        if not self._initialized:
+            return False
+        try:
+            with self._lock:
+                conn = self._get_connection()
+                conn.execute(
+                    "DELETE FROM evidence_recovery_outbox WHERE alert_id = ?",
+                    (str(alert_id),),
+                )
+                conn.commit()
+                # Completion is idempotent: another recovery worker may have
+                # already removed the row after verifying the same envelope.
+                return True
+        except sqlite3.Error:
+            logger.exception("Unable to complete evidence recovery alert_id=%s", alert_id)
+            self._mark_degraded("evidence_recovery_complete_failure")
+            return False
+
+    def record_evidence_recovery_failure(self, alert_id: UUID, reason: str) -> bool:
+        """Record a bounded diagnostic for a failed recovery attempt."""
+        if not self._initialized:
+            return False
+        safe_reason = str(reason).replace("\x00", "")[:1000]
+        try:
+            with self._lock:
+                conn = self._get_connection()
+                cursor = conn.execute(
+                    """
+                    UPDATE evidence_recovery_outbox
+                    SET attempts = attempts + 1, last_error = ?
+                    WHERE alert_id = ?
+                    """,
+                    (safe_reason, str(alert_id)),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error:
+            logger.exception("Unable to record evidence recovery failure alert_id=%s", alert_id)
+            self._mark_degraded("evidence_recovery_failure_update")
+            return False
+
+    def get_evidence_recovery_stats(self) -> dict[str, int | str | None]:
+        """Expose pending recovery count and oldest pending age marker."""
+        if not self._initialized:
+            return {"pending": 0, "oldest_created_at": None}
+        try:
+            with self._lock:
+                row = self._get_connection().execute(
+                    "SELECT COUNT(*), MIN(created_at) FROM evidence_recovery_outbox"
+                ).fetchone()
+            return {"pending": int(row[0]), "oldest_created_at": row[1]}
+        except sqlite3.Error:
+            logger.exception("Unable to read evidence recovery statistics")
+            self._mark_degraded("evidence_recovery_stats_failure")
+            return {"pending": 0, "oldest_created_at": None}
 
     def load_alert(self, alert_id: UUID) -> Alert | None:
         """Load a single alert by ID.
