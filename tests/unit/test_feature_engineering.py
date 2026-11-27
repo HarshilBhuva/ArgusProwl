@@ -218,7 +218,7 @@ class TestSlidingWindow:
         window.add(event2)
 
         # First event should be evicted
-        events = window.get_events()
+        events = window.get_events(reference_time=event_time + timedelta(milliseconds=100))
         assert len(events) == 1
         assert events[0].attributes["uid"] == "C2"
 
