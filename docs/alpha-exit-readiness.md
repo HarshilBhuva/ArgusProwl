@@ -103,7 +103,7 @@ The v1 release target should remain deliberately narrow:
 
 The backend workflow now runs compile checks, Ruff, the full pytest suite, configuration validation, Bandit, PostgreSQL adapter integration, a Docker Compose startup/health probe, and a dedicated real-PCAP-to-Zeek-to-production-detection acceptance job. The Docker Build workflow also replaces a running product container while retaining its named SQLite data volume and verifies the database probe after restart. The frontend workflow runs TypeScript checks, Vitest, a production build, and Playwright E2E when frontend files change.
 
-The Docker integration job still verifies API health rather than telemetry detection; the separate real-telemetry job covers the narrow Zeek quickstart baseline. PostgreSQL CI validates the generic adapter contract, not full application persistence parity.
+The Docker integration job still verifies API health rather than telemetry detection; the separate real-telemetry job covers the narrow Zeek quickstart baseline. The persistent-volume replacement check passed in [Docker Build run 46061146209](https://github.com/HarshilBhuva/ArgusProwl/actions/runs/46061146209). Backend CI passed in [run 46061146214](https://github.com/HarshilBhuva/ArgusProwl/actions/runs/46061146214). PostgreSQL CI validates the generic adapter contract, not full application persistence parity.
 
 Green CI does not close off-host backup operations, missing-event reconstruction, malicious detection efficacy, false-positive measurement, or production restore drills.
 
@@ -119,7 +119,7 @@ Green CI does not close off-host backup operations, missing-event reconstruction
 
 ## Evidence reviewed
 
-- `README.md`: product workflow, deployment distinction, supported telemetry, SQLite scope, and current Alpha label.
+- `README.md`: product workflow, deployment distinction, supported telemetry, SQLite scope, and current Beta label.
 - `docs/security.md`: authentication, bootstrap, credential revocation, rate limiting, role boundaries, audit chain, tenant boundary, and object ownership.
 - `docs/persistence-guarantees.md`: independent alert/evidence commits, no retries/exactly-once guarantee, SQLite evidence index, retention, and backup/restore guarantees.
 - `docs/postgresql-storage.md`: PostgreSQL adapter limitations and missing application-store parity.
