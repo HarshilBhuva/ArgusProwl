@@ -164,6 +164,17 @@ class DecisionEngine:
             tags=self._generate_tags(detection_result),
             metadata={
                 "rule_id": detection_result.rule_id,
+                "rule_version": detection_result.version,
+                **(
+                    {"rule_content_sha256": detection_result.metadata["rule_content_sha256"]}
+                    if isinstance(detection_result.metadata.get("rule_content_sha256"), str)
+                    else {}
+                ),
+                **(
+                    {"rule_revision_id": detection_result.metadata["rule_revision_id"]}
+                    if isinstance(detection_result.metadata.get("rule_revision_id"), str)
+                    else {}
+                ),
                 "event_id": str(detection_result.event_id),
                 "result_id": str(detection_result.result_id),
                 "confidence": detection_result.confidence,

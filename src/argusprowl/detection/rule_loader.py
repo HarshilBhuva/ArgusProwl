@@ -27,6 +27,7 @@ from argusprowl.detection.detectors.ordered_sequence_correlation import OrderedS
 from argusprowl.detection.detectors.port_scan import PortScanDetector
 from argusprowl.detection.detectors.syn_scan import SynScanDetector
 from argusprowl.detection.detectors.vertical_scan import VerticalScanDetector
+from argusprowl.detection.rule_fingerprint import rule_content_sha256, rule_revision_id
 from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.interfaces.detector import Detector
 from argusprowl.interfaces.storage import Storage
@@ -223,6 +224,8 @@ class RuleLoader:
                 "Rule ID must match its detector name.",
                 details={"rule_id": rule.rule_id, "detector_name": detector.name},
             )
+        detector.rule_content_sha256 = rule_content_sha256(rule)
+        detector.rule_revision_id = rule_revision_id(rule.rule_id, rule.version)
         return detector
 
     @staticmethod

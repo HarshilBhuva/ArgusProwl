@@ -4,6 +4,7 @@ Orchestrates the detection pipeline by coordinating feature vector
 processing through registered detectors.
 """
 
+from dataclasses import replace
 from typing import Any
 
 from argusprowl.detection.cross_detector_correlator import CrossDetectorCorrelator
@@ -65,6 +66,18 @@ class DetectionManager:
         except KeyError:
             return None
 
+    @staticmethod
+    def _attach_rule_provenance(result: DetectionResult, detector: Detector) -> DetectionResult:
+        """Pin a loaded rule's immutable fingerprint to its detection result."""
+        content_hash = getattr(detector, "rule_content_sha256", None)
+        revision_id = getattr(detector, "rule_revision_id", None)
+        if not isinstance(content_hash, str) or not isinstance(revision_id, str):
+            return result
+        metadata = dict(result.metadata)
+        metadata["rule_content_sha256"] = content_hash
+        metadata["rule_revision_id"] = revision_id
+        return replace(result, metadata=metadata)
+
     def process_feature_vector(self, feature_vector: FeatureVector) -> list[DetectionResult]:
         """Process a feature vector through all enabled detectors.
 
@@ -87,6 +100,7 @@ class DetectionManager:
 
             try:
                 result = detector.detect(feature_vector)
+                result = self._attach_rule_provenance(result, detector)
                 results.append(result)
 
                 if result.matched:
@@ -124,6 +138,7 @@ class DetectionManager:
                     detector.observe(event)
                     result = detector.detect(event)
                     if result and result.matched:
+                        result = self._attach_rule_provenance(result, detector)
                         results.append(result)
                         self._detection_count += 1
                         if hasattr(detector, "_increment_detections"):
