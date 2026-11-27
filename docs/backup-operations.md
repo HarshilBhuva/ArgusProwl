@@ -16,7 +16,7 @@ This runbook describes an encrypted, off-host backup profile for the supported s
 
 Install a current, supported restic release from its official distribution channel. Do not install a binary from an untrusted mirror.
 
-Create an S3 bucket/prefix with private access and versioning/object-lock controls appropriate to the organization's retention policy. Use a dedicated least-privilege credential restricted to that repository prefix.
+Create an S3 bucket/prefix with private access and versioning controls appropriate to the organization's retention policy. Object-lock policies can prevent restic pruning; enable them only when their immutability period is deliberately aligned with the backup retention design. Use a dedicated least-privilege credential restricted to that repository prefix.
 
 Create the password file outside the application data and backup directories:
 
@@ -39,6 +39,7 @@ RESTIC_PASSWORD_FILE=/etc/argusprowl/restic-password
 RESTIC_HOST=argusprowl-production-01
 AWS_ACCESS_KEY_ID=REPLACE_WITH_DEDICATED_ACCESS_KEY
 AWS_SECRET_ACCESS_KEY=REPLACE_WITH_DEDICATED_SECRET_KEY
+AWS_DEFAULT_REGION=us-east-1
 RESTIC_CHECK_DATA_PERCENT=5
 ARGUSPROWL_LOCAL_KEEP=2
 ```
@@ -63,6 +64,7 @@ sudo install -m 0750 scripts/argusprowl-backup-restic.sh /usr/local/libexec/argu
 sudo install -m 0644 deploy/systemd/argusprowl-backup.service /etc/systemd/system/
 sudo install -m 0644 deploy/systemd/argusprowl-backup.timer /etc/systemd/system/
 sudo chmod 0600 /etc/argusprowl/backup.env /etc/argusprowl/restic-password
+sudo install -d -m 0700 /var/lib/argusprowl/backups /var/cache/argusprowl/restic
 sudo systemctl daemon-reload
 ```
 

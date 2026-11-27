@@ -10,38 +10,20 @@ umask 077
 
 ARGUSPROWL_PYTHON="${ARGUSPROWL_PYTHON:-python3}"
 RESTIC_CHECK_DATA_PERCENT="${RESTIC_CHECK_DATA_PERCENT:-5}"
-RESTIC_HOST="${RESTIC_HOST:-$(hostname -f)}"
 ARGUSPROWL_LOCAL_KEEP="${ARGUSPROWL_LOCAL_KEEP:-2}"
 STATUS_FILE="$ARGUSPROWL_BACKUP_ROOT/backup-status.json"
 
 fail() {
-    printf '[argusprowl-backup] ERROR: %s\n' "$*" >&2
+    printf '[argusprowl-backup] ERROR: %s\\n' "$*" >&2
     exit 1
 }
 
-command -v "$ARGUSPROWL_PYTHON" >/dev/null 2>&1 || fail "ArgusProwl Python executable not found."
-command -v python3 >/dev/null 2>&1 || fail "python3 is required for atomic backup status reporting."
-command -v restic >/dev/null 2>&1 || fail "restic executable not found."
-[[ -f "$ARGUSPROWL_CONFIG" ]] || fail "Configuration file does not exist."
-[[ -f "$RESTIC_PASSWORD_FILE" && -r "$RESTIC_PASSWORD_FILE" ]] || fail "Restic password file is missing or unreadable."
-[[ "$RESTIC_REPOSITORY" == s3:* ]] || fail "RESTIC_REPOSITORY must use an S3-compatible s3: URL."
-[[ "$RESTIC_CHECK_DATA_PERCENT" =~ ^[0-9]+$ ]] || fail "RESTIC_CHECK_DATA_PERCENT must be an integer."
-(( RESTIC_CHECK_DATA_PERCENT >= 1 && RESTIC_CHECK_DATA_PERCENT <= 100 )) || fail "RESTIC_CHECK_DATA_PERCENT must be between 1 and 100."
-[[ "$ARGUSPROWL_LOCAL_KEEP" =~ ^[0-9]+$ ]] || fail "ARGUSPROWL_LOCAL_KEEP must be an integer."
-(( ARGUSPROWL_LOCAL_KEEP >= 2 )) || fail "ARGUSPROWL_LOCAL_KEEP must be at least 2."
-
 mkdir -p "$ARGUSPROWL_BACKUP_ROOT"
 chmod 700 "$ARGUSPROWL_BACKUP_ROOT"
-backup_root_real="$(realpath "$ARGUSPROWL_BACKUP_ROOT")"
-password_file_real="$(realpath "$RESTIC_PASSWORD_FILE")"
-case "$password_file_real" in
-    "$backup_root_real"/*) fail "Keep the restic password outside the backup directory." ;;
-esac
-
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 generation="$ARGUSPROWL_BACKUP_ROOT/argusprowl-$timestamp"
-backup_output="$(mktemp "$ARGUSPROWL_BACKUP_ROOT/.restic-backup.XXXXXX")"
 snapshot_id=""
+backup_output=""
 
 write_status() {
     local state="$1"
@@ -101,10 +83,33 @@ on_exit() {
     if (( result != 0 )); then
         write_status "failed" "backup command exited with status $result" || true
     fi
-    rm -f -- "$backup_output"
+    if [[ -n "${backup_output:-}" ]]; then
+        rm -f -- "$backup_output"
+    fi
     return "$result"
 }
 trap on_exit EXIT
+
+RESTIC_HOST="${RESTIC_HOST:-$(hostname -f)}"
+command -v "$ARGUSPROWL_PYTHON" >/dev/null 2>&1 || fail "ArgusProwl Python executable not found."
+command -v python3 >/dev/null 2>&1 || fail "python3 is required for atomic backup status reporting."
+command -v restic >/dev/null 2>&1 || fail "restic executable not found."
+[[ -f "$ARGUSPROWL_CONFIG" ]] || fail "Configuration file does not exist."
+[[ -f "$RESTIC_PASSWORD_FILE" && -r "$RESTIC_PASSWORD_FILE" ]] || fail "Restic password file is missing or unreadable."
+[[ "$RESTIC_REPOSITORY" == s3:* ]] || fail "RESTIC_REPOSITORY must use an S3-compatible s3: URL."
+[[ -n "$RESTIC_HOST" ]] || fail "RESTIC_HOST must not be empty."
+[[ "$RESTIC_CHECK_DATA_PERCENT" =~ ^[0-9]+$ ]] || fail "RESTIC_CHECK_DATA_PERCENT must be an integer."
+(( RESTIC_CHECK_DATA_PERCENT >= 1 && RESTIC_CHECK_DATA_PERCENT <= 100 )) || fail "RESTIC_CHECK_DATA_PERCENT must be between 1 and 100."
+[[ "$ARGUSPROWL_LOCAL_KEEP" =~ ^[0-9]+$ ]] || fail "ARGUSPROWL_LOCAL_KEEP must be an integer."
+(( ARGUSPROWL_LOCAL_KEEP >= 2 )) || fail "ARGUSPROWL_LOCAL_KEEP must be at least 2."
+
+backup_root_real="$(realpath "$ARGUSPROWL_BACKUP_ROOT")"
+password_file_real="$(realpath "$RESTIC_PASSWORD_FILE")"
+case "$password_file_real" in
+    "$backup_root_real"/*) fail "Keep the restic password outside the backup directory." ;;
+esac
+
+backup_output="$(mktemp "$ARGUSPROWL_BACKUP_ROOT/.restic-backup.XXXXXX")"
 
 application_version="$("$ARGUSPROWL_PYTHON" -c 'import argusprowl; print(argusprowl.__version__)')"
 "$ARGUSPROWL_PYTHON" -m argusprowl --config "$ARGUSPROWL_CONFIG" backup set-create \

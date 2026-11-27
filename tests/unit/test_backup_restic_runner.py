@@ -122,6 +122,8 @@ def test_restic_runner_rejects_password_inside_backup_root(tmp_path):
     )
     assert result.returncode != 0
     assert "outside the backup directory" in result.stderr
+    status = json.loads((backup_root / "backup-status.json").read_text())
+    assert status["state"] == "failed"
 
 
 def test_restic_runner_has_valid_bash_syntax():
