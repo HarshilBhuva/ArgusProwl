@@ -1870,3 +1870,80 @@ class TestPhase541StatusPropagation:
         # Behavior and annotations should be AVAILABLE
         assert context.get_source_status("behavior") == SourceStatus.AVAILABLE
         assert context.get_source_status("annotations") == SourceStatus.AVAILABLE
+
+
+# ── Durable evidence recovery outbox tests ────────────────────────────────────
+
+
+class TestEvidenceRecoveryOutbox:
+    """The alert and its evidence recovery envelope share one SQLite commit."""
+
+    def test_alert_and_recovery_envelope_are_persisted_together(
+        self,
+        initialized_persistence: AlertPersistence,
+        sample_alert: Alert,
+    ) -> None:
+        envelope = {
+            "schema_version": 1,
+            "events": [{"event_id": "event-1", "event": {"source_type": "test"}}],
+        }
+
+        assert initialized_persistence.save_alert(
+            sample_alert, recovery_payload=envelope
+        )
+
+        pending = initialized_persistence.list_pending_evidence_recovery()
+        assert len(pending) == 1
+        assert pending[0]["alert_id"] == str(sample_alert.alert_id)
+        assert pending[0]["payload"] == envelope
+        assert pending[0]["attempts"] == 0
+
+    def test_pending_recovery_survives_persistence_restart(
+        self,
+        persistence: AlertPersistence,
+        sample_alert: Alert,
+    ) -> None:
+        persistence.initialize()
+        envelope = {"schema_version": 1, "events": []}
+        assert persistence.save_alert(sample_alert, recovery_payload=envelope)
+        persistence.close()
+
+        reopened = AlertPersistence(persistence._db_path)
+        reopened.initialize()
+        try:
+            pending = reopened.list_pending_evidence_recovery()
+            assert len(pending) == 1
+            assert pending[0]["payload"] == envelope
+        finally:
+            reopened.close()
+
+    def test_duplicate_alert_does_not_duplicate_recovery_envelope(
+        self,
+        initialized_persistence: AlertPersistence,
+        sample_alert: Alert,
+    ) -> None:
+        envelope = {"schema_version": 1, "events": []}
+        assert initialized_persistence.save_alert(sample_alert, recovery_payload=envelope)
+        assert initialized_persistence.save_alert(sample_alert, recovery_payload=envelope)
+        assert len(initialized_persistence.list_pending_evidence_recovery()) == 1
+
+    def test_recovery_failure_is_counted_and_completion_removes_row(
+        self,
+        initialized_persistence: AlertPersistence,
+        sample_alert: Alert,
+    ) -> None:
+        assert initialized_persistence.save_alert(
+            sample_alert, recovery_payload={"schema_version": 1, "events": []}
+        )
+
+        assert initialized_persistence.record_evidence_recovery_failure(
+            sample_alert.alert_id, "evidence store unavailable"
+        )
+        pending = initialized_persistence.list_pending_evidence_recovery()
+        assert pending[0]["attempts"] == 1
+        assert pending[0]["last_error"] == "evidence store unavailable"
+        assert initialized_persistence.get_evidence_recovery_stats()["pending"] == 1
+
+        assert initialized_persistence.complete_evidence_recovery(sample_alert.alert_id)
+        assert initialized_persistence.list_pending_evidence_recovery() == ()
+        assert initialized_persistence.get_evidence_recovery_stats()["pending"] == 0
