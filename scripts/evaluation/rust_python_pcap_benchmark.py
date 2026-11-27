@@ -131,6 +131,128 @@ def run_python_worker(args: argparse.Namespace) -> None:
         Application._process_event = original_process
 
 
+def create_python_stress_log(source: Path, destination: Path, event_count: int) -> dict[str, Any]:
+    """Amplify real Zeek flow rows with unique IDs/timestamps for a parser/pipeline stress test."""
+    fields: list[str] = []
+    headers: list[str] = []
+    sample: list[str] | None = None
+    with source.open(encoding="utf-8") as stream:
+        for line in stream:
+            if line.startswith("#fields"):
+                fields = line.rstrip("\\n").split("\\t")[1:]
+                headers.append(line)
+            elif line.startswith("#") or not line.strip():
+                headers.append(line)
+            else:
+                sample = line.rstrip("\\r\\n").split("\\t")
+                break
+    if sample is None or "ts" not in fields or "uid" not in fields:
+        raise EvaluationError(f"Cannot derive stress rows from Zeek log: {source}")
+    ts_index, uid_index = fields.index("ts"), fields.index("uid")
+    if len(sample) != len(fields):
+        raise EvaluationError("Zeek sample row does not match #fields")
+    base_timestamp = float(sample[ts_index])
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8") as output:
+        output.writelines(headers)
+        for index in range(event_count):
+            row = sample.copy()
+            row[ts_index] = f"{base_timestamp + index / 1_000_000:.6f}"
+            row[uid_index] = f"AP{index:010d}"
+            output.write("\\t".join(row) + "\\n")
+    return {
+        "classification": "derived_zeek_event_stress_not_real_capture",
+        "source_conn_log_sha256": digest(source),
+        "events": event_count,
+        "file_bytes": destination.stat().st_size,
+    }
+
+
+def run_python_stress_worker(args: argparse.Namespace) -> None:
+    from argusprowl.core.application import Application
+    from argusprowl.dependency_injection.container import ServiceContainer
+    from argusprowl.replay.replay_reader import ReplayReader
+    from argusprowl.alerting.alert_persistence import AlertPersistence
+
+    workspace = Path(args.worker_workspace)
+    state_dir = workspace / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    config_path = state_dir / "evaluation.yaml"
+    config_path.write_text("\\n".join([
+        "app_name: ArgusProwl Rust/Python stress evaluation",
+        "logging:",
+        "  console_enabled: false",
+        "  file_enabled: false",
+        "  json_enabled: false",
+        "api:",
+        "  enabled: false",
+        "storage:",
+        f"  database_path: {(state_dir / 'evidence.db').as_posix()}",
+        "telemetry_evidence:",
+        "  enabled: false",
+        "alert_persistence:",
+        "  enabled: true",
+        "  max_alerts: 400000",
+        f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
+        "attck:",
+        "  enabled: false",
+        "temporal:",
+        "  enabled: false",
+        "baseline:",
+        "  enabled: false",
+        "",
+    ]), encoding="utf-8")
+    timings = {"app_startup_ms": 0.0, "event_processing_ms": 0.0}
+    original_startup = Application.startup
+    original_process = Application._process_event
+
+    def timed_startup(app: Application, *pos: Any, **kw: Any) -> Any:
+        started = time.perf_counter()
+        try:
+            return original_startup(app, *pos, **kw)
+        finally:
+            timings["app_startup_ms"] += (time.perf_counter() - started) * 1000
+
+    def timed_process(app: Application, *pos: Any, **kw: Any) -> Any:
+        started = time.perf_counter()
+        try:
+            return original_process(app, *pos, **kw)
+        finally:
+            timings["event_processing_ms"] += (time.perf_counter() - started) * 1000
+
+    Application.startup = timed_startup
+    Application._process_event = timed_process
+    started = time.perf_counter()
+    app = Application(config_path=config_path, container=ServiceContainer())
+    accepted = rejected = 0
+    try:
+        app.startup(start_api=False)
+        for event in ReplayReader(args.conn_log).read_events():
+            if app._process_event(event):
+                accepted += 1
+            else:
+                rejected += 1
+        persisted = app._container.resolve(AlertPersistence).list_all()
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        result = {
+            "classification": "derived_zeek_event_stress_not_detection_efficacy",
+            "events_requested": args.stress_events,
+            "events_accepted": accepted,
+            "events_rejected": rejected,
+            "alerts_persisted": len(persisted.alerts) if persisted.status.value == "AVAILABLE" else None,
+            "worker_wall_ms": round((time.perf_counter() - started) * 1000, 3),
+            "cpu_user_ms": round(usage.ru_utime * 1000, 3),
+            "cpu_system_ms": round(usage.ru_stime * 1000, 3),
+            "peak_rss_mib": round(usage.ru_maxrss / 1024, 3),
+            **{key: round(value, 3) for key, value in timings.items()},
+        }
+        print(json.dumps(result, sort_keys=True))
+    finally:
+        app.shutdown()
+        Application.startup = original_startup
+        Application._process_event = original_process
+
+
 def run_python_pipeline(
     script: Path,
     capture: str,
@@ -284,6 +406,8 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--stress-packets", type=int, default=262144)
     parser.add_argument("--python-worker", action="store_true")
+    parser.add_argument("--python-stress-worker", action="store_true")
+    parser.add_argument("--stress-events", type=int, default=0)
     parser.add_argument("--capture")
     parser.add_argument("--conn-log", type=Path)
     parser.add_argument("--pcap-root", type=Path)
@@ -293,6 +417,9 @@ def main() -> None:
 
     if args.python_worker:
         run_python_worker(args)
+        return
+    if args.python_stress_worker:
+        run_python_stress_worker(args)
         return
     if args.repeats < 1 or args.stress_packets < 250000:
         raise SystemExit("--repeats must be >= 1 and --stress-packets must be >= 250000")
@@ -420,6 +547,30 @@ def main() -> None:
             and stress_flows.get("stats", {}).get("flows_evicted", 0) > 0
         ),
     }
+    python_stress_log = workspace / "stress" / "derived-zeek-events.log"
+    python_stress_fixture = create_python_stress_log(
+        next((workspace / "generated-zeek" / CAPTURES[0]).glob("conn.log")),
+        python_stress_log,
+        args.stress_packets,
+    )
+    python_stress_workspace = workspace / "python-stress-worker"
+    python_stress_command = [
+        sys.executable, str(Path(__file__).resolve()), "--python-stress-worker",
+        "--conn-log", str(python_stress_log),
+        "--worker-workspace", str(python_stress_workspace),
+        "--stress-events", str(args.stress_packets),
+    ]
+    python_stress = subprocess.run(
+        python_stress_command, capture_output=True, text=True, timeout=3600, check=False
+    )
+    if python_stress.returncode:
+        raise EvaluationError(f"ArgusProwl stress worker failed: {python_stress.stderr[-4000:]}")
+    try:
+        python_stress_result = json.loads(python_stress.stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise EvaluationError("ArgusProwl stress worker emitted invalid JSON") from exc
+    report["stress"]["argusprowl_fixture"] = python_stress_fixture
+    report["stress"]["argusprowl"] = python_stress_result
     report["packethawk_boundary_checks"] = boundary_checks(binary, workspace / "boundary")
     if not report["stress"]["expected_saturation_observed"]:
         raise EvaluationError("Derived saturation workload did not exercise bounded state eviction")
