@@ -107,7 +107,7 @@ python -m argusprowl backup set-create \
 python -m argusprowl backup set-verify backups/argusprowl-20261128T020000Z
 ```
 
-- The set includes the configured evidence, audit/security, and enabled alert, behavior, and analyst-annotation databases.
+- The set includes the configured evidence database, the audit/security database when the API is enabled, and enabled alert, behavior, and analyst-annotation databases.
 - Every database is snapshotted with SQLite's online backup API, then checked against its individual manifest. A set-level manifest records the complete member list and each member's checksum, size, schema version, and snapshot time.
 - Files are built in a private staging directory and the generation is published by one same-filesystem directory rename. An interrupted run leaves no published generation; an existing generation is never overwritten.
 - **Stop all writers before creating a set.** SQLite can make each database snapshot internally consistent, but independent SQLite files do not share a cross-database transaction. The offline operator barrier is what makes the set a coordinated recovery point. The CLI's `--confirm-offline` flag is an operator attestation, not process detection.

@@ -4,7 +4,7 @@ This runbook describes an encrypted, off-host backup profile for the supported s
 
 ## Scope and guarantees
 
-- The application is stopped while a backup set is created, so the evidence, alert, audit/security, and enabled auxiliary SQLite files are captured behind one operator-controlled maintenance barrier.
+- The application is stopped while a backup set is created, so the evidence, alert, API audit/security (when enabled), and enabled auxiliary SQLite files are captured behind one operator-controlled maintenance barrier.
 - ArgusProwl verifies every SQLite database and its manifests before restic receives the generation.
 - Restic encrypts content before upload. The repository password and S3 credentials are supplied independently of the backup data.
 - The runner verifies repository structure, reads a configurable sample of repository data, and lists the exact new snapshot before applying retention.
