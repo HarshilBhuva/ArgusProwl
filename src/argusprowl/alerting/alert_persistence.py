@@ -356,7 +356,7 @@ class AlertPersistence:
                 )
                 conn.commit()
                 return cursor.rowcount > 0
-        except sqlite3.Error as exc:
+        except sqlite3.Error:
             logger.exception("Unable to complete evidence recovery alert_id=%s", alert_id)
             self._mark_degraded("evidence_recovery_complete_failure")
             return False
