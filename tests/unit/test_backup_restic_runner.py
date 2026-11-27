@@ -1,7 +1,5 @@
 """Tests for the restic off-host backup runner."""
 
-from __future__ import annotations
-
 import json
 import os
 import pathlib
@@ -119,7 +117,7 @@ def test_restic_runner_does_not_prune_after_remote_verification_or_retention_fai
 
 def test_restic_runner_rejects_password_inside_backup_root(tmp_path):
     env = _runner_environment(tmp_path)
-    backup_root = Path(env["ARGUSPROWL_BACKUP_ROOT"])
+    backup_root = pathlib.Path(env["ARGUSPROWL_BACKUP_ROOT"])
     backup_root.mkdir(exist_ok=True)
     password = backup_root / "password"
     password.write_text("bad-placement")
