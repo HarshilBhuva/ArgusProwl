@@ -119,3 +119,12 @@ def test_non_finite_rule_values_are_rejected(tmp_path: Path, storage):
 
     with pytest.raises(DetectionError, match="non-JSON or non-finite"):
         RuleRevisionStore(storage).record_revision(rule, actor="admin", change_reason="Invalid")
+
+
+def test_sqlite_insert_if_absent_never_replaces_existing_payload(storage):
+    from uuid import uuid4
+
+    record_id = uuid4()
+    assert storage.save_if_absent("immutable_test", record_id, {"value": "original"}) is True
+    assert storage.save_if_absent("immutable_test", record_id, {"value": "replacement"}) is False
+    assert storage.load("immutable_test", record_id) == {"value": "original"}
