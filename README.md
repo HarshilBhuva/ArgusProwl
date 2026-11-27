@@ -227,7 +227,7 @@ ArgusProwl is **Alpha software**. Evaluate it with representative telemetry in a
 - **Queue behavior:** bounded queues can reject events under pressure. Monitor authenticated health diagnostics and investigate nonzero loss/error counters.
 - **No autonomous response:** ArgusProwl is a monitoring and investigation platform. Do not interpret a detection as authorization to block, isolate, or remediate a host automatically.
 
-Report vulnerabilities privately according to [SECURITY.md](SECURITY.md).
+Review the platform's security controls and operational guidance in [Security and API access](docs/security.md).
 
 ## Development
 
