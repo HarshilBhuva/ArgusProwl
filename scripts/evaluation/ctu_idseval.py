@@ -275,8 +275,6 @@ class CTUIDSEvalRunner:
                 "  enabled: false",
                 "temporal:",
                 "  enabled: false",
-                "behavior:",
-                "  enabled: false",
                 "baseline:",
                 "  enabled: false",
                 "",
@@ -286,6 +284,7 @@ class CTUIDSEvalRunner:
         app = Application(config_path=config_path, container=ServiceContainer())
         event_labels: dict[Any, tuple[str, str]] = {}
         unmatched = processed = 0
+        persisted = None
         try:
             app.startup(start_api=False)
             for line, event in self._iter_generated_events(generated):
@@ -303,11 +302,11 @@ class CTUIDSEvalRunner:
                 if not app._process_event(event):
                     raise EvaluationError(f"ArgusProwl rejected Zeek flow {event.source_record_id}")
                 processed += 1
+            persisted = app._container.resolve(AlertPersistence).list_all()
         finally:
             app.shutdown()
 
-        persisted = app._container.resolve(AlertPersistence).list_all()
-        if persisted.status.value != "AVAILABLE":
+        if persisted is None or persisted.status.value != "AVAILABLE":
             raise EvaluationError(f"Alert persistence unavailable for {capture_id}")
         alerted = {
             alert.detection_source_event_id
@@ -360,7 +359,12 @@ class CTUIDSEvalRunner:
             if precision is not None and recall is not None and precision + recall else None,
             "false_positive_rate": round(fp / (fp + tn), 6) if fp + tn else None,
         })
+        rule_hashes = {
+            rule_path.name: self._digest(rule_path, "sha256")
+            for rule_path in sorted(Path("config/rules").glob("*.yaml"))
+        }
         report = {
+            "rule_sha256": rule_hashes,
             "dataset": {
                 "name": "CTU-IDSEVAL-6",
                 "doi": DATASET_DOI,
