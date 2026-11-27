@@ -103,6 +103,7 @@ jobs:
           if [ -f .tmp/rust-python-benchmark/report.json ]; then
             python - <<'PY'
           import json
+          import os
           from pathlib import Path
           report = json.loads(Path(".tmp/rust-python-benchmark/report.json").read_text())
           lines = [
@@ -143,7 +144,16 @@ jobs:
           ])
           for name, result in report.get("packethawk_boundary_checks", {}).items():
               lines.append(f"- {name}: rejected={result['rejected']}, expected_error={result['expected_error']}")
-          with Path("$GITHUB_STEP_SUMMARY").open("a") as summary:
+          lines.extend([
+              "",
+              "### ArgusProwl derived event saturation",
+              f"- Events accepted / requested: {report.get('stress', {}).get('argusprowl', {}).get('events_accepted')} / {report.get('stress', {}).get('argusprowl_fixture', {}).get('events')}",
+              f"- Event-processing CPU: {report.get('stress', {}).get('argusprowl', {}).get('cpu_user_ms')} ms user + {report.get('stress', {}).get('argusprowl', {}).get('cpu_system_ms')} ms system",
+              f"- Peak RSS: {report.get('stress', {}).get('argusprowl', {}).get('peak_rss_mib')} MiB",
+              f"- App startup: {report.get('stress', {}).get('argusprowl', {}).get('app_startup_ms')} ms",
+              "",
+          ])
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
               summary.write("\n".join(lines) + "\n")
           PY
           fi
