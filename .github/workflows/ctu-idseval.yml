@@ -1,6 +1,12 @@
 name: CTU-IDSEVAL-6 Detection Efficacy
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/ctu-idseval.yml"
+      - "scripts/evaluation/**"
+      - "tests/unit/test_ctu_idseval.py"
+      - "docs/detection-evaluation.md"
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1"
