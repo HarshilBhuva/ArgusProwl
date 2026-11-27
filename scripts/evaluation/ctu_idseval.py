@@ -221,9 +221,10 @@ class CTUIDSEvalRunner:
                         raise EvaluationError(f"Duplicate reference UID: {uid}")
                     by_uid[uid] = pair
                 by_key[flow_key(record)].append(pair)
-        if not by_uid and not by_key:
+        reference_count = sum(len(items) for items in by_key.values())
+        if reference_count == 0:
             raise EvaluationError(f"No labeled flows in {path}")
-        return by_uid, by_key
+        return by_uid, by_key, reference_count
 
     @staticmethod
     def _iter_generated_events(text: str):
@@ -251,7 +252,7 @@ class CTUIDSEvalRunner:
         pcap = next(self.pcap_root.rglob(f"{capture_id}.pcap"))
         reference = next(self.reference_root.rglob(f"{capture_id}.conn-labeled.log"))
         generated = self._run_zeek(pcap, self.generated_root / capture_id)
-        uid_labels, key_labels = self._read_label_index(reference)
+        uid_labels, key_labels, reference_count = self._read_label_index(reference)
         state_dir = self.workspace / "state" / capture_id
         state_dir.mkdir(parents=True, exist_ok=True)
         config_path = state_dir / "evaluation.yaml"
@@ -284,7 +285,7 @@ class CTUIDSEvalRunner:
         )
         app = Application(config_path=config_path, container=ServiceContainer())
         event_labels: dict[Any, tuple[str, str]] = {}
-        unmatched = processed = 0
+        unmatched_generated = processed = 0
         persisted = None
         try:
             app.startup(start_api=False)
@@ -297,9 +298,12 @@ class CTUIDSEvalRunner:
                     if candidates:
                         pair = candidates.popleft()
                 if pair is None:
-                    unmatched += 1
+                    unmatched_generated += 1
                 else:
                     event_labels[event.event_id] = pair
+                    key_matches = key_labels.get(flow_key(record))
+                    if key_matches:
+                        key_matches.popleft()
                 if not app._process_event(event):
                     raise EvaluationError(f"ArgusProwl rejected Zeek flow {event.source_record_id}")
                 processed += 1
@@ -316,18 +320,22 @@ class CTUIDSEvalRunner:
         }
         predictions = [(label[0], event_id in alerted) for event_id, label in event_labels.items()]
         metrics = calculate_metrics(predictions)
-        match_rate = len(event_labels) / processed if processed else 0.0
+        match_rate = len(event_labels) / reference_count if reference_count else 0.0
         if match_rate < self.minimum_label_match:
             raise EvaluationError(
-                f"Label alignment {match_rate:.4%} for {capture_id} is below "
+                f"Ground-truth coverage {match_rate:.4%} for {capture_id} "
+                f"({len(event_labels)}/{reference_count} reference flows matched; "
+                f"{unmatched_generated} generated flows had no label) is below "
                 f"{self.minimum_label_match:.2%}"
             )
         return {
             "capture_id": capture_id,
             "pcap_sha256": self._digest(pcap, "sha256"),
             "generated_flows": processed,
+            "reference_flows": reference_count,
             "ground_truth_matched": len(event_labels),
-            "ground_truth_unmatched": unmatched,
+            "ground_truth_unmatched": reference_count - len(event_labels),
+            "unlabeled_generated_flows": unmatched_generated,
             "ground_truth_match_rate": round(match_rate, 6),
             "label_counts": dict(Counter(label[0] for label in event_labels.values())),
             "alerts": len(persisted.alerts),
