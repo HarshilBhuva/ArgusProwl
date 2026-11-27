@@ -134,7 +134,17 @@ class RuleRevisionStore:
             "revision_id": str(revision_id),
             "rollback_from_version": rollback_from_version,
         }
-        self._storage.save(_RULE_REVISION_COLLECTION, revision_id, record)
+        inserted = self._storage.save_if_absent(_RULE_REVISION_COLLECTION, revision_id, record)
+        if not inserted:
+            # Another writer may have won the same revision key. Re-read and
+            # verify the content; never turn a concurrent race into an overwrite.
+            existing = self._storage.load(_RULE_REVISION_COLLECTION, revision_id)
+            if existing is None or existing.get("content_sha256") != content_hash:
+                raise DetectionError(
+                    "Rule revision is immutable; this version was concurrently created with different content.",
+                    details={"rule_id": rule.rule_id, "version": rule.version},
+                )
+            return self._from_record(existing)
         return self._from_record(record)
 
     def history(self, rule_id: str, *, limit: int = 100) -> list[RuleRevision]:
