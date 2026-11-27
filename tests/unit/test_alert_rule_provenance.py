@@ -33,7 +33,6 @@ def test_detection_and_alert_pin_the_exact_immutable_rule_revision(tmp_path: Pat
     loader = RuleLoader(rules_dir)
     rule = loader.load_rule(rule_path)
     manager = loader.build_detection_manager()
-    detector = manager.get_registry().get("port_scan")
     expected_hash = rule_content_sha256(rule)
     expected_revision_id = rule_revision_id("port_scan", 1)
 
