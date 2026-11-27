@@ -10,6 +10,7 @@ umask 077
 
 ARGUSPROWL_PYTHON="${ARGUSPROWL_PYTHON:-python3}"
 RESTIC_CHECK_DATA_PERCENT="${RESTIC_CHECK_DATA_PERCENT:-5}"
+RESTIC_HOST="${RESTIC_HOST:-$(hostname -f)}"
 STATUS_FILE="$ARGUSPROWL_BACKUP_ROOT/backup-status.json"
 
 fail() {
@@ -110,7 +111,8 @@ application_version="$("$ARGUSPROWL_PYTHON" -c 'import argusprowl; print(arguspr
 
 # restic encrypts repository data client-side. Credentials and the password are
 # supplied through the process environment / password file, never CLI arguments.
-restic backup --json --tag argusprowl --tag "version-$application_version" "$generation" \
+restic backup --json --host "$RESTIC_HOST" --tag argusprowl \
+    --tag "version-$application_version" "$generation" \
     | tee "$backup_output"
 
 snapshot_id="$(python3 - "$backup_output" <<'PY'

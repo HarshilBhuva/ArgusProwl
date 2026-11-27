@@ -36,6 +36,7 @@ ARGUSPROWL_BACKUP_ROOT=/var/lib/argusprowl/backups
 ARGUSPROWL_PYTHON=/opt/argusprowl/.venv/bin/python
 RESTIC_REPOSITORY=s3:https://s3.example.com/argusprowl-backups/production
 RESTIC_PASSWORD_FILE=/etc/argusprowl/restic-password
+RESTIC_HOST=argusprowl-production-01
 AWS_ACCESS_KEY_ID=REPLACE_WITH_DEDICATED_ACCESS_KEY
 AWS_SECRET_ACCESS_KEY=REPLACE_WITH_DEDICATED_SECRET_KEY
 RESTIC_CHECK_DATA_PERCENT=5
@@ -56,6 +57,7 @@ Do not configure the runner to initialize an absent repository automatically: a 
 Install the runner and unit files:
 
 ```bash
+sudo install -d -m 0700 /var/lib/argusprowl/backups /var/cache/argusprowl/restic
 sudo install -m 0750 scripts/argusprowl-backup-restic.sh /usr/local/libexec/argusprowl-backup-restic.sh
 sudo install -m 0644 deploy/systemd/argusprowl-backup.service /etc/systemd/system/
 sudo install -m 0644 deploy/systemd/argusprowl-backup.timer /etc/systemd/system/
@@ -63,7 +65,7 @@ sudo chmod 0600 /etc/argusprowl/backup.env /etc/argusprowl/restic-password
 sudo systemctl daemon-reload
 ```
 
-The supplied systemd service stops `argusprowl.service` before the backup and starts it again through `ExecStopPost`, including when the backup fails. If your application unit has another name, change both systemctl commands before enabling the timer. The service runs as root to manage the application unit and read the protected configuration/SQLite files. Review the unit's `ReadWritePaths` and adapt them to the actual configured database and backup paths; do not broaden them unnecessarily.
+The supplied systemd service stops `argusprowl.service` before the backup and starts it again through `ExecStopPost`, including when the backup fails. If your application unit has another name, change both systemctl commands before enabling the timer. Set a unique `RESTIC_HOST` for every installation sharing a repository; the retention policy groups by this value. The service runs as root to manage the application unit and read the protected configuration/SQLite files. Review the unit's `ReadWritePaths` and adapt them to the actual configured database and backup paths; do not broaden them unnecessarily.
 
 Run one manual backup and verify the resulting status before enabling the schedule:
 

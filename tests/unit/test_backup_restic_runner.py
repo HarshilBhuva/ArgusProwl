@@ -69,6 +69,8 @@ def test_restic_runner_verifies_snapshot_before_retention_and_records_success(tm
     commands = (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines()
     assert any("backup set-create" in item for item in commands)
     assert any("backup set-verify" in item for item in commands)
+    backup_command = next(item for item in commands if item.startswith("restic backup"))
+    assert "--host argusprowl-test-host" in backup_command
     check_index = next(i for i, item in enumerate(commands) if item.startswith("restic check"))
     ls_index = next(i for i, item in enumerate(commands) if item.startswith("restic ls snapshot-123"))
     forget_index = next(i for i, item in enumerate(commands) if item.startswith("restic forget"))
