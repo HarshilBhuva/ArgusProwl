@@ -100,7 +100,17 @@ def test_reconciliation_surfaces_unavailable_evidence_store():
     alert = _alert(source)
     service = AlertEvidenceReconciliationService(
         _AlertStore([alert]),
-        _EvidenceStore({source: _detail(source, PROVENANCE_DETECTION_SOURCE, "UNAVAILABLE", event=False, record=False)}),
+        _EvidenceStore(
+            {
+                source: _detail(
+                    source,
+                    PROVENANCE_DETECTION_SOURCE,
+                    "UNAVAILABLE",
+                    event=False,
+                    record=False,
+                )
+            }
+        ),
     )
 
     report = service.inspect()
