@@ -128,6 +128,11 @@ Green CI does not close off-host backup operations, missing-event reconstruction
 - `src/argusprowl/lifecycle/queue.py`: bounded, in-memory alert workflow queue.
 - `src/argusprowl/alerting/alert_manager.py`: queue-full handling, optional alert persistence, and provider dispatch behavior.
 - `.github/workflows/backend-ci.yml` and `.github/workflows/frontend-ci.yml`: current automated validation scope.
+- `tests/unit/test_api_role_authorization_matrix.py` and existing API ownership/revocation integration tests: role and object-level authorization coverage.
+- `tests/integration/test_queue_saturation_live.py` and `tests/unit/test_application_shutdown_drain.py`: overload, close/unblock, drain, and shutdown-timeout behavior.
+- `tests/integration/test_end_to_end_alert_provenance.py`, `tests/unit/test_alert_evidence_reconciliation.py`, and the reconciliation CLI tests: partial-commit behavior and diagnostic coverage.
+- `tests/integration/test_sqlite_restore_drill.py`: configured core SQLite store restore drill.
+- `docs/real-telemetry-validation.md` and `tests/integration/test_real_pcap_detection_replay.py`: pinned Zeek quickstart PCAP acceptance path.
 - `docs/single-process.md` and `docs/productization.md`: historical documentation warnings.
 
 This audit records verified implementation and CI evidence, not operational certification. Alert/evidence recovery remains a Beta blocker; operational backup automation and malicious telemetry evaluation remain Stable-release work.
