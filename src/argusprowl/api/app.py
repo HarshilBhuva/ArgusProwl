@@ -161,7 +161,6 @@ def create_api_app(
     app.state.rule_revision_store = RuleRevisionStore(rule_storage)
     app.state.rule_storage = rule_storage
     app.state.rules_dir = ProjectPath.RULES_DIR
-    app.add_event_handler("shutdown", rule_storage.close)
     app.state.audit_log = audit_log
     app.state.auth_enabled = auth_enabled
     app.state.api_key_revocation_store = revocation_store
