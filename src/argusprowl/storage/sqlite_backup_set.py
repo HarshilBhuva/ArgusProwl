@@ -12,7 +12,7 @@ import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping
+from collections.abc import Mapping
 
 from argusprowl.storage.sqlite_backup import SQLiteBackupError, SQLiteBackupManager
 
