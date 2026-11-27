@@ -82,7 +82,7 @@ class SQLiteBackupSetManager:
 
         destination = Path(output_directory)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
+        if destination.exists() or destination.is_symlink():
             raise FileExistsError(f"Backup generation already exists: {destination}")
 
         staging = Path(tempfile.mkdtemp(
@@ -128,10 +128,11 @@ class SQLiteBackupSetManager:
     def verify_backup_set(self, backup_directory: str | Path) -> dict[str, object]:
         """Verify every database and manifest before accepting a generation."""
         directory = Path(backup_directory)
+        manifest_path = directory / "backup-set.json"
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            raise SQLiteBackupSetError("Backup-set manifest is missing or must not be a symlink.")
         try:
-            document = json.loads(
-                (directory / "backup-set.json").read_text(encoding="utf-8")
-            )
+            document = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise SQLiteBackupSetError("Backup-set manifest is missing or invalid.") from exc
 
@@ -190,8 +191,19 @@ class SQLiteBackupSetManager:
             ):
                 raise SQLiteBackupSetError("Backup-set database paths are invalid.")
 
+            database_path = directory / filename
+            member_manifest_path = directory / f"{filename}.manifest.json"
+            if (
+                database_path.is_symlink()
+                or member_manifest_path.is_symlink()
+                or not database_path.is_file()
+                or not member_manifest_path.is_file()
+            ):
+                raise SQLiteBackupSetError(
+                    f"Backup member files are missing or symlinked for {name}."
+                )
             try:
-                manifest = self._backup_manager.verify_backup(directory / filename)
+                manifest = self._backup_manager.verify_backup(database_path)
             except (SQLiteBackupError, OSError) as exc:
                 raise SQLiteBackupSetError(
                     f"Backup verification failed for {name}."
@@ -229,7 +241,7 @@ class SQLiteBackupSetManager:
             raise ValueError("Restore output must not be inside the source backup generation.")
 
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
+        if destination.exists() or destination.is_symlink():
             raise FileExistsError(f"Restore output already exists: {destination}")
 
         staging = Path(tempfile.mkdtemp(

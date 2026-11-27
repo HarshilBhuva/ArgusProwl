@@ -121,7 +121,7 @@ Perform this drill on a separate host or isolated restore environment. Do not ov
      --output-dir /srv/argusprowl-restore/sqlite
    ```
 
-6. Create a recovery YAML from the production configuration and point `storage.database_path`, `api.audit_db_path`, `alert_persistence.db_path`, and any enabled behavior/annotation database paths at their matching restored files (`evidence.db`, `audit.db`, `alerts.db`, `behavior.db`, `annotations.db`). Keep the recovery directory isolated.
+6. Create a recovery YAML from the production configuration and point `storage.database_path`, `api.audit_db_path` (when the API is enabled), `alert_persistence.db_path`, and any enabled behavior/annotation database paths at their matching restored files (`evidence.db`, `audit.db`, `alerts.db`, `behavior.db`, `annotations.db`). Keep the recovery directory isolated.
 7. Start the application against that recovery YAML, run health checks, and verify evidence provenance, alerts, audit-chain integrity, and credential/session revocation state using the restore-drill acceptance test.
 8. Record backup age, time to retrieve, time to verify, time to restore, application recovery time, and any missing state. Repeat after application upgrades and periodically thereafter.
 

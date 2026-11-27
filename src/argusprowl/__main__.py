@@ -465,8 +465,9 @@ def main() -> int:
                     return ExitCode.CONFIG_ERROR
                 databases = {
                     "evidence": app_config.storage.database_path,
-                    "audit": app_config.api.audit_db_path,
                 }
+                if app_config.api.enabled:
+                    databases["audit"] = app_config.api.audit_db_path
                 if app_config.alert_persistence.enabled:
                     databases["alerts"] = app_config.alert_persistence.db_path
                 if app_config.behavior_persistence.enabled:

@@ -167,3 +167,17 @@ def test_backup_set_restore_failure_leaves_no_published_directory(tmp_path):
         manager.restore_backup_set(generation, restored)
     assert not restored.exists()
     assert not list(tmp_path.glob(".restore.*.restore"))
+
+
+def test_backup_set_verification_rejects_symlinked_database_member(tmp_path):
+    source = tmp_path / "source.db"
+    _database(source, "evidence")
+    manager = SQLiteBackupSetManager()
+    destination = tmp_path / "generation"
+    manager.create_backup_set({"evidence": source}, destination, application_version="0.1.0")
+    member = destination / "evidence.db"
+    member.unlink()
+    member.symlink_to(source)
+
+    with pytest.raises(SQLiteBackupSetError, match="symlinked"):
+        manager.verify_backup_set(destination)
