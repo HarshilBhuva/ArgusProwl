@@ -7,6 +7,7 @@ After=network-online.target
 Type=oneshot
 User=root
 UMask=0077
+WorkingDirectory=/opt/argusprowl
 EnvironmentFile=/etc/argusprowl/backup.env
 ExecStartPre=/usr/bin/systemctl stop argusprowl.service
 ExecStart=/usr/local/libexec/argusprowl-backup-restic.sh

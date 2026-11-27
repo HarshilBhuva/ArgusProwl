@@ -11,6 +11,7 @@ umask 077
 ARGUSPROWL_PYTHON="${ARGUSPROWL_PYTHON:-python3}"
 RESTIC_CHECK_DATA_PERCENT="${RESTIC_CHECK_DATA_PERCENT:-5}"
 ARGUSPROWL_LOCAL_KEEP="${ARGUSPROWL_LOCAL_KEEP:-2}"
+RESTIC_CACHE_DIR="${RESTIC_CACHE_DIR:-/var/cache/argusprowl/restic}"
 STATUS_FILE="$ARGUSPROWL_BACKUP_ROOT/backup-status.json"
 
 fail() {
@@ -91,6 +92,13 @@ on_exit() {
 trap on_exit EXIT
 
 RESTIC_HOST="${RESTIC_HOST:-$(hostname -f)}"
+[[ "$ARGUSPROWL_CONFIG" == /* ]] || fail "ARGUSPROWL_CONFIG must be an absolute path."
+[[ "$ARGUSPROWL_BACKUP_ROOT" == /* ]] || fail "ARGUSPROWL_BACKUP_ROOT must be an absolute path."
+[[ "$RESTIC_PASSWORD_FILE" == /* ]] || fail "RESTIC_PASSWORD_FILE must be an absolute path."
+[[ "$RESTIC_CACHE_DIR" == /* ]] || fail "RESTIC_CACHE_DIR must be an absolute path."
+mkdir -p "$RESTIC_CACHE_DIR"
+chmod 700 "$RESTIC_CACHE_DIR"
+export RESTIC_CACHE_DIR
 command -v "$ARGUSPROWL_PYTHON" >/dev/null 2>&1 || fail "ArgusProwl Python executable not found."
 command -v python3 >/dev/null 2>&1 || fail "python3 is required for atomic backup status reporting."
 command -v restic >/dev/null 2>&1 || fail "restic executable not found."

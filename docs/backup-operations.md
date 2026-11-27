@@ -36,6 +36,7 @@ ARGUSPROWL_BACKUP_ROOT=/var/lib/argusprowl/backups
 ARGUSPROWL_PYTHON=/opt/argusprowl/.venv/bin/python
 RESTIC_REPOSITORY=s3:https://s3.example.com/argusprowl-backups/production
 RESTIC_PASSWORD_FILE=/etc/argusprowl/restic-password
+RESTIC_CACHE_DIR=/var/cache/argusprowl/restic
 RESTIC_HOST=argusprowl-production-01
 AWS_ACCESS_KEY_ID=REPLACE_WITH_DEDICATED_ACCESS_KEY
 AWS_SECRET_ACCESS_KEY=REPLACE_WITH_DEDICATED_SECRET_KEY
