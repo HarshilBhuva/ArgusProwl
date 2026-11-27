@@ -198,22 +198,21 @@ class TestSlidingWindow:
         """Test automatic eviction of expired events."""
         window = SlidingWindow(window_size_seconds=1.0)  # 1 second window
 
-        # Add event at time T
+        # Advance event time beyond the short-window floor (50 ms).
+        event_time = datetime(2026, 1, 1, tzinfo=UTC)
         event1 = NormalizedEvent(
             source_type="zeek",
             event_type="connection",
-            timestamp=datetime.now(UTC),
+            timestamp=event_time,
             attributes={"uid": "C1"},
             src_ip="192.168.1.1",
         )
         window.add(event1)
 
-        # Add event at time T+2 (should evict first)
-        time.sleep(0.1)
         event2 = NormalizedEvent(
             source_type="zeek",
             event_type="connection",
-            timestamp=datetime.now(UTC),
+            timestamp=event_time + timedelta(milliseconds=100),
             attributes={"uid": "C2"},
             src_ip="192.168.1.1",
         )
