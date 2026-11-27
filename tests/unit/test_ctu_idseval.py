@@ -6,7 +6,6 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
 from scripts.evaluation.ctu_idseval import (
     CTUIDSEvalRunner,
     EvaluationError,
