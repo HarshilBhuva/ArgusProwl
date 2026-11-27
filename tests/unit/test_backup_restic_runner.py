@@ -5,16 +5,16 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from pathlib import Path
+import pathlib
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "argusprowl-backup-restic.sh"
 
 
-def _runner_environment(tmp_path: Path, *, fail_on: str = "") -> dict[str, str]:
+def _runner_environment(tmp_path: pathlib.Path, *, fail_on: str = "") -> dict[str, str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     command_log = tmp_path / "commands.log"
@@ -89,12 +89,12 @@ def test_restic_runner_verifies_snapshot_before_retention_and_records_success(tm
     assert status["state"] == "success"
     assert status["last_snapshot_id"] == "snapshot-123"
     assert status["last_success_at"]
-    assert Path(status["last_generation"]).is_dir()
+    assert pathlib.Path(status["last_generation"]).is_dir()
     local_sets = sorted(
         path.name for path in (tmp_path / "backups").glob("argusprowl-*") if path.is_dir()
     )
     assert len(local_sets) == 2
-    assert Path(status["last_generation"]).name in local_sets
+    assert pathlib.Path(status["last_generation"]).name in local_sets
 
 
 @pytest.mark.parametrize("fail_on", ["check", "forget"])
