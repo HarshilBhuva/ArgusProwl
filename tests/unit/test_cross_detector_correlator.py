@@ -499,13 +499,8 @@ class TestCrossDetectorCorrelator:
         result_a = create_detection_result("rule_a", event1.event_id)
         correlator.process(event1, [result_a])
 
-        # Wait for expiration
-        import time
-
-        time.sleep(1.1)
-
-        # Event 2: rule_b detection (after expiration)
-        event2 = create_event(datetime.now(UTC), src_ip="192.168.1.1")
+        # Advance event time beyond the correlation window without sleeping.
+        event2 = create_event(t0 + timedelta(seconds=2), src_ip="192.168.1.1")
         result_b = create_detection_result("rule_b", event2.event_id)
         results = correlator.process(event2, [result_b])
         assert len(results) == 0  # Expired
