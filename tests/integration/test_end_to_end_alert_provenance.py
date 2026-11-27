@@ -6,6 +6,7 @@ the alert and evidence through durable storage and a fresh application lifecycle
 Source-specific raw-log parsing remains covered upstream of this boundary.
 """
 
+import logging
 from threading import Event  # noqa: I001
 from uuid import UUID, uuid4
 
@@ -13,10 +14,10 @@ from argusprowl.alerting.alert_persistence import AlertPersistence
 from argusprowl.core.application import Application
 from argusprowl.dependency_injection.container import ServiceContainer
 from argusprowl.detection.detection_manager import DetectionManager
+from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.interfaces.storage import Storage
 from argusprowl.metrics.collector import MetricsCollector
 from argusprowl.models.normalized_event import NormalizedEvent
-from argusprowl.exceptions.exceptions import StorageError
 from argusprowl.services.telemetry_evidence_service import (
     PROVENANCE_DETECTION_SOURCE,
     TelemetryEvidenceService,
@@ -190,8 +191,6 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
 
 def test_evidence_persistence_failure_does_not_fail_core_pipeline(tmp_path, monkeypatch, caplog) -> None:
     """Evidence is a side channel: its outage must be visible but not drop telemetry."""
-    import logging
-
     config_path = _write_config(tmp_path)
     app, container, evidence = _start_application(config_path)
     event = NormalizedEvent(
