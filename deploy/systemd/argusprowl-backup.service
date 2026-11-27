@@ -1,0 +1,23 @@
+[Unit]
+Description=ArgusProwl encrypted off-host backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+WorkingDirectory=/var/lib/argusprowl
+EnvironmentFile=/etc/argusprowl/backup.env
+RuntimeDirectory=argusprowl-backup
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/bash -ec 'if /usr/bin/systemctl is-active --quiet argusprowl.service; then /usr/bin/touch /run/argusprowl-backup/was-active; /usr/bin/systemctl stop argusprowl.service; fi'
+ExecStart=/usr/local/libexec/argusprowl-backup-restic.sh
+# Restore the service only when it was active before this maintenance run.
+ExecStopPost=/usr/bin/bash -ec 'if [ -e /run/argusprowl-backup/was-active ]; then /usr/bin/systemctl start argusprowl.service; /usr/bin/rm -f /run/argusprowl-backup/was-active; fi'
+TimeoutStartSec=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/argusprowl/backups /var/lib/argusprowl/data /var/cache/argusprowl/restic

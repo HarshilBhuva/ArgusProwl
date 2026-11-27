@@ -56,7 +56,7 @@ def test_backup_set_verification_rejects_missing_member(tmp_path):
     manager.create_backup_set({"evidence": source}, destination, application_version="0.1.0")
     (destination / "evidence.db").unlink()
 
-    with pytest.raises(SQLiteBackupSetError, match="verification failed"):
+    with pytest.raises(SQLiteBackupSetError, match="missing or symlinked"):
         manager.verify_backup_set(destination)
 
 
@@ -113,4 +113,71 @@ def test_backup_set_rejects_boolean_format_version(tmp_path):
     manifest_path.write_text(json.dumps(document))
 
     with pytest.raises(SQLiteBackupSetError, match="Unsupported"):
+        manager.verify_backup_set(destination)
+
+
+def test_backup_set_restores_every_database_into_new_isolated_directory(tmp_path):
+    sources = {}
+    for name in ("evidence", "alerts", "audit"):
+        source = tmp_path / f"{name}-source.db"
+        _database(source, name)
+        sources[name] = source
+    manager = SQLiteBackupSetManager()
+    generation = tmp_path / "generation"
+    manager.create_backup_set(sources, generation, application_version="0.1.0")
+
+    restored = tmp_path / "isolated-restore"
+    document = manager.restore_backup_set(generation, restored)
+
+    assert len(document["databases"]) == 3
+    assert (restored / "backup-set.json").is_file()
+    assert manager.verify_backup_set(restored) == document
+    for name in sources:
+        with sqlite3.connect(restored / f"{name}.db") as connection:
+            assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            assert connection.execute("SELECT value FROM records").fetchone()[0] == name
+
+
+def test_backup_set_restore_refuses_to_overwrite_existing_directory(tmp_path):
+    source = tmp_path / "source.db"
+    _database(source, "evidence")
+    manager = SQLiteBackupSetManager()
+    generation = tmp_path / "generation"
+    manager.create_backup_set({"evidence": source}, generation, application_version="0.1.0")
+    restored = tmp_path / "restore"
+    restored.mkdir()
+    marker = restored / "keep.txt"
+    marker.write_text("preserve")
+
+    with pytest.raises(FileExistsError):
+        manager.restore_backup_set(generation, restored)
+    assert marker.read_text() == "preserve"
+
+
+def test_backup_set_restore_failure_leaves_no_published_directory(tmp_path):
+    source = tmp_path / "source.db"
+    _database(source, "evidence")
+    manager = SQLiteBackupSetManager()
+    generation = tmp_path / "generation"
+    manager.create_backup_set({"evidence": source}, generation, application_version="0.1.0")
+    (generation / "evidence.db").write_bytes(b"corrupted")
+
+    restored = tmp_path / "restore"
+    with pytest.raises(SQLiteBackupSetError):
+        manager.restore_backup_set(generation, restored)
+    assert not restored.exists()
+    assert not list(tmp_path.glob(".restore.*.restore"))
+
+
+def test_backup_set_verification_rejects_symlinked_database_member(tmp_path):
+    source = tmp_path / "source.db"
+    _database(source, "evidence")
+    manager = SQLiteBackupSetManager()
+    destination = tmp_path / "generation"
+    manager.create_backup_set({"evidence": source}, destination, application_version="0.1.0")
+    member = destination / "evidence.db"
+    member.unlink()
+    member.symlink_to(source)
+
+    with pytest.raises(SQLiteBackupSetError, match="symlinked"):
         manager.verify_backup_set(destination)

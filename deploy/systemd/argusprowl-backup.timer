@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily ArgusProwl encrypted off-host backup schedule
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+RandomizedDelaySec=15m
+AccuracySec=1m
+Unit=argusprowl-backup.service
+
+[Install]
+WantedBy=timers.target
