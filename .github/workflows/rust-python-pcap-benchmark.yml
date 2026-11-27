@@ -70,6 +70,18 @@ jobs:
           cargo --version
           docker version
 
+      - name: Validate PacketHawk formatting
+        working-directory: .tmp/PacketHawk
+        run: cargo fmt --all -- --check
+
+      - name: Run PacketHawk Clippy
+        working-directory: .tmp/PacketHawk
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Run PacketHawk test suite
+        working-directory: .tmp/PacketHawk
+        run: cargo test --locked --all-targets
+
       - name: Build PacketHawk release binary
         working-directory: .tmp/PacketHawk
         run: cargo build --locked --release
