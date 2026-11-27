@@ -8,14 +8,13 @@ import pytest
 import yaml
 
 from argusprowl.api.audit import AuditLog
-from argusprowl.detection.detection_manager import DetectionManager
-from argusprowl.detection.detector_registry import DetectorRegistry
 from argusprowl.detection.rule_lifecycle_service import (
     RuleLifecycleService,
     RuleVersionConflict,
 )
 from argusprowl.detection.rule_loader import RuleLoader
 from argusprowl.detection.rule_revision_store import RuleRevisionStore
+from argusprowl.exceptions.exceptions import DetectionError
 from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
@@ -124,7 +123,7 @@ def test_invalid_detector_configuration_is_rejected_before_revision(lifecycle) -
     service, _, rule_path, _ = lifecycle
     before = rule_path.read_bytes()
 
-    with pytest.raises(Exception):
+    with pytest.raises(DetectionError):
         service.update(
             "port_scan",
             expected_version=1,
