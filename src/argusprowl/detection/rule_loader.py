@@ -13,6 +13,7 @@ import yaml
 from argusprowl.behavior.entity_behavior_detector import EntityBehaviorDetector
 from argusprowl.constants.paths import ProjectPath
 from argusprowl.detection.cross_detector_correlator import CrossDetectorCorrelator
+from argusprowl.detection.rule_fingerprint import rule_content_sha256, rule_revision_id
 from argusprowl.detection.detection_manager import DetectionManager
 from argusprowl.detection.detector_registry import DetectorRegistry
 from argusprowl.detection.detectors.beaconing_detector import BeaconingDetector
@@ -223,6 +224,8 @@ class RuleLoader:
                 "Rule ID must match its detector name.",
                 details={"rule_id": rule.rule_id, "detector_name": detector.name},
             )
+        detector.rule_content_sha256 = rule_content_sha256(rule)
+        detector.rule_revision_id = rule_revision_id(rule.rule_id, rule.version)
         return detector
 
     @staticmethod
