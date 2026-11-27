@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import urllib.request
 import zipfile
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -329,9 +329,7 @@ class CTUIDSEvalRunner:
             "ground_truth_matched": len(event_labels),
             "ground_truth_unmatched": unmatched,
             "ground_truth_match_rate": round(match_rate, 6),
-            "label_counts": dict(__import__("collections").Counter(
-                label[0] for label in event_labels.values()
-            )),
+            "label_counts": dict(Counter(label[0] for label in event_labels.values())),
             "alerts": len(persisted.alerts),
             "alerts_without_source_event": sum(
                 alert.detection_source_event_id is None for alert in persisted.alerts
@@ -359,8 +357,11 @@ class CTUIDSEvalRunner:
         totals.update({
             "precision": round(precision, 6) if precision is not None else None,
             "recall": round(recall, 6) if recall is not None else None,
-            "f1": round(2 * precision * recall / (precision + recall), 6)
-            if precision is not None and recall is not None and precision + recall else None,
+            "f1": (
+                round(2 * precision * recall / (precision + recall), 6)
+                if precision is not None and recall is not None and precision + recall
+                else (0.0 if precision == 0.0 or recall == 0.0 else None)
+            ),
             "false_positive_rate": round(fp / (fp + tn), 6) if fp + tn else None,
         })
         rule_hashes = {
