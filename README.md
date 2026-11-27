@@ -60,7 +60,7 @@ The standard Docker Compose deployment packages the **web application and API** 
 
 ## Architecture
 
-The platform is organized as a staged telemetry pipeline, with clear boundaries between ingestion, detection, persistence, and analyst access.
+The platform is organized as a staged telemetry pipeline, with clear boundaries between ingestion, detection, persistence, and analyst access. The diagrams below use lightweight SVG motion to show event flow; static layouts remain visible when motion is disabled.
 
 <p align="center">
   <img src="docs/assets/architecture-overview.svg" alt="ArgusProwl platform architecture" width="100%" />
