@@ -11,6 +11,7 @@ umask 077
 ARGUSPROWL_PYTHON="${ARGUSPROWL_PYTHON:-python3}"
 RESTIC_CHECK_DATA_PERCENT="${RESTIC_CHECK_DATA_PERCENT:-5}"
 RESTIC_HOST="${RESTIC_HOST:-$(hostname -f)}"
+ARGUSPROWL_LOCAL_KEEP="${ARGUSPROWL_LOCAL_KEEP:-2}"
 STATUS_FILE="$ARGUSPROWL_BACKUP_ROOT/backup-status.json"
 
 fail() {
@@ -26,6 +27,8 @@ command -v restic >/dev/null 2>&1 || fail "restic executable not found."
 [[ "$RESTIC_REPOSITORY" == s3:* ]] || fail "RESTIC_REPOSITORY must use an S3-compatible s3: URL."
 [[ "$RESTIC_CHECK_DATA_PERCENT" =~ ^[0-9]+$ ]] || fail "RESTIC_CHECK_DATA_PERCENT must be an integer."
 (( RESTIC_CHECK_DATA_PERCENT >= 1 && RESTIC_CHECK_DATA_PERCENT <= 100 )) || fail "RESTIC_CHECK_DATA_PERCENT must be between 1 and 100."
+[[ "$ARGUSPROWL_LOCAL_KEEP" =~ ^[0-9]+$ ]] || fail "ARGUSPROWL_LOCAL_KEEP must be an integer."
+(( ARGUSPROWL_LOCAL_KEEP >= 2 )) || fail "ARGUSPROWL_LOCAL_KEEP must be at least 2."
 
 mkdir -p "$ARGUSPROWL_BACKUP_ROOT"
 chmod 700 "$ARGUSPROWL_BACKUP_ROOT"
@@ -140,6 +143,27 @@ restic check "--read-data-subset=${RESTIC_CHECK_DATA_PERCENT}%"
 restic ls "$snapshot_id" >/dev/null
 restic forget --tag argusprowl --group-by host --keep-last 2 --keep-daily 7 --keep-weekly 4 \
     --keep-monthly 12 --prune
+
+# Bound local plaintext growth only after the remote snapshot has passed checks
+# and retention. Keep at least two complete local generations; skip any candidate
+# that fails verification rather than deleting a potentially useful recovery copy.
+mapfile -t local_generations < <(
+    find "$ARGUSPROWL_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+        -name 'argusprowl-*' -printf '%f\\n' | sort -r
+)
+verified_generations=()
+for generation_name in "${local_generations[@]}"; do
+    if "$ARGUSPROWL_PYTHON" -m argusprowl --config "$ARGUSPROWL_CONFIG" \
+        backup set-verify "$ARGUSPROWL_BACKUP_ROOT/$generation_name" >/dev/null; then
+        verified_generations+=("$generation_name")
+    else
+        printf '[argusprowl-backup] Retaining unverified local generation %s\\n' \
+            "$generation_name" >&2
+    fi
+done
+for ((index=ARGUSPROWL_LOCAL_KEEP; index<${#verified_generations[@]}; index++)); do
+    rm -rf -- "$ARGUSPROWL_BACKUP_ROOT/${verified_generations[$index]}"
+done
 
 write_status "success" ""
 printf '[argusprowl-backup] Verified encrypted snapshot %s\n' "$snapshot_id"

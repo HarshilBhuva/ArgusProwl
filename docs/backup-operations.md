@@ -9,7 +9,7 @@ This runbook describes an encrypted, off-host backup profile for the supported s
 - Restic encrypts content before upload. The repository password and S3 credentials are supplied independently of the backup data.
 - The runner verifies repository structure, reads a configurable sample of repository data, and lists the exact new snapshot before applying retention.
 - The runner records last success/failure state in `backup-status.json` under the protected local backup directory.
-- Retention defaults to 2 latest, 7 daily, 4 weekly, and 12 monthly snapshots. Restic retention groups by host (not the timestamped source path), so successive generations are pruned together. Use a distinct `RESTIC_HOST` for each installation sharing a repository. The local generation files are intentionally not auto-deleted.
+- Remote retention defaults to 2 latest, 7 daily, 4 weekly, and 12 monthly snapshots. Restic retention groups by host (not the timestamped source path), so successive generations are pruned together. Use a distinct `RESTIC_HOST` for each installation sharing a repository. After the remote snapshot passes verification and retention succeeds, the runner verifies local generations and keeps the newest `ARGUSPROWL_LOCAL_KEEP` (minimum 2); unverified local generations are retained rather than deleted.
 - This profile does not establish an RPO/RTO. Publish targets only after measuring backup duration, restore duration, data volume, and host-loss recovery in the target environment.
 
 ## Install and initialize the remote repository
@@ -40,6 +40,7 @@ RESTIC_HOST=argusprowl-production-01
 AWS_ACCESS_KEY_ID=REPLACE_WITH_DEDICATED_ACCESS_KEY
 AWS_SECRET_ACCESS_KEY=REPLACE_WITH_DEDICATED_SECRET_KEY
 RESTIC_CHECK_DATA_PERCENT=5
+ARGUSPROWL_LOCAL_KEEP=2
 ```
 
 For AWS S3, use the appropriate regional endpoint and least-privilege IAM credentials. For another S3-compatible provider, use its documented HTTPS endpoint and credentials. Do not put credentials in the repository URL or command-line arguments.
@@ -129,7 +130,7 @@ A green backup job is not a successful disaster-recovery drill. The acceptance t
 - Alert on a stale `last_success_at`, any `state=failed`, missing status file, low free space, or a backup duration that exceeds the maintenance window.
 - Keep the local backup root on a persistent, access-controlled volume. It contains plaintext SQLite backup sets; restrict it to the backup administrator and protect the host.
 - The restic password must be recoverable independently of the S3 repository. Test key recovery, not just key presence.
-- Do not delete local generations automatically. Monitor disk capacity and use an explicitly reviewed cleanup policy after verifying remote snapshots.
+- Local cleanup runs only after a successful remote backup, repository/data verification, exact-snapshot listing, and restic retention. The default keeps two complete local generations; set `ARGUSPROWL_LOCAL_KEEP` to a larger value when required. Unverified local generations are never automatically deleted. Monitor disk capacity.
 - Restic retention runs only after backup, repository checks, and exact-snapshot listing succeed. It keeps at least two recent snapshots plus the configured daily/weekly/monthly generations.
 - S3 credentials should be dedicated and scoped to the repository prefix. Rotate credentials using the provider's supported overlap procedure.
 - The backup set is not a cross-database transaction. The app is stopped to establish a coordinated maintenance point; `--confirm-offline` remains an operator attestation.

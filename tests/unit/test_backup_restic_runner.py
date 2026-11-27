@@ -43,6 +43,11 @@ def _runner_environment(tmp_path: Path, *, fail_on: str = "") -> dict[str, str]:
     password = tmp_path / "restic-password"
     password.write_text("test-only-secret\n", encoding="utf-8")
     backup_root = tmp_path / "backups"
+    backup_root.mkdir()
+    for stamp in ("20200101T000000Z", "20200102T000000Z", "20200103T000000Z"):
+        generation = backup_root / f"argusprowl-{stamp}"
+        generation.mkdir()
+        (generation / "backup-set.json").write_text("{}", encoding="utf-8")
     return {
         **os.environ,
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
@@ -54,6 +59,7 @@ def _runner_environment(tmp_path: Path, *, fail_on: str = "") -> dict[str, str]:
         "RESTIC_PASSWORD_FILE": str(password),
         "RESTIC_HOST": "argusprowl-test-host",
         "RESTIC_CHECK_DATA_PERCENT": "5",
+        "ARGUSPROWL_LOCAL_KEEP": "2",
         "FAIL_ON": fail_on,
     }
 
@@ -80,6 +86,11 @@ def test_restic_runner_verifies_snapshot_before_retention_and_records_success(tm
     assert status["last_snapshot_id"] == "snapshot-123"
     assert status["last_success_at"]
     assert Path(status["last_generation"]).is_dir()
+    local_sets = sorted(
+        path.name for path in (tmp_path / "backups").glob("argusprowl-*") if path.is_dir()
+    )
+    assert len(local_sets) == 2
+    assert Path(status["last_generation"]).name in local_sets
 
 
 def test_restic_runner_does_not_prune_after_repository_verification_failure(tmp_path):
@@ -91,6 +102,7 @@ def test_restic_runner_does_not_prune_after_repository_verification_failure(tmp_
     assert result.returncode == 23
     commands = (tmp_path / "commands.log").read_text(encoding="utf-8").splitlines()
     assert not any(item.startswith("restic forget") for item in commands)
+    assert len(list((tmp_path / "backups").glob("argusprowl-*"))) == 3
     status = json.loads((tmp_path / "backups" / "backup-status.json").read_text())
     assert status["state"] == "failed"
     assert status["last_failure_at"]
