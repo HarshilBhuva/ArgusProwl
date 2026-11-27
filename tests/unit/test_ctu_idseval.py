@@ -51,3 +51,22 @@ def test_archive_extraction_rejects_path_traversal(tmp_path: Path):
         zipped.writestr("../escape.txt", "no")
     with pytest.raises(EvaluationError, match="Unsafe archive member"):
         CTUIDSEvalRunner._safe_extract(archive, tmp_path / "extract")
+
+
+def test_label_index_counts_reference_flows_and_builds_uid_and_tuple_indexes(tmp_path: Path):
+    reference = tmp_path / "capture.conn-labeled.log"
+    reference.write_text(
+        "#fields\\tts\\tuid\\tid.orig_h\\tid.orig_p\\tid.resp_h\\tid.resp_p"
+        "\\tproto\\tlabel\\tdetailedlabel\\n"
+        "1.0\\tC1\\t192.0.2.10\\t12345\\t198.51.100.20\\t443"
+        "\\ttcp\\tMalicious\\tCC\\n",
+        encoding="utf-8",
+    )
+
+    uid_labels, key_labels, reference_count = CTUIDSEvalRunner._read_label_index(
+        reference
+    )
+
+    assert reference_count == 1
+    assert uid_labels["C1"] == ("Malicious", "CC")
+    assert len(key_labels[("1.0", "192.0.2.10", "12345", "198.51.100.20", "443", "tcp")]) == 1
