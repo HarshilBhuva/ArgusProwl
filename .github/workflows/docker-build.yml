@@ -11,6 +11,7 @@ on:
       - "src/**"
       - "config/**"
       - "scripts/download_attck_snapshot.py"
+      - "scripts/smoke_docker_image.sh"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/docker-build.yml"
