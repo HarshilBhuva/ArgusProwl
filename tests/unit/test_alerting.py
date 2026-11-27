@@ -143,6 +143,53 @@ class TestAlertManager:
         assert stats["success_rate"] == 1.0
 
 
+    def test_provider_exception_is_logged_and_does_not_stop_later_providers(
+        self, alert_manager: AlertManager, sample_alert: Alert, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failed integration must be observable without blocking other providers."""
+        import logging
+
+        from argusprowl.interfaces.alert_provider import AlertProvider
+
+        class RaisingProvider(AlertProvider):
+            @property
+            def provider_name(self) -> str:
+                return "raising"
+
+            def send(self, alert: Alert) -> bool:
+                raise RuntimeError("provider transport failed")
+
+            def is_available(self) -> bool:
+                return True
+
+        class HealthyProvider(AlertProvider):
+            @property
+            def provider_name(self) -> str:
+                return "healthy"
+
+            def send(self, alert: Alert) -> bool:
+                return True
+
+            def is_available(self) -> bool:
+                return True
+
+        alert_manager.register_provider(RaisingProvider())
+        alert_manager.register_provider(HealthyProvider())
+
+        with caplog.at_level(logging.ERROR):
+            results = alert_manager.send_alert(sample_alert)
+
+        assert results == {"raising": False, "healthy": True}
+        assert alert_manager.total_delivery_failures == 1
+        assert alert_manager.total_alerts_dispatched == 1
+        assert any(
+            "Alert provider delivery failed" in record.message
+            and record.exc_info is not None
+            for record in caplog.records
+        )
+
+
+
 class TestConsoleAlertProvider:
     """Tests for ConsoleAlertProvider."""
 

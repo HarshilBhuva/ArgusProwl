@@ -115,8 +115,12 @@ class AlertManager:
                     self._total_alerts_dispatched += 1
                 else:
                     self._total_delivery_failures += 1
-            except Exception as exc:
-                print(f"Error sending alert via provider '{provider_name}': {exc}")
+            except Exception:
+                self._logger.exception(
+                    "Alert provider delivery failed provider=%s alert_id=%s",
+                    provider_name,
+                    alert.alert_id,
+                )
                 results[provider_name] = False
                 self._total_delivery_failures += 1
         return results
