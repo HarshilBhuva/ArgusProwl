@@ -173,16 +173,24 @@ class RuleLifecycleService:
         if target_path.parent != self._rules_dir.resolve():
             raise DetectionError("Rule path is outside the configured rules directory.")
 
-        payload = {
-            "rule_id": candidate.rule_id,
-            "detector": candidate.detector,
-            "enabled": candidate.enabled,
-            "confidence_threshold": candidate.confidence,
-            "version": candidate.version,
-            "parameters": candidate.parameters,
-            "tactic": candidate.tactic,
-            "technique": candidate.technique,
-        }
+        try:
+            payload = yaml.safe_load(target_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise DetectionError("Unable to read the active rule configuration.") from exc
+        if not isinstance(payload, dict):
+            raise DetectionError("Active rule configuration must be a YAML mapping.")
+        payload.update(
+            {
+                "rule_id": candidate.rule_id,
+                "detector": candidate.detector,
+                "enabled": candidate.enabled,
+                "confidence_threshold": candidate.confidence,
+                "version": candidate.version,
+                "parameters": candidate.parameters,
+                "tactic": candidate.tactic,
+                "technique": candidate.technique,
+            }
+        )
         serialized = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{target_path.stem}.", suffix=".yaml", dir=target_path.parent
