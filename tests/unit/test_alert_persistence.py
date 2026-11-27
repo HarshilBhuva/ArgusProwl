@@ -1947,3 +1947,15 @@ class TestEvidenceRecoveryOutbox:
         assert initialized_persistence.complete_evidence_recovery(sample_alert.alert_id)
         assert initialized_persistence.list_pending_evidence_recovery() == ()
         assert initialized_persistence.get_evidence_recovery_stats()["pending"] == 0
+
+
+    def test_unserializable_recovery_payload_rolls_back_alert_and_outbox(
+        self,
+        initialized_persistence: AlertPersistence,
+        sample_alert: Alert,
+    ) -> None:
+        assert not initialized_persistence.save_alert(
+            sample_alert, recovery_payload={"invalid": object()}
+        )
+        assert initialized_persistence.load_alert(sample_alert.alert_id) is None
+        assert initialized_persistence.list_pending_evidence_recovery() == ()
