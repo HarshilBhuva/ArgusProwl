@@ -13,7 +13,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-8A6FDF?style=flat-square)](LICENSE)
-[![Lifecycle](https://img.shields.io/badge/Lifecycle-Alpha-D97706?style=flat-square)](#project-maturity)
+[![Lifecycle](https://img.shields.io/badge/Lifecycle-Beta-2563EB?style=flat-square)](#project-maturity)
 [![Backend CI](https://img.shields.io/github/actions/workflow/status/HarshilBhuva/ArgusProwl/backend-ci.yml?branch=main&style=flat-square&label=backend%20CI)](.github/workflows/backend-ci.yml)
 [![Frontend CI](https://img.shields.io/github/actions/workflow/status/HarshilBhuva/ArgusProwl/frontend-ci.yml?branch=main&style=flat-square&label=frontend%20CI)](.github/workflows/frontend-ci.yml)
 
@@ -289,7 +289,7 @@ uv.lock                   Locked Python dependencies
 
 ## Project maturity
 
-ArgusProwl is under active development and currently in **Alpha**. APIs, configuration, detection behavior, and deployment details can change between revisions. The repository's tests and documentation describe the current implementation; they should not be read as a claim of production certification or complete telemetry coverage.
+ArgusProwl is under active development and currently in **Beta**. APIs, configuration, detection behavior, and deployment details can change between revisions. The repository's tests and documentation describe the current implementation; they should not be read as a claim of production certification or complete telemetry coverage.
 
 ## License
 
