@@ -16,7 +16,7 @@ from argusprowl.storage.sqlite_backup import SQLiteBackupManager
 from argusprowl.storage.sqlite_storage import SQLiteAdapter
 
 
-def test_offline_restore_drill_recovers_all_sqlite_state_stores(tmp_path):
+def test_offline_restore_drill_recovers_core_sqlite_state_stores(tmp_path):
     """Back up, delete, restore, and verify evidence, alerts, auth, and audit."""
     evidence_path = tmp_path / "events.db"
     alerts_path = tmp_path / "alerts.db"
