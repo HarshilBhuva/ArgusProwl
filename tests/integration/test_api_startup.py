@@ -149,13 +149,8 @@ def test_run_api_server_preserves_host_port_logging_accesslog():
     mock_server.started = False
     mock_server.should_exit = False
 
-    def _fake_asyncio_run(coro):
-        import asyncio
-
-        # Use a private runner rather than the deprecated implicit event-loop
-        # lookup. This also guarantees the coroutine is awaited in this test.
-        with asyncio.Runner() as runner:
-            runner.run(coro)
+    mock_server.startup = AsyncMock()
+    mock_server.should_exit = True
 
     with (
         patch("uvicorn.Config", return_value=mock_config) as mock_config_cls,
