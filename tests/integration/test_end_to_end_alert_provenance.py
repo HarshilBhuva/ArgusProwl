@@ -6,8 +6,7 @@ the alert and evidence through durable storage and a fresh application lifecycle
 Source-specific raw-log parsing remains covered upstream of this boundary.
 """
 
-import logging
-from threading import Event  # noqa: I001
+from threading import Event
 from uuid import UUID, uuid4
 
 from argusprowl.alerting.alert_persistence import AlertPersistence
@@ -189,7 +188,10 @@ def test_detection_alert_and_evidence_survive_application_restart(tmp_path) -> N
     finally:
         recovered_app.shutdown()
 
-def test_evidence_persistence_failure_does_not_fail_core_pipeline(tmp_path, monkeypatch, caplog) -> None:
+
+def test_evidence_persistence_failure_does_not_fail_core_pipeline(
+    tmp_path, monkeypatch, caplog
+) -> None:
     """Evidence is a side channel: its outage must be visible but not drop telemetry."""
     import logging
 
