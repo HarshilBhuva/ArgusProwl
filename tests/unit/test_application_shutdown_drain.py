@@ -1,6 +1,6 @@
 """Regression tests for graceful ingestion shutdown."""
 
-from threading import Event
+import threading
 
 from argusprowl.core.application import Application
 from argusprowl.metrics.collector import MetricsCollector
@@ -38,8 +38,8 @@ def test_shutdown_timeout_preserves_services_until_worker_exits(tmp_path, monkey
     app = Application(config_path=config_path)
     app.startup(start_api=False)
 
-    worker_entered = Event()
-    allow_worker_exit = Event()
+    worker_entered = threading.Event()
+    allow_worker_exit = threading.Event()
 
     def blocked_process(_event: str) -> bool:
         worker_entered.set()
