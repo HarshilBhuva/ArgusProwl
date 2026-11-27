@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ctu-idseval-\${{ github.ref }}
+  group: ctu-idseval-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

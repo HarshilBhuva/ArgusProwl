@@ -270,6 +270,7 @@ class CTUIDSEvalRunner:
                 "  enabled: false",
                 "alert_persistence:",
                 "  enabled: true",
+                "  max_alerts: 400000",
                 f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
                 "attck:",
                 "  enabled: false",
@@ -328,6 +329,9 @@ class CTUIDSEvalRunner:
             "ground_truth_matched": len(event_labels),
             "ground_truth_unmatched": unmatched,
             "ground_truth_match_rate": round(match_rate, 6),
+            "label_counts": dict(__import__("collections").Counter(
+                label[0] for label in event_labels.values()
+            )),
             "alerts": len(persisted.alerts),
             "alerts_without_source_event": sum(
                 alert.detection_source_event_id is None for alert in persisted.alerts
