@@ -21,7 +21,8 @@ def _runner_environment(tmp_path: Path, *, fail_on: str = "") -> dict[str, str]:
     python_runner.write_text(
         "#!/usr/bin/env bash\n"
         "if [[ \"$1\" == \"-c\" ]]; then echo 0.1.0; exit 0; fi\n"
-        "if [[ \"$1\" == \"-m\" ]]; then printf 'app %s\n' "$*" >> "$COMMAND_LOG"; shift 2; "
+        "if [[ \"$1\" == \"-m\" ]]; then "
+        "printf 'app %s\\n' \"$*\" >> \"$COMMAND_LOG\"; shift 2; "
         "while (($#)); do if [[ \"$1\" == \"--output-dir\" ]]; then mkdir -p \"$2\"; break; fi; shift; done; exit 0; fi\n"
         "printf 'app %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
         "exit 0\n",
