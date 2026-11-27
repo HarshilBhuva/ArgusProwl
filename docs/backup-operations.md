@@ -69,7 +69,7 @@ sudo install -d -m 0700 /var/lib/argusprowl/backups /var/cache/argusprowl/restic
 sudo systemctl daemon-reload
 ```
 
-The supplied systemd service stops `argusprowl.service` before the backup and starts it again through `ExecStopPost`, including when the backup fails. If your application unit has another name, change both systemctl commands before enabling the timer. Set a unique `RESTIC_HOST` for every installation sharing a repository; the retention policy groups by this value. The service runs as root to manage the application unit and read the protected configuration/SQLite files. Review the unit's `ReadWritePaths` and adapt them to the actual configured database and backup paths; do not broaden them unnecessarily.
+The supplied systemd service records whether `argusprowl.service` was active, stops it for the backup, and restarts it through `ExecStopPost` only if it was active before maintenance. The restart hook runs after success and failure. If your application unit has another name, change both systemctl commands before enabling the timer. Set a unique `RESTIC_HOST` for every installation sharing a repository; the retention policy groups by this value. The service runs as root to manage the application unit and read the protected configuration/SQLite files. The unit's working directory is `/var/lib/argusprowl`; use absolute database paths under `/var/lib/argusprowl/data` in the production YAML (including audit/alert/auxiliary stores) so the application and backup service resolve the same files. Review `ReadWritePaths` and adapt them to every configured database and backup path; do not broaden them unnecessarily.
 
 Run one manual backup and verify the resulting status before enabling the schedule:
 

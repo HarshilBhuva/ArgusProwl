@@ -137,3 +137,14 @@ def test_restic_runner_rejects_password_inside_backup_root(tmp_path):
 def test_restic_runner_has_valid_bash_syntax():
     result = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_systemd_backup_unit_preserves_application_service_state():
+    unit = (ROOT / "deploy" / "systemd" / "argusprowl-backup.service").read_text(
+        encoding="utf-8"
+    )
+    assert "RuntimeDirectory=argusprowl-backup" in unit
+    assert "systemctl is-active --quiet argusprowl.service" in unit
+    assert "systemctl stop argusprowl.service" in unit
+    assert "systemctl start argusprowl.service" in unit
+    assert "ReadWritePaths=" in unit
