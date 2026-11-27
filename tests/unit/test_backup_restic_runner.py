@@ -112,7 +112,7 @@ def test_restic_runner_does_not_prune_after_repository_verification_failure(tmp_
 def test_restic_runner_rejects_password_inside_backup_root(tmp_path):
     env = _runner_environment(tmp_path)
     backup_root = Path(env["ARGUSPROWL_BACKUP_ROOT"])
-    backup_root.mkdir()
+    backup_root.mkdir(exist_ok=True)
     password = backup_root / "password"
     password.write_text("bad-placement")
     env["RESTIC_PASSWORD_FILE"] = str(password)
