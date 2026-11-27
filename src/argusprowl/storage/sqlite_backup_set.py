@@ -10,9 +10,9 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Mapping
 
 from argusprowl.storage.sqlite_backup import SQLiteBackupError, SQLiteBackupManager
 
