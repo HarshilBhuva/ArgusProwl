@@ -379,10 +379,24 @@ def boundary_checks(binary: Path, workspace: Path) -> dict[str, Any]:
         stream.write((1).to_bytes(4, endian) + (0).to_bytes(4, endian))
         stream.write((PACKET_RECORD_LIMIT + 1).to_bytes(4, endian))
         stream.write((PACKET_RECORD_LIMIT + 1).to_bytes(4, endian))
+    oversized_block = workspace / "over-pcapng-block.pcapng"
+    with oversized_block.open("wb") as stream:
+        stream.write(
+            b"\\x0a\\x0d\\x0d\\x0a"
+            + (28).to_bytes(4, "little")
+            + b"\\x4d\\x3c\\x2b\\x1a"
+            + (1).to_bytes(2, "little")
+            + (0).to_bytes(2, "little")
+            + (0xFFFFFFFFFFFFFFFF).to_bytes(8, "little")
+            + (28).to_bytes(4, "little")
+        )
+        stream.write((6).to_bytes(4, "little"))
+        stream.write((16 * 1024 * 1024 + 4100).to_bytes(4, "little"))
     checks = {}
     for name, path, expected in (
         ("capture_size", over_capture, "configured safety limit"),
         ("packet_record_size", oversized_packet, "packet record exceeds"),
+        ("pcapng_block_size", oversized_block, "PCAPNG block exceeds"),
     ):
         completed = subprocess.run(
             [str(binary), "capture", "detect", str(path), "--json"],
