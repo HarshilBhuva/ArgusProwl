@@ -1,103 +1,162 @@
+<!--
+  ArgusProwl README
+  Keep product claims aligned with the shipped code and deployment defaults.
+-->
+
+<div align="center">
+
+<img src="frontend/src/assets/argusprowl_owl_logo_same_style.svg" width="132" alt="ArgusProwl owl mark" />
+
 # ArgusProwl
 
-![Python](https://img.shields.io/badge/Python-3.13%2B-blue)
-![License](https://img.shields.io/badge/License-Apache--2.0-blue)
-![Status](https://img.shields.io/badge/Status-Alpha-orange)
+### Host-based threat detection · Evidence-led investigation · Local-first operations
 
-ArgusProwl is an early-stage security monitoring and investigation platform. It provides a React web interface and FastAPI API for reviewing alerts, investigating indicators of compromise (IOCs), exploring evidence, and working with incidents and detection rules. The Python backend also includes telemetry parsers, detection logic, and offline replay.
+[![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-Apache--2.0-8A6FDF?style=flat-square)](LICENSE)
+[![Lifecycle](https://img.shields.io/badge/Lifecycle-Alpha-D97706?style=flat-square)](#project-maturity)
+[![Backend CI](https://img.shields.io/github/actions/workflow/status/HarshilBhuva/ArgusProwl/backend-ci.yml?branch=main&style=flat-square&label=backend%20CI)](.github/workflows/backend-ci.yml)
+[![Frontend CI](https://img.shields.io/github/actions/workflow/status/HarshilBhuva/ArgusProwl/frontend-ci.yml?branch=main&style=flat-square&label=frontend%20CI)](.github/workflows/frontend-ci.yml)
 
-**Project status: Alpha.** Interfaces, configuration, and operational behavior may change. Validate the platform in a test environment before relying on it for production security monitoring.
+**Turn endpoint and network telemetry into explainable detections, correlated alerts, and investigation context.**
 
-## What it includes
+ArgusProwl is an open-source security monitoring and investigation platform with a FastAPI backend and React analyst interface. It normalizes supported telemetry, evaluates configurable detections, correlates activity, and presents alerts with the evidence available to the pipeline.
 
-- **Analyst interface and API:** dashboard, alert search and details, IOC investigations, evidence search, incidents, entities, and rule management.
-- **Detection pipeline:** configurable YAML rules, event normalization, detection evaluation, alert creation, deduplication, and correlation components.
-- **Behavioral analysis:** bounded baselines and temporal/periodicity analysis. Behavioral scores are investigation signals, not proof of malicious activity.
-- **Telemetry parsers and collectors:** support code for Zeek, Suricata, Sysmon, Windows Event Log, and Linux Audit. Availability depends on source configuration, operating system, and permissions; these sources are not all enabled by default.
-- **Offline replay:** process supported historical log files through the detection pipeline.
-- **Optional MITRE ATT&CK enrichment:** map supported detections and investigations to ATT&CK knowledge when a local snapshot is installed and enrichment is enabled.
-- **Local persistence:** SQLite is the default configured storage backend. The Docker deployment persists application data and logs in named volumes.
+[Quick start](#quick-start) · [Capabilities](#capabilities) · [Architecture](#architecture) · [Security](#security-and-operational-boundaries) · [Development](#development)
 
-ArgusProwl is not a bundled sensor-capture or full telemetry data-lake distribution. The default Docker Compose deployment runs the application UI and API in one container. Separate sensor capture, log streaming, and external telemetry-store infrastructure are outside that deployment.
+</div>
+
+---
+
+## What it does
+
+ArgusProwl is designed around an analyst workflow:
+
+1. **Ingest** supported host and network telemetry through configured collectors or replay historical logs.
+2. **Normalize** source-specific records into a common event model.
+3. **Analyze** events with configurable rules, behavioral baselines, and bounded temporal logic.
+4. **Correlate** related observations and create deduplicated alerts.
+5. **Investigate** alerts through evidence, entities, incidents, IOCs, and ATT&CK context.
+6. **Operate** the platform through its local web interface, API, CLI, and persistent SQLite storage.
+
+The platform is intended to make detection decisions inspectable. Behavioral scores and rule matches are investigative signals; they are not proof that an event is malicious.
+
+## Capabilities
+
+| Area | Current capability |
+| --- | --- |
+| Analyst experience | React dashboard, alert search and details, IOC lookup, evidence search, incidents, entities, and rule management |
+| Detection | YAML-configured rules, normalized-event evaluation, behavioral baselines, temporal/periodicity analysis, deduplication, and correlation |
+| Telemetry support | Parser and collector support for Zeek, Suricata, Sysmon, Windows Event Log, and Linux Audit; source availability and permissions are platform-dependent |
+| Historical analysis | Replay supported log files through the production ingestion and detection path |
+| Entity intelligence | Indexed SQLite projection of hosts, users, processes, IPs, domains, files, hashes, and evidence-backed relationships |
+| Alert delivery | Pluggable alert-provider boundaries; availability depends on the configured provider |
+| API security | API-key authentication, browser sessions, viewer/analyst/admin roles, key revocation, and durable audit records |
+| Storage operations | SQLite diagnostics, consistent backups, restore verification, and tamper-evident audit-chain checkpoints |
+| ATT&CK context | Optional enrichment from a separately installed, versioned ATT&CK snapshot |
+
+### Important deployment distinction
+
+The standard Docker Compose deployment packages the **web application and API** in one container. It does not bundle a host sensor, packet-capture service, log forwarder, message broker, or external telemetry data lake. Configure and deploy telemetry sources separately; collectors are not all enabled by default.
 
 ## Architecture
 
-The production Docker image uses a multi-stage build:
+The system separates source-specific ingestion from normalized event processing and analyst-facing services.
 
-1. Node.js builds the React frontend into static assets.
-2. Python dependencies are installed into a virtual environment.
-3. A non-root runtime image serves the compiled frontend and FastAPI application from one container and port.
-
-Main backend areas include API routes, application lifecycle and dependency injection, telemetry parsing and normalization, detection and decision logic, alert and investigation services, and storage. SQLite is the default local backend. Other adapters or references in architecture documentation may be incomplete or intended for future deployment scenarios; do not assume every documented adapter is production-ready.
-
-The FastAPI application serves the compiled React single-page application
-alongside its API. API routes and the OpenAPI documentation are handled by
-FastAPI; frontend assets are served from `frontend/dist/`, with a fallback
-for client-side UI routes. When running locally, build the frontend before
-starting the API. A missing frontend build is a startup error, not a usable
-UI-less deployment.
-
-## Quickstart with Docker
-
-### Prerequisites
-
-- Docker Engine with the Docker Compose plugin.
-
-### Run
-
-From the repository root:
-
-```bash
-docker compose up --build
+```mermaid
+flowchart LR
+    A["Telemetry sources<br/>Zeek · Suricata · Sysmon<br/>Windows Event Log · Linux Audit"] --> B["Collectors / Replay"]
+    B --> C["Parsers"]
+    C --> D["NormalizedEvent"]
+    D --> E["Bounded event queue"]
+    E --> F["Processing & feature engineering"]
+    F --> G["Detection manager"]
+    G --> H["Decision engine<br/>deduplication · correlation"]
+    H --> I["Alerts & evidence"]
+    I --> J["SQLite persistence"]
+    I --> K["API"]
+    J --> K
+    K --> L["React analyst interface"]
+    D --> M["Entity intelligence projection"]
+    M --> J
 ```
 
-Open [http://localhost:8080](http://localhost:8080).
+**Key boundaries**
 
-The container serves the UI and API from the same port. Compose persists application data and logs in named volumes. ATT&CK data is not included in the image and is not required for default startup.
+- Parsers translate source records; detectors consume normalized events rather than vendor-specific payloads.
+- The decision engine owns final alert creation, deduplication, and correlation.
+- Entity intelligence is a derived, indexed SQLite projection over canonical telemetry evidence; it is not a separate graph database.
+- Queues and temporal state are bounded. Bounded processing protects the service from unbounded memory growth, but it also means operators must monitor queue pressure and loss counters.
+- SQLite is the default local persistence backend. The PostgreSQL adapter has a dedicated integration path; other architecture references may describe planned or incomplete adapters.
+
+For implementation detail, see [Architecture](docs/architecture.md), [Persistence guarantees](docs/persistence-guarantees.md), and [Single-process deployment](docs/single-process.md).
+
+## Quick start
+
+### Option A — Docker Compose
+
+**Requirements:** Docker Engine and the Docker Compose plugin.
+
+Compose enables API authentication. Set an administrator key before starting the container:
+
+```bash
+git clone https://github.com/HarshilBhuva/ArgusProwl.git
+cd ArgusProwl
+
+export ARGUSPROWL_API_KEY="$(openssl rand -hex 32)"
+docker compose up --build -d
+```
+
+Open [http://localhost:8080](http://localhost:8080) and sign in with the API key generated in the same terminal session.
+
+Useful operations:
 
 ```bash
 # Follow application logs
 docker compose logs -f argusprowl
 
-# Stop without deleting persisted volumes
-docker compose down
-
-# Check API health inside the container
+# Check container health
 docker compose exec argusprowl python -m argusprowl health
+
+# Stop containers while preserving named data volumes
+docker compose down
 ```
 
-**Warning:** `docker compose down -v` removes named volumes and their persisted data. Use it only when you intend to delete that state.
+The Compose file binds the published port to host loopback and persists application data and logs in named volumes. **Do not use `docker compose down -v` unless you intend to delete that persisted state.**
 
-## Local development
+If you do not provide `ARGUSPROWL_API_KEY`, the authentication bootstrap flow is available. Follow [First-run administrator bootstrap](docs/security.md#first-run-administrator-bootstrap) and keep the initial listener loopback-only.
 
-### Prerequisites
+### Option B — Local development
 
-- Python 3.13 or later
-- [uv](https://docs.astral.sh/uv/)
-- Node.js 22 or later and npm (for frontend build and tests)
-
-### Install dependencies and build the frontend
+**Requirements:** Python 3.13+, [uv](https://docs.astral.sh/uv/), Node.js 22+, and npm.
 
 ```bash
-uv sync
+git clone https://github.com/HarshilBhuva/ArgusProwl.git
+cd ArgusProwl
 
+# Install the locked Python environment
+uv sync --frozen
+
+# Build the React application served by FastAPI
 cd frontend
 npm ci
 npm run build
 cd ..
-```
 
-The backend serves the production frontend from `frontend/dist/`. Build it before starting the API locally.
-
-### Run the API and UI
-
-```bash
+# Start the API and UI
 uv run argusprowl server
 ```
 
-The default API port is `8080`. Configure the host and port if you need different values. The `server` command starts the HTTP API; use `uv run argusprowl start` when you intend to start the detection engine and configured collectors as well.
+Open [http://localhost:8080](http://localhost:8080). The local default configuration has API-key authentication disabled; do not expose that development configuration to an untrusted network. For the full detection engine and configured collectors, use:
 
-Other CLI commands:
+```bash
+uv run argusprowl start
+```
+
+The API's interactive documentation is available at [http://localhost:8080/docs](http://localhost:8080/docs).
+
+## CLI operations
+
+The CLI supports configuration validation, health checks, historical replay, and SQLite operations.
 
 ```bash
 # Validate configuration
@@ -106,123 +165,134 @@ uv run argusprowl validate-config
 # Check application health
 uv run argusprowl health
 
-# Replay a supported historical log file
-uv run argusprowl replay /path/to/logfile
+# Replay a supported Zeek log file
+uv run argusprowl replay /path/to/conn.log
+
+# Inspect SQLite storage
+uv run argusprowl storage stats
+uv run argusprowl storage check
 ```
 
-Use `uv run argusprowl --help` and the relevant subcommand's `--help` for available options. Replay input must match a supported source format.
+SQLite backup and audit-checkpoint commands are also available:
+
+```bash
+# Create a consistent database backup and manifest
+uv run argusprowl backup create --output /safe/path/argusprowl.db
+
+# Verify a backup before restore
+uv run argusprowl backup verify /safe/path/argusprowl.db
+
+# Create or verify an external audit-chain checkpoint
+uv run argusprowl audit-checkpoint create --output /safe/path/audit-checkpoint.json
+uv run argusprowl audit-checkpoint verify /safe/path/audit-checkpoint.json
+```
+
+Use `uv run argusprowl --help` and each subcommand's `--help` for the current options. Restore is an offline operation and requires explicit confirmation; read the [storage and persistence documentation](docs/persistence-guarantees.md) before performing it.
 
 ## Configuration
 
-The default configuration is `config/default.yaml`. CLI commands support `--config <path>` for an alternate configuration file.
+The default configuration is `config/default.yaml`. Use `--config <path>` to select an alternate file.
 
-Configuration can also be overridden with environment variables using the `TH_` prefix. Nested keys use double underscores. For example:
+Environment variables use the `TH_` prefix; nested settings use double underscores:
 
 ```bash
+# Example: change the API port
 export TH_API__PORT=9090
+
+# Example: enable API-key authentication for a local run
+export TH_API__AUTH_ENABLED=true
 ```
 
-Review the configuration before enabling a collector. Source paths, permissions, operating-system support, retention, and polling intervals depend on your environment. A parser or configuration section existing does not mean its collector is enabled.
+Review collector paths, operating-system permissions, polling intervals, queue bounds, retention, and storage settings before enabling telemetry sources. A parser or configuration section being present does not mean its collector is active.
 
-## Optional MITRE ATT&CK dataset
+### Optional MITRE ATT&CK enrichment
 
-ATT&CK enrichment is disabled by default. The Enterprise ATT&CK dataset is not stored in this repository or included in the Docker image.
-
-For local development, first run `uv sync`, then execute from the repository root:
+The ATT&CK snapshot is not bundled in the repository or Docker image. Install the versioned snapshot for local development with:
 
 ```bash
 uv run python scripts/download_attck_snapshot.py
 ```
 
-The installer downloads the version-tagged upstream artifact, verifies its SHA-256 digest and collection metadata, and imports it into the configured snapshot path. The default path is `data/attck_snapshot.json`; local data under `data/` is ignored by Git. If ATT&CK enrichment is enabled without a snapshot, startup reports an installation error rather than silently downloading the dataset.
+The installer verifies the downloaded artifact before writing it to ignored local data storage. For Docker, install and mount/configure the snapshot separately if enrichment is required. ATT&CK materials are subject to [MITRE's terms of use](https://attack.mitre.org/terms-of-use/).
 
-For Docker deployments, install and mount/configure a snapshot separately if you choose to enable ATT&CK enrichment. The standard Compose configuration does not install it automatically.
+## Security and operational boundaries
 
-MITRE ATT&CK is a trademark of The MITRE Corporation. ATT&CK data and related materials are subject to [MITRE's terms of use](https://attack.mitre.org/terms-of-use/). Review those terms and applicable attribution requirements before redistributing ATT&CK-derived content.
+ArgusProwl is **Alpha software**. Evaluate it with representative telemetry in a controlled environment before relying on it for production monitoring.
 
-## Development and checks
+- **Authentication:** local default configuration has authentication disabled for development compatibility. Docker Compose enables it. Use unique, high-entropy credentials and named role-bearing keys for multi-operator deployments.
+- **Authorization:** named credentials support `viewer`, `analyst`, and `admin` roles. Authorization is deny-by-default; the legacy single API key is administrator-level. See [Security and API access](docs/security.md).
+- **Network exposure:** Compose publishes the service on host loopback. For remote access, use a properly configured TLS reverse proxy, network restrictions, and least-privilege credentials. Do not expose the first-run bootstrap endpoint publicly.
+- **Sensitive telemetry:** events may contain hostnames, usernames, IP addresses, process details, and other sensitive data. Restrict access to the API, volumes, backups, and configuration.
+- **Evidence retention:** some processing state is bounded and in-memory. Do not assume every raw event or intermediate observation is retained indefinitely. Review [Persistence guarantees](docs/persistence-guarantees.md) and configure retention/backups for your operational needs.
+- **Queue behavior:** bounded queues can reject events under pressure. Monitor authenticated health diagnostics and investigate nonzero loss/error counters.
+- **No autonomous response:** ArgusProwl is a monitoring and investigation platform. Do not interpret a detection as authorization to block, isolate, or remediate a host automatically.
 
-### Backend tests and lint
+Report vulnerabilities privately according to [SECURITY.md](SECURITY.md).
+
+## Development
+
+### Backend
 
 ```bash
-uv run pytest
+uv sync --frozen
+uv run python -m compileall -q src tests scripts
 uv run ruff check src tests
-uv run ruff format --check src tests
+uv run pytest -q
+uv run python -m argusprowl validate-config
 ```
 
-To generate a coverage report:
-
-```bash
-uv run pytest --cov=argusprowl
-```
-
-### Frontend tests, lint, and build
+### Frontend
 
 ```bash
 cd frontend
 npm ci
+npx tsc --noEmit -p tsconfig.app.json
 npx vitest run
 npm run lint
 npm run build
 ```
 
-The frontend lint command may report existing warnings. Review its output rather than assuming a successful build means lint is clean.
-
-### Docker validation
+### Docker
 
 ```bash
 docker compose config -q
 docker compose up --build
 ```
 
-The repository's CI workflows are the authoritative source for which checks run automatically and which findings block a build.
+CI workflows define the authoritative automated checks: [Backend CI](.github/workflows/backend-ci.yml) and [Frontend CI](.github/workflows/frontend-ci.yml). A README-only change does not modify application code or dependencies.
 
-## Security and operational notes
-
-- **Alpha software:** evaluate the platform against your requirements and test it with representative data before operational use.
-- **Network exposure:** Compose binds the UI and API to host loopback by default. If you expose the service beyond the local host, enable `api.auth_enabled`, configure named role-bearing API keys, and use network restrictions/TLS at the deployment boundary. Authentication remains opt-in for compatibility; the default configuration is not an authenticated multi-user deployment.
-- **API authorization:** when authentication is enabled, named credentials support `viewer`, `analyst`, and `admin` roles. The legacy single `ARGUSPROWL_API_KEY` credential is treated as an administrator key. See [Security and API access](docs/security.md) for configuration and permission boundaries.
-- **Audit trail:** non-public API requests are written to the SQLite audit database (default `data/audit.db`). Request bodies, query strings, and credential values are not recorded. The audit reader is restricted to administrator credentials.
-- **Sensitive telemetry:** logs and investigation data can contain hostnames, usernames, IP addresses, process details, and other sensitive information. Restrict access to the service, volumes, configuration, and backups.
-- **Least privilege:** the Docker runtime runs as a non-root user. Host-based collectors may require platform-specific privileges; assess the need before granting them.
-- **Evidence and retention:** some processing and evidence paths use bounded in-memory state. Do not assume all raw telemetry or evidence is durably retained. Confirm persistence and retention behavior for the data you need.
-- **ATT&CK terms:** the dataset is separately installed and subject to MITRE's terms. Review those terms before redistributing derived material.
-
-## Project layout
+## Repository layout
 
 ```text
-config/                  Default configuration and detection rules
-docs/                    Architecture, replay, and testing guidance
-frontend/                React + TypeScript application
-scripts/                 ATT&CK installation and development utilities
-src/argusprowl/          Python backend
+config/                  Default application and detection configuration
+docs/                    Architecture, security, replay, testing, and operations
+frontend/                React + TypeScript analyst interface
+scripts/                 Snapshot installation and development utilities
+src/argusprowl/           Python API, ingestion, detection, decision, and storage
 tests/                   Backend unit and integration tests
-Dockerfile               Multi-stage application image
-docker-compose.yml       Single-container UI/API deployment
-pyproject.toml           Python package, dependencies, and tooling
-uv.lock                  Locked Python dependency versions
+Dockerfile                Multi-stage application image
+docker-compose.yml        Single-container UI/API deployment
+pyproject.toml            Python package and tooling configuration
+uv.lock                   Locked Python dependencies
 ```
 
-Further implementation details:
+## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Replay](docs/replay.md)
-- [Testing](docs/testing.md)
-- [Security and API access](docs/security.md)
-- [Contributing](CONTRIBUTING.md)
+| Guide | What it covers |
+| --- | --- |
+| [Architecture](docs/architecture.md) | Components, normalized events, data flow, and entity intelligence |
+| [Security and API access](docs/security.md) | Bootstrap, credentials, roles, sessions, revocation, and audit trail |
+| [Persistence guarantees](docs/persistence-guarantees.md) | Durable records, retention, backups, and recovery boundaries |
+| [Replay](docs/replay.md) | Offline replay semantics and validation |
+| [Testing](docs/testing.md) | Unit, integration, replay, and regression test expectations |
+| [PostgreSQL storage](docs/postgresql-storage.md) | PostgreSQL adapter and integration notes |
+| [Productization](docs/productization.md) | Product scope and deployment considerations |
+| [Contributing](CONTRIBUTING.md) | Contribution workflow and repository standards |
 
-## Contributing
+## Project maturity
 
-Contributions and bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), run relevant tests and checks, and do not include secrets, production telemetry, or local ATT&CK datasets in commits.
+ArgusProwl is under active development and currently in **Alpha**. APIs, configuration, detection behavior, and deployment details can change between revisions. The repository's tests and documentation describe the current implementation; they should not be read as a claim of production certification or complete telemetry coverage.
 
 ## License
 
-ArgusProwl is licensed under Apache-2.0. See [LICENSE](LICENSE) for the full license text.
-
-## Repository consolidation provenance
-
-This branch consolidates the maintained community application with selected non-sensitive documentation from the earlier `Threat_Hunter` repository. The community application's implementation, dependencies, license, and detection catalog remain authoritative.
-
-Private ML/C2 detection, its TLS-specific feature engineering, model artifacts, training and evaluation code, and internal research materials are intentionally excluded from this repository. They must remain in the private repository and must not be imported, registered, or exposed by the community edition.
-
-The bundled ATT&CK JSON snapshot and editor backup files are not copied; use `scripts/download_attck_snapshot.py` to fetch and verify the pinned snapshot into ignored local data storage. Keep both source repositories until consolidation review is complete.
+Apache-2.0. See [LICENSE](LICENSE).
