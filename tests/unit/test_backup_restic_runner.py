@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import pathlib
+import subprocess
 
 import pytest
 
