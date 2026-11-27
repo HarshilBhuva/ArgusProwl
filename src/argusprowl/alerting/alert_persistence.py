@@ -355,7 +355,9 @@ class AlertPersistence:
                     (str(alert_id),),
                 )
                 conn.commit()
-                return cursor.rowcount > 0
+                # Completion is idempotent: another recovery worker may have
+                # already removed the row after verifying the same envelope.
+                return True
         except sqlite3.Error:
             logger.exception("Unable to complete evidence recovery alert_id=%s", alert_id)
             self._mark_degraded("evidence_recovery_complete_failure")
@@ -365,7 +367,7 @@ class AlertPersistence:
         """Record a bounded diagnostic for a failed recovery attempt."""
         if not self._initialized:
             return False
-        safe_reason = str(reason).replace("\\x00", "")[:1000]
+        safe_reason = str(reason).replace("\x00", "")[:1000]
         try:
             with self._lock:
                 conn = self._get_connection()
