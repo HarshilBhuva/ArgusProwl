@@ -10,6 +10,7 @@ from scripts.evaluation.ctu_idseval import (
     CTUIDSEvalRunner,
     EvaluationError,
     calculate_metrics,
+    build_evaluation_config,
 )
 
 
@@ -95,3 +96,14 @@ def test_per_rule_metrics_are_independent_and_exclude_background():
     assert result["noisy_rule"]["false_positive"] == 1
     assert result["noisy_rule"]["background_excluded"] == 1
     assert result["noisy_rule"]["referenced_labeled_events"] == 1
+
+
+def test_evaluation_config_keeps_temporal_beaconing_enabled(tmp_path: Path):
+    import yaml
+
+    config = yaml.safe_load(build_evaluation_config(tmp_path))
+
+    assert config["temporal"]["enabled"] is True
+    assert config["temporal"]["min_observations"] == 10
+    assert config["temporal"]["min_duration_seconds"] == 300.0
+    assert config["temporal"]["periodicity_threshold"] == 0.7
