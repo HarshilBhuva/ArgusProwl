@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import argparse
 import cProfile
+import hashlib
 import io
 import pstats
-import hashlib
 import json
 import math
 import os
