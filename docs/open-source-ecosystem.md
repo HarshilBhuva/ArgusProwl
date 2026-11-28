@@ -162,17 +162,29 @@ References:
 
 ## Runtime dependency and code-ownership audit
 
-The current pyproject.toml declares pandas, numpy, joblib, and scikit-learn as mandatory runtime dependencies. This is a material packaging and installation cost for a core product whose published role is telemetry normalization, evidence, hunting, and investigation.
+The public core previously declared `pandas`, `numpy`, `joblib`, and
+`scikit-learn` as mandatory runtime dependencies. A repository-wide source
+search found no production imports or runtime use of these packages. They
+belonged to no supported ArgusProwl core capability; CHIMERA's proprietary
+model pipeline remains a separate project and is not bundled here.
 
-Before removing them, audit every import and runtime path, including optional/research scripts and tests:
-- If no production code imports a package, remove it from mandatory dependencies.
-- A preliminary GitHub code-search audit on the current `main` snapshot found no source-code references to `pandas`, `numpy`, `joblib`, or `scikit-learn` beyond `pyproject.toml` and `uv.lock`. The PR changes only feature-provenance/evaluation code and does not add these imports. Treat these four packages as probable dead runtime dependencies, but complete a branch-pinned audit of source, scripts, tests, dynamic imports, Docker/CLI entry points, and lockfile reachability before changing the dependency set. No dependency has been removed yet.
-- If only an optional feature needs it, move it into a named optional extra.
-- If only benchmark/evaluation tooling needs it, move it into a development/research dependency group.
-- If genuinely required by a supported core feature, document that feature and measure cold-start, install-size, and memory cost.
-- Do not remove dependencies based solely on a repository-wide search that excludes dynamic imports or test/evaluation entry points.
+Completed on 2026-11-28:
+- Removed all four packages from `pyproject.toml` rather than moving unused
+  packages into an optional extra.
+- Rebuilt the lock dependency closure from the remaining core, PostgreSQL,
+  and development dependency roots.
+- Removed ten now-unreachable packages:
+  `cloudpickle`, `joblib`, `narwhals`, `numpy`, `pandas`,
+  `python-dateutil`, `scikit-learn`, `scipy`, `six`, and
+  `threadpoolctl`.
+- Reduced `uv.lock` from 219,465 to 157,636 bytes (61,829 bytes / 28.2%).
+- Validated frozen dependency installation, dependency security audit, and
+  full backend CI (2,994 passed, 5 skipped at the validated run).
 
-Apply the same audit to transitive dependencies and duplicate libraries. Keep the lockfile synchronized and verify clean installation, import smoke tests, full backend tests, Docker build, and published CLI.
+Do not reintroduce numerical or ML dependencies to the public core unless a
+maintained public feature demonstrably imports them. If a future, separately
+licensed integration genuinely needs them, isolate it behind an optional
+process or extra with its own install, security, and compatibility tests.
 
 ## Integration architecture requirements
 
