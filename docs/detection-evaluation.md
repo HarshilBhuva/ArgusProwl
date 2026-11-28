@@ -26,13 +26,14 @@ Generated records are submitted to ArgusProwl's production Application event
 processing pipeline, with a fresh application state and isolated SQLite files
 for each capture.
 
-A flow is a predicted positive only when a persisted alert explicitly references
-that event as either its detection_source_event_id (the event that crossed the
-detector threshold) or one of its contributing_event_ids (events retained as
-evidence for the aggregate detection). Host/IP grouping, alert descriptions,
-and inferred campaign membership are never used to assign flow-level positives.
-Alerts without event provenance are reported separately and are not silently
-counted as true positives.
+A flow is a predicted positive only when a matched DetectionResult explicitly
+references that event as its event_id (the event that crossed the detector
+threshold) or one of its contributing_event_ids (events retained as evidence
+for the aggregate detection). The evaluator captures these references before
+alert deduplication: deduplication controls notification volume and must not
+turn suppressed duplicate alerts into detector false negatives. Host/IP grouping,
+alert descriptions, and inferred campaign membership are never used to assign
+flow-level positives. Persisted alert counts are reported separately.
 
 - Benign is the negative class.
 - Malicious is the positive class.
@@ -71,9 +72,11 @@ The JSON report is retained as a workflow artifact.
 
 - The benchmark is not representative of every enterprise network, modern
   encrypted application, endpoint event, or cloud workload.
-- Flow-level metrics count only explicit event provenance. Aggregate detectors
-  must retain the trigger event and bounded contributing event IDs; missing
-  provenance remains a detection-evidence defect rather than an inferred TP.
+- Flow-level metrics score explicit DetectionResult provenance before alert
+  deduplication. Aggregate detectors must retain the trigger event and bounded
+  contributing event IDs; missing provenance remains a detection-evidence
+  defect rather than an inferred TP. Persisted alert counts are operational
+  output metrics, not detector recall.
 - This does not replace analyst adjudication, production shadow deployment, or
   customer-specific false-positive measurement.
 - Only public PCAPs are replayed; no live attack traffic is generated.
