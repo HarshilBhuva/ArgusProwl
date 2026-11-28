@@ -394,30 +394,35 @@ def boundary_checks(binary: Path, workspace: Path) -> dict[str, Any]:
         stream.write((16 * 1024 * 1024 + 4100).to_bytes(4, "little"))
     checks = {}
     cases = (
-        # Use inspect for the whole-file limit: it exercises read_path's metadata
-        # guard directly, before detection-engine initialization.
-        ("capture_size", over_capture, "configured safety limit", "inspect"),
-        ("packet_record_size", oversized_packet, "packet record exceeds", "detect"),
-        ("pcapng_block_size", oversized_block, "PCAPNG block exceeds", "detect"),
+        # The CLI currently formats CaptureError variants with Debug names.
+        # Match those stable variants rather than assuming Display prose.
+        ("capture_size", over_capture, "TooLarge", "inspect"),
+        ("packet_record_size", oversized_packet, "PacketTooLarge", "detect"),
+        ("pcapng_block_size", oversized_block, "BlockTooLarge", "detect"),
     )
-    for name, path, expected, subcommand in cases:
+    for name, path, expected_variant, subcommand in cases:
         actual_size = path.stat().st_size
         command = [str(binary), "capture", subcommand, str(path), "--json"]
         completed = subprocess.run(
             command, capture_output=True, text=True, timeout=30, check=False,
         )
+        stderr = completed.stderr
+        rejected = completed.returncode != 0
+        expected_error = expected_variant in stderr
         checks[name] = {
             "file_bytes": actual_size,
-            "rejected": completed.returncode != 0,
-            "expected_error": expected in completed.stderr,
+            "rejected": rejected,
+            "expected_error": expected_error,
+            "expected_error_variant": expected_variant,
             "returncode": completed.returncode,
-            "stderr": completed.stderr[-1000:],
+            "stderr": stderr[-1000:],
         }
-        if not checks[name]["rejected"] or not checks[name]["expected_error"]:
+        if not rejected or not expected_error:
             raise EvaluationError(
                 f"PacketHawk boundary check failed: {name}; "
-                f"file_bytes={actual_size}; returncode={completed.returncode}; "
-                f"stdout={completed.stdout[-500:]!r}; stderr={completed.stderr[-1000:]!r}"
+                f"expected_variant={expected_variant}; file_bytes={actual_size}; "
+                f"returncode={completed.returncode}; "
+                f"stdout={completed.stdout[-500:]!r}; stderr={stderr[-1000:]!r}"
             )
     return checks
 
