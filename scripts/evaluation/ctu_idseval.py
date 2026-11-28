@@ -110,7 +110,7 @@ def build_evaluation_config(state_dir: Path) -> str:
     Temporal analysis must remain enabled so CTU malware replay exercises
     BeaconingDetector rather than silently omitting periodic C2 behavior.
     """
-    return "\\n".join(
+    return "\n".join(
         [
             "app_name: ArgusProwl CTU-IDSEVAL-6 evaluation",
             "logging:",
