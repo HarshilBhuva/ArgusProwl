@@ -368,7 +368,7 @@ class CTUIDSEvalRunner:
                 values = line.split("\t")
                 record = dict(zip(FLOW_KEY_FIELDS, (values[0], values[2], values[3], values[4], values[5], values[6]), strict=True))
                 key = flow_key(record)
-                pair = uid_labels.get(event.source_record_id) if event.source_record_id else None
+                pair = uid_labels.pop(event.source_record_id, None) if event.source_record_id else None
                 key_matches = key_labels.get(key)
                 if pair is None:
                     if key_matches:
