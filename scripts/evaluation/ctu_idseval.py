@@ -105,11 +105,10 @@ def calculate_rule_metrics(
 
 
 def build_evaluation_config(state_dir: Path) -> str:
-    """Build an isolated evaluation config for ArgusProwl's non-C2 rule scope.
+    """Build an isolated config with ArgusProwl's bounded temporal analytics enabled.
 
-    Temporal beaconing is deliberately excluded from this evaluation: C2
-    detection is owned by the separate CHIMERA project, and its efficacy must
-    not be conflated with ArgusProwl's network-hunting rule metrics.
+    This evaluates ArgusProwl's generic rule-based periodicity signal only.
+    It does not load or evaluate CHIMERA's separate ML-based C2 detector.
     """
     return "\n".join(
         [
@@ -131,7 +130,13 @@ def build_evaluation_config(state_dir: Path) -> str:
             "attck:",
             "  enabled: false",
             "temporal:",
-            "  enabled: false",
+            "  enabled: true",
+            "  max_keys: 10000",
+            "  max_observations_per_key: 1000",
+            "  window_duration_seconds: 3600",
+            "  min_observations: 10",
+            "  min_duration_seconds: 300",
+            "  periodicity_threshold: 0.7",
             "baseline:",
             "  enabled: false",
             "",
@@ -322,9 +327,8 @@ class CTUIDSEvalRunner:
         persisted = None
         try:
             app.startup(start_api=False)
-            # Measure detector decisions before alert deduplication. Deduplication
-            # controls notification volume; it must not turn suppressed duplicate
-            # alerts into false-negative detector outcomes.
+            # Capture detector decisions before alert deduplication: notification
+            # suppression must not turn matched detections into false negatives.
             decision_engine = app._container.resolve(DecisionEngine)
             process_detection_result = decision_engine.process_detection_result
 
@@ -371,9 +375,6 @@ class CTUIDSEvalRunner:
 
         if persisted is None or persisted.status.value != "AVAILABLE":
             raise EvaluationError(f"Alert persistence unavailable for {capture_id}")
-        # Score the detector's explicit source/contributor references captured
-        # before alert deduplication. Persisted alert counts remain operational
-        # metrics and are reported separately below.
         predictions = [
             (label[0], event_id in detected_event_ids)
             for event_id, label in event_labels.items()
