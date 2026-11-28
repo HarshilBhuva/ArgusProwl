@@ -11,6 +11,7 @@ from scripts.evaluation.ctu_idseval import (
     EvaluationError,
     build_evaluation_config,
     calculate_metrics,
+    ensure_unique_event_id,
 )
 
 
@@ -39,6 +40,13 @@ def test_metrics_report_undefined_denominators_as_none():
 def test_metrics_reject_unknown_ground_truth_label():
     with pytest.raises(EvaluationError, match="Unsupported ground-truth label"):
         calculate_metrics([("Unknown", False)])
+
+
+def test_duplicate_normalized_event_ids_fail_closed():
+    seen: set[str] = set()
+    ensure_unique_event_id(seen, "event-1", "capture-a")
+    with pytest.raises(EvaluationError, match="Duplicate NormalizedEvent.event_id"):
+        ensure_unique_event_id(seen, "event-1", "capture-a")
 
 
 def test_runner_rejects_unrealistic_label_match_threshold(tmp_path: Path):
