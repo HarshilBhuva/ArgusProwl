@@ -247,6 +247,7 @@ class CTUIDSEvalRunner:
     def _evaluate_capture(self, capture_id: str) -> dict[str, Any]:
         from argusprowl.alerting.alert_persistence import AlertPersistence
         from argusprowl.core.application import Application
+        from argusprowl.decision_engine.decision_engine import DecisionEngine
         from argusprowl.dependency_injection.container import ServiceContainer
 
         pcap = next(self.pcap_root.rglob(f"{capture_id}.pcap"))
@@ -285,10 +286,32 @@ class CTUIDSEvalRunner:
         )
         app = Application(config_path=config_path, container=ServiceContainer())
         event_labels: dict[Any, tuple[str, str]] = {}
+        detected_event_ids: set[Any] = set()
         unmatched_generated = processed = 0
         persisted = None
         try:
             app.startup(start_api=False)
+            # Measure detector decisions before alert deduplication. Deduplication
+            # controls notification volume; it must not turn suppressed duplicate
+            # alerts into false-negative detector outcomes.
+            decision_engine = app._container.resolve(DecisionEngine)
+            process_detection_result = decision_engine.process_detection_result
+
+            def capture_detection_result(
+                detection_result: Any,
+                assessment: Any = None,
+                event: Any = None,
+            ) -> Any:
+                if detection_result.matched:
+                    detected_event_ids.add(detection_result.event_id)
+                    detected_event_ids.update(detection_result.contributing_event_ids)
+                return process_detection_result(
+                    detection_result,
+                    assessment=assessment,
+                    event=event,
+                )
+
+            setattr(decision_engine, "process_detection_result", capture_detection_result)
             for line, event in self._iter_generated_events(generated):
                 values = line.split("\t")
                 record = dict(zip(FLOW_KEY_FIELDS, (values[0], values[2], values[3], values[4], values[5], values[6]), strict=True))
@@ -313,15 +336,13 @@ class CTUIDSEvalRunner:
 
         if persisted is None or persisted.status.value != "AVAILABLE":
             raise EvaluationError(f"Alert persistence unavailable for {capture_id}")
-        # A detection can be based on an aggregate window. Count its direct
-        # trigger and only the explicitly persisted contributing event IDs;
-        # never infer positives from host/IP grouping or alert text.
-        alerted: set[Any] = set()
-        for alert in persisted.alerts:
-            if alert.detection_source_event_id is not None:
-                alerted.add(alert.detection_source_event_id)
-            alerted.update(alert.contributing_event_ids)
-        predictions = [(label[0], event_id in alerted) for event_id, label in event_labels.items()]
+        # Score the detector's explicit source/contributor references captured
+        # before alert deduplication. Persisted alert counts remain operational
+        # metrics and are reported separately below.
+        predictions = [
+            (label[0], event_id in detected_event_ids)
+            for event_id, label in event_labels.items()
+        ]
         metrics = calculate_metrics(predictions)
         match_rate = len(event_labels) / reference_count if reference_count else 0.0
         if match_rate < self.minimum_label_match:
@@ -342,6 +363,7 @@ class CTUIDSEvalRunner:
             "ground_truth_match_rate": round(match_rate, 6),
             "label_counts": dict(Counter(label[0] for label in event_labels.values())),
             "alerts": len(persisted.alerts),
+            "detected_event_count": len(detected_event_ids),
             "alerts_without_source_event": sum(
                 alert.detection_source_event_id is None for alert in persisted.alerts
             ),
@@ -396,9 +418,9 @@ class CTUIDSEvalRunner:
             "zeek_version": zeek_version,
             "minimum_label_match": self.minimum_label_match,
             "metric_semantics": (
-                "Flow-level. Positive only when a persisted alert explicitly references the flow "
-                "as detection_source_event_id or contributing_event_ids. Background labels "
-                "are excluded from binary metrics."
+                "Flow-level detector efficacy. Positive only when a matched DetectionResult "
+                "explicitly references the flow as event_id or contributing_event_ids, "
+                "captured before alert deduplication. Background labels are excluded."
             ),
             "captures": captures,
             "overall": totals,
