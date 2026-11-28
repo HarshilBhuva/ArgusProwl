@@ -68,6 +68,19 @@ def summarize(values: list[float]) -> dict[str, float | None]:
     }
 
 
+def format_profile(profiler: cProfile.Profile) -> dict[str, str]:
+    """Return cumulative-time and self-time summaries from an isolated profile."""
+    summaries: dict[str, str] = {}
+    for key, sort_key in (
+        ("profile_cumulative_top_50", "cumulative"),
+        ("profile_self_time_top_50", "tottime"),
+    ):
+        output = io.StringIO()
+        pstats.Stats(profiler, stream=output).strip_dirs().sort_stats(sort_key).print_stats(50)
+        summaries[key] = output.getvalue()
+    return summaries
+
+
 def run_timed(command: list[str], timeout: int = 900) -> tuple[subprocess.CompletedProcess[str], dict[str, float]]:
     """Run a child process and collect its own CPU and peak-RSS counters."""
     timed = ["/usr/bin/time", "-f", "__PERF__%e,%U,%S,%M", *command]
@@ -123,12 +136,7 @@ def run_python_worker(args: argparse.Namespace) -> None:
         result = runner._evaluate_capture(args.capture)
         if profiler is not None:
             profiler.disable()
-            profile_output = io.StringIO()
-            pstats.Stats(profiler, stream=profile_output).strip_dirs().sort_stats("cumulative").print_stats(50)
-            result["profile_cumulative_top_50"] = profile_output.getvalue()
-            profile_output = io.StringIO()
-            pstats.Stats(profiler, stream=profile_output).strip_dirs().sort_stats("tottime").print_stats(50)
-            result["profile_self_time_top_50"] = profile_output.getvalue()
+            result.update(format_profile(profiler))
         usage = resource.getrusage(resource.RUSAGE_SELF)
         elapsed_ms = (time.perf_counter() - started) * 1000
         result.update({
