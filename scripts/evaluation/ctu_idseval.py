@@ -287,6 +287,7 @@ class CTUIDSEvalRunner:
         app = Application(config_path=config_path, container=ServiceContainer())
         event_labels: dict[Any, tuple[str, str]] = {}
         detected_event_ids: set[Any] = set()
+        detected_by_rule: dict[str, set[Any]] = defaultdict(set)
         unmatched_generated = processed = 0
         persisted = None
         try:
@@ -303,8 +304,12 @@ class CTUIDSEvalRunner:
                 event: Any = None,
             ) -> Any:
                 if detection_result.matched:
-                    detected_event_ids.add(detection_result.event_id)
-                    detected_event_ids.update(detection_result.contributing_event_ids)
+                    referenced_ids = {
+                        detection_result.event_id,
+                        *detection_result.contributing_event_ids,
+                    }
+                    detected_event_ids.update(referenced_ids)
+                    detected_by_rule[detection_result.rule_id].update(referenced_ids)
                 return process_detection_result(
                     detection_result,
                     assessment=assessment,
@@ -344,6 +349,18 @@ class CTUIDSEvalRunner:
             for event_id, label in event_labels.items()
         ]
         metrics = calculate_metrics(predictions)
+        rule_metrics = {
+            rule_id: {
+                **calculate_metrics([
+                    (label[0], event_id in referenced_ids)
+                    for event_id, label in event_labels.items()
+                ]),
+                "referenced_labeled_events": sum(
+                    event_id in referenced_ids for event_id in event_labels
+                ),
+            }
+            for rule_id, referenced_ids in sorted(detected_by_rule.items())
+        }
         match_rate = len(event_labels) / reference_count if reference_count else 0.0
         if match_rate < self.minimum_label_match:
             raise EvaluationError(
@@ -364,6 +381,8 @@ class CTUIDSEvalRunner:
             "label_counts": dict(Counter(label[0] for label in event_labels.values())),
             "alerts": len(persisted.alerts),
             "detected_event_count": len(detected_event_ids),
+            "detection_rule_count": len(detected_by_rule),
+            "detection_by_rule": rule_metrics,
             "alerts_without_source_event": sum(
                 alert.detection_source_event_id is None for alert in persisted.alerts
             ),
