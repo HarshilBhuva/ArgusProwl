@@ -80,6 +80,46 @@ not accepted as final detector-quality measurements until coverage integrity
 is established. The report's 71.3% aggregate F1 must not be used in marketing
 or project claims.
 
+
+## Corrected CTU baseline results (2026-11-28)
+
+The corrected replay completed in
+[workflow run 46134011993](https://github.com/HarshilBhuva/ArgusProwl/actions/runs/46134011993).
+The report was generated from merge commit
+`79e0d667d6d94c1b1cd7e64ce3642b04cf3cc976`, whose PR parent contains the
+corrected evaluator implementation. The report is retained as the
+`ctu-idseval-6-report` artifact.
+
+| Capture | Generated flows | Labeled flows | Generated label coverage | Precision | Recall | F1 | FPR |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Benign user traffic | 35,046 | 35,046 | 100% | 0% | N/A | 0% | 63.96% |
+| Malware 1 | 90,060 | 90,060 | 100% | 0.17% | 0.76% | 0.27% | 88.98% |
+| Malware 2 | 185,506 | 28,225 | 15.22% | 98.84% | 5.75% | 10.87% | 3.14% |
+| Port scan 1 | 2,001 | 2,001 | 100% | 100% | 100% | 100% | N/A |
+| Port scan 2 | 202 | 202 | 100% | 100% | 100% | 100% | N/A |
+| Port scan 3 | 131,150 | 131,150 | 100% | 100% | 100% | 100% | N/A |
+
+For malware 2, 157,281 generated flows had no ground-truth label. Its
+precision/recall/F1 therefore describe only the labeled 28,225-flow subset;
+they are not full-capture metrics. Port-scan captures contain no benign
+negative examples, so their false-positive rates are undefined.
+
+The aggregate micro result (precision 66.25%, recall 77.23%, F1 71.32%,
+FPR 87.33%) is not a representative product metric: three port-scan-only
+captures contribute 133,353 malicious flows and dominate the aggregate.
+Do not use the aggregate F1 as a product claim.
+
+The generic beaconing rule is a significant false-positive source:
+- Benign capture: 1,603 false positives and zero true positives for
+  `TH-NET-BEACON-001`.
+- Malware 1: 66,447 false positives and zero true positives for the same rule.
+
+These are serious baseline quality failures. They indicate that periodicity
+alone is not sufficiently discriminative in this evaluation and that current
+malware/C2 recall is poor. They do not justify tuning thresholds against
+CTU-IDSEVAL-6. Keep general efficacy claims blocked until the rule is assessed
+against an independent, representative holdout and benign enterprise traffic.
+
 ## Run locally
 
 Requirements: Docker, Python 3.13, project dependencies, and network access to
