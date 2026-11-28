@@ -95,7 +95,9 @@ def calculate_rule_metrics(
                 for event_id, label in event_labels.items()
             ]),
             "referenced_labeled_events": sum(
-                event_id in referenced_ids for event_id in event_labels
+                event_id in referenced_ids
+                and label[0].strip().casefold() != "background"
+                for event_id, label in event_labels.items()
             ),
         }
         for rule_id, referenced_ids in sorted(detected_by_rule.items())
