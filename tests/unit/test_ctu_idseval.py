@@ -9,8 +9,8 @@ import pytest
 from scripts.evaluation.ctu_idseval import (
     CTUIDSEvalRunner,
     EvaluationError,
-    calculate_metrics,
     build_evaluation_config,
+    calculate_metrics,
 )
 
 
