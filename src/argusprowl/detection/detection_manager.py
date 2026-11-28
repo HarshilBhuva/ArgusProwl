@@ -100,6 +100,24 @@ class DetectionManager:
 
             try:
                 result = detector.detect(feature_vector)
+                # FeatureVector.vector_id identifies the aggregate, not a telemetry
+                # event. Alert provenance must point to the real triggering event.
+                # Preserve the other events that formed the aggregate as contributors.
+                contributors = tuple(
+                    dict.fromkeys(
+                        event_id
+                        for event_id in (
+                            *feature_vector.contributing_event_ids,
+                            *result.contributing_event_ids,
+                        )
+                        if event_id != feature_vector.event_id
+                    )
+                )
+                result = replace(
+                    result,
+                    event_id=feature_vector.event_id,
+                    contributing_event_ids=contributors,
+                )
                 result = self._attach_rule_provenance(result, detector)
                 results.append(result)
 

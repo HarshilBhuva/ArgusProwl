@@ -9,7 +9,9 @@ import pytest
 from scripts.evaluation.ctu_idseval import (
     CTUIDSEvalRunner,
     EvaluationError,
+    build_evaluation_config,
     calculate_metrics,
+    ensure_unique_event_id,
 )
 
 
@@ -38,6 +40,13 @@ def test_metrics_report_undefined_denominators_as_none():
 def test_metrics_reject_unknown_ground_truth_label():
     with pytest.raises(EvaluationError, match="Unsupported ground-truth label"):
         calculate_metrics([("Unknown", False)])
+
+
+def test_duplicate_normalized_event_ids_fail_closed():
+    seen: set[str] = set()
+    ensure_unique_event_id(seen, "event-1", "capture-a")
+    with pytest.raises(EvaluationError, match="Duplicate NormalizedEvent"):
+        ensure_unique_event_id(seen, "event-1", "capture-a")
 
 
 def test_runner_rejects_unrealistic_label_match_threshold(tmp_path: Path):
@@ -71,3 +80,41 @@ def test_label_index_counts_reference_flows_and_builds_uid_and_tuple_indexes(tmp
     assert uid_labels["C1"] == ("Malicious", "CC")
     flow = ("1.0", "192.0.2.10", "12345", "198.51.100.20", "443", "tcp")
     assert len(key_labels[flow]) == 1
+
+
+def test_per_rule_metrics_are_independent_and_exclude_background():
+    from scripts.evaluation.ctu_idseval import calculate_rule_metrics
+
+    labels = {
+        "malicious-1": ("Malicious", "scan"),
+        "benign-1": ("Benign", "normal"),
+        "background-1": ("Background", "background"),
+    }
+    result = calculate_rule_metrics(
+        labels,
+        {
+            "port_scan": {"malicious-1"},
+            "noisy_rule": {"benign-1", "background-1"},
+        },
+    )
+
+    assert result["port_scan"]["true_positive"] == 1
+    assert result["port_scan"]["false_positive"] == 0
+    assert result["port_scan"]["false_negative"] == 0
+    assert result["noisy_rule"]["false_positive"] == 1
+    assert result["noisy_rule"]["background_excluded"] == 1
+    assert result["noisy_rule"]["referenced_labeled_events"] == 1
+
+
+def test_evaluation_config_enables_bounded_generic_temporal_analytics(tmp_path: Path):
+    import yaml
+
+    config = yaml.safe_load(build_evaluation_config(tmp_path))
+
+    assert config["temporal"]["enabled"] is True
+    assert config["temporal"]["max_keys"] == 10000
+    assert config["temporal"]["max_observations_per_key"] == 1000
+    assert config["temporal"]["window_duration_seconds"] == 3600
+    assert config["temporal"]["min_observations"] == 10
+    assert config["temporal"]["min_duration_seconds"] == 300
+    assert config["temporal"]["periodicity_threshold"] == 0.7
