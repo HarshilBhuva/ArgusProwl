@@ -117,6 +117,9 @@ class FeatureExtractor:
         # Create and return FeatureVector
         return FeatureVector(
             event_id=event.event_id,
+            contributing_event_ids=tuple(
+                item.event_id for item in events if item.event_id != event.event_id
+            ),
             window_start=window_start,
             window_end=window_end,
             features=extra_features,
