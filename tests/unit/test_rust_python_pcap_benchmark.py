@@ -91,4 +91,19 @@ def test_python_stress_log_uses_unique_ids_and_monotonic_timestamps(tmp_path: Pa
         float(line.split("\t")[0]) for line in lines
     )
 
-def test_format_profile_reports_cumulative_and_self_time():,    profiler = cProfile.Profile(),,    def workload():,        return sum(range(100)),,    profiler.enable(),    workload(),    profiler.disable(),,    report = format_profile(profiler),,    assert "function calls" in report["profile_cumulative_top_50"],    assert "workload" in report["profile_cumulative_top_50"],    assert "workload" in report["profile_self_time_top_50"],
+
+def test_format_profile_reports_cumulative_and_self_time():
+    profiler = cProfile.Profile()
+
+    def workload():
+        return sum(range(100))
+
+    profiler.enable()
+    workload()
+    profiler.disable()
+
+    report = format_profile(profiler)
+
+    assert "function calls" in report["profile_cumulative_top_50"]
+    assert "workload" in report["profile_cumulative_top_50"]
+    assert "workload" in report["profile_self_time_top_50"]
