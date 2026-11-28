@@ -1,6 +1,6 @@
 # Repository-wide agent and contributor instructions
 
-Before proposing or implementing product work, read [Product principles and architectural boundaries](docs/product-principles.md).
+Before proposing or implementing product work, read [Product principles and architectural boundaries](docs/product-principles.md) and [Open-source ecosystem and integration strategy](docs/open-source-ecosystem.md).
 
 ## Non-negotiable product boundaries
 
