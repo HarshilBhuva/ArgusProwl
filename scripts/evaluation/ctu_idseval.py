@@ -40,6 +40,16 @@ def flow_key(record: dict[str, str]) -> tuple[str, ...]:
     return tuple(record.get(field, "-") for field in FLOW_KEY_FIELDS)
 
 
+def ensure_unique_event_id(seen_event_ids: set[Any], event_id: Any, capture_id: str) -> None:
+    """Reject duplicate event identities instead of silently overwriting labels."""
+    if event_id in seen_event_ids:
+        raise EvaluationError(
+            f"Duplicate NormalizedEvent.event_id {event_id} "
+            f"while replaying {capture_id}; refusing to overwrite labels."
+        )
+    seen_event_ids.add(event_id)
+
+
 def calculate_metrics(labels_and_predictions: list[tuple[str, bool]]) -> dict[str, Any]:
     """Calculate flow-level binary metrics; Background is excluded."""
     tp = fp = fn = tn = background = 0
@@ -353,12 +363,7 @@ class CTUIDSEvalRunner:
 
             setattr(decision_engine, "process_detection_result", capture_detection_result)
             for line, event in self._iter_generated_events(generated):
-                if event.event_id in seen_event_ids:
-                    raise EvaluationError(
-                        f"Duplicate NormalizedEvent.event_id {event.event_id} "
-                        f"while replaying {capture_id}; refusing to overwrite labels."
-                    )
-                seen_event_ids.add(event.event_id)
+                ensure_unique_event_id(seen_event_ids, event.event_id, capture_id)
 
                 values = line.split("\t")
                 record = dict(zip(FLOW_KEY_FIELDS, (values[0], values[2], values[3], values[4], values[5], values[6]), strict=True))
