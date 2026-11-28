@@ -9,6 +9,9 @@ as separate pipeline measurements, never as an apples-to-apples detector contest
 from __future__ import annotations
 
 import argparse
+import cProfile
+import io
+import pstats
 import hashlib
 import json
 import math
@@ -90,6 +93,7 @@ def run_python_worker(args: argparse.Namespace) -> None:
     timings = {"app_startup_ms": 0.0, "event_processing_ms": 0.0}
     original_startup = Application.startup
     original_process = Application._process_event
+    profiler = cProfile.Profile() if args.profile else None
 
     def timed_startup(app: Application, *pos: Any, **kw: Any) -> Any:
         started = time.perf_counter()
@@ -114,7 +118,17 @@ def run_python_worker(args: argparse.Namespace) -> None:
         runner.reference_root = Path(args.reference_root)
         runner.generated_root = Path(args.worker_workspace) / "generated"
         runner.prepared_log = Path(args.conn_log)
+        if profiler is not None:
+            profiler.enable()
         result = runner._evaluate_capture(args.capture)
+        if profiler is not None:
+            profiler.disable()
+            profile_output = io.StringIO()
+            pstats.Stats(profiler, stream=profile_output).strip_dirs().sort_stats("cumulative").print_stats(50)
+            result["profile_cumulative_top_50"] = profile_output.getvalue()
+            profile_output = io.StringIO()
+            pstats.Stats(profiler, stream=profile_output).strip_dirs().sort_stats("tottime").print_stats(50)
+            result["profile_self_time_top_50"] = profile_output.getvalue()
         usage = resource.getrusage(resource.RUSAGE_SELF)
         elapsed_ms = (time.perf_counter() - started) * 1000
         result.update({
@@ -260,6 +274,8 @@ def run_python_pipeline(
     pcap_root: Path,
     reference_root: Path,
     workspace: Path,
+    *,
+    profile: bool = False,
 ) -> dict[str, Any]:
     command = [
         sys.executable, str(script), "--python-worker",
@@ -269,6 +285,8 @@ def run_python_pipeline(
         "--reference-root", str(reference_root),
         "--worker-workspace", str(workspace),
     ]
+    if profile:
+        command.append("--profile")
     completed = subprocess.run(command, capture_output=True, text=True, timeout=1800, check=False)
     if completed.returncode:
         raise EvaluationError(f"ArgusProwl worker failed for {capture}: {completed.stderr[-4000:]}")
@@ -435,6 +453,8 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--stress-packets", type=int, default=262144)
     parser.add_argument("--python-worker", action="store_true")
+    parser.add_argument("--profile", action="store_true", help="Collect cProfile data for a Python replay worker")
+    parser.add_argument("--profile-capture", default="malicious-malware-1", help="Capture to profile separately after normal timing runs")
     parser.add_argument("--python-stress-worker", action="store_true")
     parser.add_argument("--stress-events", type=int, default=0)
     parser.add_argument("--capture")
@@ -562,6 +582,14 @@ def main() -> None:
                 "end_to_end_ms_including_zeek": round(zeek_ms + python_result["worker_wall_ms"], 3),
             })
         report["captures"].append(capture_result)
+        if capture == args.profile_capture:
+            print(f"[{capture}] separate cProfile replay (excluded from benchmark timings)...", flush=True)
+            profile_workspace = workspace / "python-profiles" / capture
+            report.setdefault("profiles", {})[capture] = run_python_pipeline(
+                Path(__file__).resolve(), capture, conn_log,
+                runner.pcap_root, runner.reference_root, profile_workspace,
+                profile=True,
+            )
         print(f"[{capture}] completed: {capture_result['pcap_bytes']} PCAP bytes", flush=True)
 
     print("Generating derived PacketHawk and ArgusProwl saturation fixtures...", flush=True)
