@@ -61,6 +61,8 @@ jobs:
               f"- Captures: {len(report['captures'])}",
               f"- Precision / Recall / F1: {overall['precision']} / {overall['recall']} / {overall['f1']}",
               f"- False-positive rate: {overall['false_positive_rate']}",
+              f"- Generic temporal periodicity enabled: {report['detection_scope']['generic_temporal_periodicity_enabled']}",
+              f"- CHIMERA ML C2 detector included: {report['detection_scope']['chimera_ml_c2_detector_included']}",
               "",
               "| Capture | Flows | Alerts | Precision | Recall | F1 |",
               "|---|---:|---:|---:|---:|---:|",
@@ -71,6 +73,20 @@ jobs:
                   f"| {item['capture_id']} | {item['generated_flows']} | {item['alerts']} | "
                   f"{metrics['precision']} | {metrics['recall']} | {metrics['f1']} |"
               )
+          lines.extend([
+              "",
+              "### Per-rule flow coverage",
+              "",
+              "| Capture | Rule | TP | FP | FN | FPR |",
+              "|---|---|---:|---:|---:|---:|",
+          ])
+          for item in report["captures"]:
+              for rule_id, metrics in item["detection_by_rule"].items():
+                  lines.append(
+                      f"| {item['capture_id']} | {rule_id} | {metrics['true_positive']} | "
+                      f"{metrics['false_positive']} | {metrics['false_negative']} | "
+                      f"{metrics['false_positive_rate']} |"
+                  )
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
               summary.write("\n".join(lines) + "\n")
           PY
