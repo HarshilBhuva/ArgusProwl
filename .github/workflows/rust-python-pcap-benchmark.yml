@@ -143,6 +143,18 @@ jobs:
                   f"{rust['detect_metrics']['peak_rss_mib']:.1f} | {py_rate:.0f} | "
                   f"{py['peak_rss_mib']:.1f} | {py['metrics']['f1']} |"
               )
+          for capture, profile in report.get("profiles", {}).items():
+              lines.extend([
+                  "",
+                  f"### Isolated cProfile: {capture}",
+                  "> Separate replay; profiler overhead is excluded from normal benchmark timings.",
+                  "",
+                  "```text",
+                  profile.get("profile_cumulative_top_50", "No cumulative profile captured."),
+                  "```",
+                  "",
+                  "Self-time top functions are retained in the JSON artifact.",
+              ])
           stress = report.get("stress", {})
           lines.extend([
               "",
