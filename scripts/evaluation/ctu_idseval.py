@@ -104,6 +104,46 @@ def calculate_rule_metrics(
     }
 
 
+def build_evaluation_config(state_dir: Path) -> str:
+    """Build an isolated evaluation config with production detection paths enabled.
+
+    Temporal analysis must remain enabled so CTU malware replay exercises
+    BeaconingDetector rather than silently omitting periodic C2 behavior.
+    """
+    return "\\n".join(
+        [
+            "app_name: ArgusProwl CTU-IDSEVAL-6 evaluation",
+            "logging:",
+            "  console_enabled: false",
+            "  file_enabled: false",
+            "  json_enabled: false",
+            "api:",
+            "  enabled: false",
+            "storage:",
+            f"  database_path: {(state_dir / 'evidence.db').as_posix()}",
+            "telemetry_evidence:",
+            "  enabled: false",
+            "alert_persistence:",
+            "  enabled: true",
+            "  max_alerts: 400000",
+            f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
+            "attck:",
+            "  enabled: false",
+            "temporal:",
+            "  enabled: true",
+            "  max_keys: 10000",
+            "  max_observations_per_key: 1000",
+            "  window_duration_seconds: 3600.0",
+            "  min_observations: 10",
+            "  min_duration_seconds: 300.0",
+            "  periodicity_threshold: 0.7",
+            "baseline:",
+            "  enabled: false",
+            "",
+        ]
+    )
+
+
 class CTUIDSEvalRunner:
     """Download, validate, replay, and evaluate the six public CTU captures."""
 
@@ -278,42 +318,7 @@ class CTUIDSEvalRunner:
         state_dir = self.workspace / "state" / capture_id
         state_dir.mkdir(parents=True, exist_ok=True)
         config_path = state_dir / "evaluation.yaml"
-        config_path.write_text(
-            "\n".join([
-                "app_name: ArgusProwl CTU-IDSEVAL-6 evaluation",
-                "logging:",
-                "  console_enabled: false",
-                "  file_enabled: false",
-                "  json_enabled: false",
-                "api:",
-                "  enabled: false",
-                "storage:",
-                f"  database_path: {(state_dir / 'evidence.db').as_posix()}",
-                "telemetry_evidence:",
-                "  enabled: false",
-                "alert_persistence:",
-                "  enabled: true",
-                "  max_alerts: 400000",
-                f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
-                "attck:",
-                "  enabled: false",
-                # Keep temporal detections enabled: disabling this service
-                # silently removes BeaconingDetector from the production path and
-                # makes this malware-focused efficacy replay blind to C2 periodicity.
-                "temporal:",
-                "  enabled: true",
-                "  max_keys: 10000",
-                "  max_observations_per_key: 1000",
-                "  window_duration_seconds: 3600.0",
-                "  min_observations: 10",
-                "  min_duration_seconds: 300.0",
-                "  periodicity_threshold: 0.7",
-                "baseline:",
-                "  enabled: false",
-                "",
-            ]),
-            encoding="utf-8",
-        )
+        config_path.write_text(build_evaluation_config(state_dir), encoding="utf-8")
         app = Application(config_path=config_path, container=ServiceContainer())
         event_labels: dict[Any, tuple[str, str]] = {}
         detected_event_ids: set[Any] = set()
