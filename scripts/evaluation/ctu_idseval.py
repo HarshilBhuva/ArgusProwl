@@ -323,7 +323,8 @@ class CTUIDSEvalRunner:
         event_labels: dict[Any, tuple[str, str]] = {}
         detected_event_ids: set[Any] = set()
         detected_by_rule: dict[str, set[Any]] = defaultdict(set)
-        unmatched_generated = processed = 0
+        unmatched_generated = matched_generated = processed = 0
+        seen_event_ids: set[Any] = set()
         persisted = None
         try:
             app.startup(start_api=False)
@@ -352,20 +353,31 @@ class CTUIDSEvalRunner:
 
             setattr(decision_engine, "process_detection_result", capture_detection_result)
             for line, event in self._iter_generated_events(generated):
+                if event.event_id in seen_event_ids:
+                    raise EvaluationError(
+                        f"Duplicate NormalizedEvent.event_id {event.event_id} "
+                        f"while replaying {capture_id}; refusing to overwrite labels."
+                    )
+                seen_event_ids.add(event.event_id)
+
                 values = line.split("\t")
                 record = dict(zip(FLOW_KEY_FIELDS, (values[0], values[2], values[3], values[4], values[5], values[6]), strict=True))
+                key = flow_key(record)
                 pair = uid_labels.get(event.source_record_id) if event.source_record_id else None
+                key_matches = key_labels.get(key)
                 if pair is None:
-                    candidates = key_labels.get(flow_key(record))
-                    if candidates:
-                        pair = candidates.popleft()
+                    if key_matches:
+                        pair = key_matches.popleft()
+                elif key_matches:
+                    # Consume exactly one reference row for UID matches too, so a
+                    # later fallback match cannot reuse the same labeled flow.
+                    key_matches.popleft()
+
                 if pair is None:
                     unmatched_generated += 1
                 else:
+                    matched_generated += 1
                     event_labels[event.event_id] = pair
-                    key_matches = key_labels.get(flow_key(record))
-                    if key_matches:
-                        key_matches.popleft()
                 if not app._process_event(event):
                     raise EvaluationError(f"ArgusProwl rejected Zeek flow {event.source_record_id}")
                 processed += 1
@@ -375,6 +387,19 @@ class CTUIDSEvalRunner:
 
         if persisted is None or persisted.status.value != "AVAILABLE":
             raise EvaluationError(f"Alert persistence unavailable for {capture_id}")
+        if processed != matched_generated + unmatched_generated:
+            raise EvaluationError(
+                f"Generated-flow accounting mismatch for {capture_id}: "
+                f"{processed} processed != {matched_generated} labeled + "
+                f"{unmatched_generated} unlabeled."
+            )
+        if len(event_labels) != matched_generated:
+            raise EvaluationError(
+                f"Label identity collision for {capture_id}: "
+                f"{matched_generated} matched generated flows but only "
+                f"{len(event_labels)} unique event IDs."
+            )
+
         predictions = [
             (label[0], event_id in detected_event_ids)
             for event_id, label in event_labels.items()
@@ -396,6 +421,7 @@ class CTUIDSEvalRunner:
             "reference_flows": reference_count,
             "ground_truth_matched": len(event_labels),
             "ground_truth_unmatched": reference_count - len(event_labels),
+            "labeled_generated_flows": matched_generated,
             "unlabeled_generated_flows": unmatched_generated,
             "ground_truth_match_rate": round(match_rate, 6),
             "label_counts": dict(Counter(label[0] for label in event_labels.values())),
