@@ -24,11 +24,19 @@ logs and fails closed below 99.9% alignment.
 
 Generated records are submitted to ArgusProwl's production Application event
 processing pipeline, with a fresh application state and isolated SQLite files
-for each capture.
+for each capture. ArgusProwl's bounded, rule-based temporal periodicity
+analytics remain enabled with explicit limits. This measures ArgusProwl's
+network-hunting signals, including its generic periodicity rule; it does not
+load or evaluate CHIMERA's separate ML-based C2 detector.
 
-A flow is a predicted positive only when a persisted alert names that exact
-event as detection_source_event_id. Alerts without a source event are reported
-separately and are not silently counted as true positives.
+A flow is a predicted positive only when a matched DetectionResult explicitly
+references that event as its event_id (the event that crossed the detector
+threshold) or one of its contributing_event_ids (events retained as evidence
+for the aggregate detection). The evaluator captures these references before
+alert deduplication: deduplication controls notification volume and must not
+turn suppressed duplicate alerts into detector false negatives. Host/IP grouping,
+alert descriptions, and inferred campaign membership are never used to assign
+flow-level positives. Persisted alert counts are reported separately.
 
 - Benign is the negative class.
 - Malicious is the positive class.
@@ -38,8 +46,10 @@ separately and are not silently counted as true positives.
 - Per-capture results are reported with aggregate micro metrics.
 
 This is a baseline measurement, not a claim that every malicious behavior must
-be detected by current rules. False positives on benign traffic and misses on
-malware/C2 must remain visible. Do not tune thresholds against this evaluation
+be detected by current rules. The malware captures include C2-labeled activity,
+but ArgusProwl's generic periodicity signal is not equivalent to CHIMERA's
+model-based C2 detection. False positives on benign traffic and missed
+malicious flows remain visible. Do not tune thresholds against this evaluation
 set; use a separate training split and held-out test split for future tuning.
 
 ## Run locally
@@ -67,8 +77,11 @@ The JSON report is retained as a workflow artifact.
 
 - The benchmark is not representative of every enterprise network, modern
   encrypted application, endpoint event, or cloud workload.
-- Flow-level source-event attribution can undercount detections whose alerts
-  are attributed to an aggregate trigger. Those alerts remain separately visible.
+- Flow-level metrics score explicit DetectionResult provenance before alert
+  deduplication. Aggregate detectors must retain the trigger event and bounded
+  contributing event IDs; missing provenance remains a detection-evidence
+  defect rather than an inferred TP. Persisted alert counts are operational
+  output metrics, not detector recall.
 - This does not replace analyst adjudication, production shadow deployment, or
   customer-specific false-positive measurement.
 - Only public PCAPs are replayed; no live attack traffic is generated.

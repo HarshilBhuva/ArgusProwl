@@ -83,6 +83,67 @@ def calculate_metrics(labels_and_predictions: list[tuple[str, bool]]) -> dict[st
     }
 
 
+def calculate_rule_metrics(
+    event_labels: dict[Any, tuple[str, str]],
+    detected_by_rule: dict[str, set[Any]],
+) -> dict[str, dict[str, Any]]:
+    """Calculate independent flow-level coverage for each matched rule."""
+    return {
+        rule_id: {
+            **calculate_metrics([
+                (label[0], event_id in referenced_ids)
+                for event_id, label in event_labels.items()
+            ]),
+            "referenced_labeled_events": sum(
+                event_id in referenced_ids
+                and label[0].strip().casefold() != "background"
+                for event_id, label in event_labels.items()
+            ),
+        }
+        for rule_id, referenced_ids in sorted(detected_by_rule.items())
+    }
+
+
+def build_evaluation_config(state_dir: Path) -> str:
+    """Build an isolated config with ArgusProwl's bounded temporal analytics enabled.
+
+    This evaluates ArgusProwl's generic rule-based periodicity signal only.
+    It does not load or evaluate CHIMERA's separate ML-based C2 detector.
+    """
+    return "\n".join(
+        [
+            "app_name: ArgusProwl CTU-IDSEVAL-6 evaluation",
+            "logging:",
+            "  console_enabled: false",
+            "  file_enabled: false",
+            "  json_enabled: false",
+            "api:",
+            "  enabled: false",
+            "storage:",
+            f"  database_path: {(state_dir / 'evidence.db').as_posix()}",
+            "telemetry_evidence:",
+            "  enabled: false",
+            "alert_persistence:",
+            "  enabled: true",
+            "  max_alerts: 400000",
+            f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
+            "attck:",
+            "  enabled: false",
+            "temporal:",
+            "  enabled: true",
+            "  max_keys: 10000",
+            "  max_observations_per_key: 1000",
+            "  window_duration_seconds: 3600",
+            "  min_observations: 10",
+            "  min_duration_seconds: 300",
+            "  periodicity_threshold: 0.7",
+            "baseline:",
+            "  enabled: false",
+            "",
+        ]
+    )
+
+
 class CTUIDSEvalRunner:
     """Download, validate, replay, and evaluate the six public CTU captures."""
 
@@ -247,6 +308,7 @@ class CTUIDSEvalRunner:
     def _evaluate_capture(self, capture_id: str) -> dict[str, Any]:
         from argusprowl.alerting.alert_persistence import AlertPersistence
         from argusprowl.core.application import Application
+        from argusprowl.decision_engine.decision_engine import DecisionEngine
         from argusprowl.dependency_injection.container import ServiceContainer
 
         pcap = next(self.pcap_root.rglob(f"{capture_id}.pcap"))
@@ -256,39 +318,39 @@ class CTUIDSEvalRunner:
         state_dir = self.workspace / "state" / capture_id
         state_dir.mkdir(parents=True, exist_ok=True)
         config_path = state_dir / "evaluation.yaml"
-        config_path.write_text(
-            "\n".join([
-                "app_name: ArgusProwl CTU-IDSEVAL-6 evaluation",
-                "logging:",
-                "  console_enabled: false",
-                "  file_enabled: false",
-                "  json_enabled: false",
-                "api:",
-                "  enabled: false",
-                "storage:",
-                f"  database_path: {(state_dir / 'evidence.db').as_posix()}",
-                "telemetry_evidence:",
-                "  enabled: false",
-                "alert_persistence:",
-                "  enabled: true",
-                "  max_alerts: 400000",
-                f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
-                "attck:",
-                "  enabled: false",
-                "temporal:",
-                "  enabled: false",
-                "baseline:",
-                "  enabled: false",
-                "",
-            ]),
-            encoding="utf-8",
-        )
+        config_path.write_text(build_evaluation_config(state_dir), encoding="utf-8")
         app = Application(config_path=config_path, container=ServiceContainer())
         event_labels: dict[Any, tuple[str, str]] = {}
+        detected_event_ids: set[Any] = set()
+        detected_by_rule: dict[str, set[Any]] = defaultdict(set)
         unmatched_generated = processed = 0
         persisted = None
         try:
             app.startup(start_api=False)
+            # Capture detector decisions before alert deduplication: notification
+            # suppression must not turn matched detections into false negatives.
+            decision_engine = app._container.resolve(DecisionEngine)
+            process_detection_result = decision_engine.process_detection_result
+
+            def capture_detection_result(
+                detection_result: Any,
+                assessment: Any = None,
+                event: Any = None,
+            ) -> Any:
+                if detection_result.matched:
+                    referenced_ids = {
+                        detection_result.event_id,
+                        *detection_result.contributing_event_ids,
+                    }
+                    detected_event_ids.update(referenced_ids)
+                    detected_by_rule[detection_result.rule_id].update(referenced_ids)
+                return process_detection_result(
+                    detection_result,
+                    assessment=assessment,
+                    event=event,
+                )
+
+            setattr(decision_engine, "process_detection_result", capture_detection_result)
             for line, event in self._iter_generated_events(generated):
                 values = line.split("\t")
                 record = dict(zip(FLOW_KEY_FIELDS, (values[0], values[2], values[3], values[4], values[5], values[6]), strict=True))
@@ -313,13 +375,12 @@ class CTUIDSEvalRunner:
 
         if persisted is None or persisted.status.value != "AVAILABLE":
             raise EvaluationError(f"Alert persistence unavailable for {capture_id}")
-        alerted = {
-            alert.detection_source_event_id
-            for alert in persisted.alerts
-            if alert.detection_source_event_id is not None
-        }
-        predictions = [(label[0], event_id in alerted) for event_id, label in event_labels.items()]
+        predictions = [
+            (label[0], event_id in detected_event_ids)
+            for event_id, label in event_labels.items()
+        ]
         metrics = calculate_metrics(predictions)
+        rule_metrics = calculate_rule_metrics(event_labels, detected_by_rule)
         match_rate = len(event_labels) / reference_count if reference_count else 0.0
         if match_rate < self.minimum_label_match:
             raise EvaluationError(
@@ -339,6 +400,9 @@ class CTUIDSEvalRunner:
             "ground_truth_match_rate": round(match_rate, 6),
             "label_counts": dict(Counter(label[0] for label in event_labels.values())),
             "alerts": len(persisted.alerts),
+            "detected_event_count": len(detected_event_ids),
+            "detection_rule_count": len(detected_by_rule),
+            "detection_by_rule": rule_metrics,
             "alerts_without_source_event": sum(
                 alert.detection_source_event_id is None for alert in persisted.alerts
             ),
@@ -393,8 +457,9 @@ class CTUIDSEvalRunner:
             "zeek_version": zeek_version,
             "minimum_label_match": self.minimum_label_match,
             "metric_semantics": (
-                "Flow-level. Positive only when an alert names the exact flow as "
-                "detection_source_event_id. Background labels are excluded from binary metrics."
+                "Flow-level detector efficacy. Positive only when a matched DetectionResult "
+                "explicitly references the flow as event_id or contributing_event_ids, "
+                "captured before alert deduplication. Background labels are excluded."
             ),
             "captures": captures,
             "overall": totals,
