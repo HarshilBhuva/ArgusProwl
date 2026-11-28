@@ -105,10 +105,11 @@ def calculate_rule_metrics(
 
 
 def build_evaluation_config(state_dir: Path) -> str:
-    """Build an isolated evaluation config with production detection paths enabled.
+    """Build an isolated evaluation config for ArgusProwl's non-C2 rule scope.
 
-    Temporal analysis must remain enabled so CTU malware replay exercises
-    BeaconingDetector rather than silently omitting periodic C2 behavior.
+    Temporal beaconing is deliberately excluded from this evaluation: C2
+    detection is owned by the separate CHIMERA project, and its efficacy must
+    not be conflated with ArgusProwl's network-hunting rule metrics.
     """
     return "\n".join(
         [
@@ -130,13 +131,7 @@ def build_evaluation_config(state_dir: Path) -> str:
             "attck:",
             "  enabled: false",
             "temporal:",
-            "  enabled: true",
-            "  max_keys: 10000",
-            "  max_observations_per_key: 1000",
-            "  window_duration_seconds: 3600.0",
-            "  min_observations: 10",
-            "  min_duration_seconds: 300.0",
-            "  periodicity_threshold: 0.7",
+            "  enabled: false",
             "baseline:",
             "  enabled: false",
             "",
