@@ -21,7 +21,7 @@
 
 ArgusProwl is an open-source-first threat-hunting and analyst-assistance suite with a FastAPI backend and React interface. It normalizes supported telemetry, correlates observations, manages evidence, and helps analysts investigate findings. It includes configurable native hunting rules, but it is not intended to replace specialist EDR, NDR, IDS, SIEM, or SOAR products.
 
-[Quick start](#quick-start) · [Capabilities](#capabilities) · [Architecture](#architecture) · [Product principles](docs/product-principles.md) · [Security](#security-and-operational-boundaries) · [Development](#development)
+[Quick start](#quick-start) · [Capabilities](#capabilities) · [Architecture](#architecture) · [Product principles](docs/product-principles.md) · [Open-source integrations](docs/open-source-ecosystem.md) · [Security](#security-and-operational-boundaries) · [Development](#development)
 
 </div>
 
