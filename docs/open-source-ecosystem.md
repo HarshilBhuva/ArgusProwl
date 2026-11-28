@@ -65,6 +65,8 @@ Initial scope:
 
 Keep the dependency optional. Prefer a small adapter using the existing HTTP/runtime stack; use PyMISP only if it materially reduces protocol complexity. Do not require users to run MISP: the provider is disabled unless configured.
 
+**Implementation gate discovered during code review:** the current `ThreatIntelProvider` returns only `ThreatIntelReputation` and has no typed result for provider health, freshness, cache age, or lookup failure. The contextual-intelligence service currently treats an `UNKNOWN` verdict as a normal lookup result. That contract is insufficient to distinguish a genuine no-match from an unavailable MISP service or stale cached data. Do not ship the adapter by mapping timeouts/authentication errors to `UNKNOWN` or `BENIGN`. First extend the provider contract with an explicit outcome/status and freshness metadata, preserve backward compatibility for the in-memory provider, and test no-match, stale, timeout, HTTP 401/403, rate-limit, malformed-response, and success paths. Only then wire MISP into configuration and the composition root. This is a deliberate safety gate, not a reason to add a new dependency or MISP service to the default deployment.
+
 References:
 - https://misp-project.org/tools/
 - https://misp-project.org/features/
@@ -164,6 +166,7 @@ The current pyproject.toml declares pandas, numpy, joblib, and scikit-learn as m
 
 Before removing them, audit every import and runtime path, including optional/research scripts and tests:
 - If no production code imports a package, remove it from mandatory dependencies.
+- A preliminary GitHub code-search audit on the current `main` snapshot found no source-code references to `pandas`, `numpy`, `joblib`, or `scikit-learn` beyond `pyproject.toml` and `uv.lock`. The PR changes only feature-provenance/evaluation code and does not add these imports. Treat these four packages as probable dead runtime dependencies, but complete a branch-pinned audit of source, scripts, tests, dynamic imports, Docker/CLI entry points, and lockfile reachability before changing the dependency set. No dependency has been removed yet.
 - If only an optional feature needs it, move it into a named optional extra.
 - If only benchmark/evaluation tooling needs it, move it into a development/research dependency group.
 - If genuinely required by a supported core feature, document that feature and measure cold-start, install-size, and memory cost.
