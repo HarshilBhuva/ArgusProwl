@@ -83,6 +83,25 @@ def calculate_metrics(labels_and_predictions: list[tuple[str, bool]]) -> dict[st
     }
 
 
+def calculate_rule_metrics(
+    event_labels: dict[Any, tuple[str, str]],
+    detected_by_rule: dict[str, set[Any]],
+) -> dict[str, dict[str, Any]]:
+    """Calculate independent flow-level coverage for each matched rule."""
+    return {
+        rule_id: {
+            **calculate_metrics([
+                (label[0], event_id in referenced_ids)
+                for event_id, label in event_labels.items()
+            ]),
+            "referenced_labeled_events": sum(
+                event_id in referenced_ids for event_id in event_labels
+            ),
+        }
+        for rule_id, referenced_ids in sorted(detected_by_rule.items())
+    }
+
+
 class CTUIDSEvalRunner:
     """Download, validate, replay, and evaluate the six public CTU captures."""
 
@@ -349,18 +368,7 @@ class CTUIDSEvalRunner:
             for event_id, label in event_labels.items()
         ]
         metrics = calculate_metrics(predictions)
-        rule_metrics = {
-            rule_id: {
-                **calculate_metrics([
-                    (label[0], event_id in referenced_ids)
-                    for event_id, label in event_labels.items()
-                ]),
-                "referenced_labeled_events": sum(
-                    event_id in referenced_ids for event_id in event_labels
-                ),
-            }
-            for rule_id, referenced_ids in sorted(detected_by_rule.items())
-        }
+        rule_metrics = calculate_rule_metrics(event_labels, detected_by_rule)
         match_rate = len(event_labels) / reference_count if reference_count else 0.0
         if match_rate < self.minimum_label_match:
             raise EvaluationError(
