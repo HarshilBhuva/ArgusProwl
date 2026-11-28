@@ -62,6 +62,8 @@ class FeatureVector:
     window_end: datetime
     vector_id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # Event IDs that contributed to this aggregate, excluding the triggering event.
+    contributing_event_ids: tuple[UUID, ...] = ()
 
     # Connection features
     src_ip: str = ""
@@ -137,6 +139,7 @@ class FeatureVector:
         return {
             "vector_id": str(self.vector_id),
             "event_id": str(self.event_id),
+            "contributing_event_ids": [str(event_id) for event_id in self.contributing_event_ids],
             "created_at": self.created_at.isoformat(),
             "window_start": self.window_start.isoformat(),
             "window_end": self.window_end.isoformat(),
