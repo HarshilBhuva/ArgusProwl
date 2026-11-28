@@ -69,8 +69,7 @@ label and make coverage appear complete when generated records were not
 individually represented. Its UID-first fallback matching also consumed the
 flow-key queue twice on fallback matches.
 
-The evaluator now fails closed on duplicate event IDs, consumes at most one
-reference row per generated flow, and checks the accounting identity:
+The evaluator now fails closed on duplicate event IDs, consumes each reference UID only once, consumes at most one flow-key fallback row per generated flow, and checks the accounting identity:
 
 `processed = labeled_generated_flows + unlabeled_generated_flows`
 
