@@ -24,10 +24,10 @@ logs and fails closed below 99.9% alignment.
 
 Generated records are submitted to ArgusProwl's production Application event
 processing pipeline, with a fresh application state and isolated SQLite files
-for each capture. Temporal beaconing/C2 analysis is deliberately disabled in
-this evaluation: C2-specific detection belongs to the separate CHIMERA project.
-The report therefore measures ArgusProwl's network-hunting rules, not C2 model
-efficacy.
+for each capture. ArgusProwl's bounded, rule-based temporal periodicity
+analytics remain enabled with explicit limits. This measures ArgusProwl's
+network-hunting signals, including its generic periodicity rule; it does not
+load or evaluate CHIMERA's separate ML-based C2 detector.
 
 A flow is a predicted positive only when a matched DetectionResult explicitly
 references that event as its event_id (the event that crossed the detector
@@ -46,12 +46,11 @@ flow-level positives. Persisted alert counts are reported separately.
 - Per-capture results are reported with aggregate micro metrics.
 
 This is a baseline measurement, not a claim that every malicious behavior must
-be detected by current rules. The malware captures are included as labeled
-negative/positive context for the existing network-hunting rules; the absence
-of a C2-specific detector in this evaluation is intentional. False positives
-on benign traffic and missed malicious flows remain visible. Do not tune
-thresholds against this evaluation set; use a separate training split and
-held-out test split for future tuning.
+be detected by current rules. The malware captures include C2-labeled activity,
+but ArgusProwl's generic periodicity signal is not equivalent to CHIMERA's
+model-based C2 detection. False positives on benign traffic and missed
+malicious flows remain visible. Do not tune thresholds against this evaluation
+set; use a separate training split and held-out test split for future tuning.
 
 ## Run locally
 
