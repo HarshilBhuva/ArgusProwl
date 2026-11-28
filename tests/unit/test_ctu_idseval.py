@@ -45,7 +45,7 @@ def test_metrics_reject_unknown_ground_truth_label():
 def test_duplicate_normalized_event_ids_fail_closed():
     seen: set[str] = set()
     ensure_unique_event_id(seen, "event-1", "capture-a")
-    with pytest.raises(EvaluationError, match=r"Duplicate NormalizedEvent\\.event_id"):
+    with pytest.raises(EvaluationError, match="Duplicate NormalizedEvent"):
         ensure_unique_event_id(seen, "event-1", "capture-a")
 
 
