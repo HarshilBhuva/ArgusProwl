@@ -440,7 +440,20 @@ class CTUIDSEvalRunner:
             rule_path.name: self._digest(rule_path, "sha256")
             for rule_path in sorted(Path("config/rules").glob("*.yaml"))
         }
+        detection_scope = {
+            "generic_temporal_periodicity_enabled": True,
+            "temporal_state_limits": {
+                "max_keys": 10000,
+                "max_observations_per_key": 1000,
+                "window_duration_seconds": 3600,
+                "min_observations": 10,
+                "min_duration_seconds": 300,
+                "periodicity_threshold": 0.7,
+            },
+            "chimera_ml_c2_detector_included": False,
+        }
         report = {
+            "detection_scope": detection_scope,
             "rule_sha256": rule_hashes,
             "dataset": {
                 "name": "CTU-IDSEVAL-6",
