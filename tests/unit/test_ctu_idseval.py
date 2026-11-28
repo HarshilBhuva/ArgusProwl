@@ -98,9 +98,15 @@ def test_per_rule_metrics_are_independent_and_exclude_background():
     assert result["noisy_rule"]["referenced_labeled_events"] == 1
 
 
-def test_evaluation_config_excludes_temporal_c2_from_argusprowl_metrics(tmp_path: Path):
+def test_evaluation_config_enables_bounded_generic_temporal_analytics(tmp_path: Path):
     import yaml
 
     config = yaml.safe_load(build_evaluation_config(tmp_path))
 
-    assert config["temporal"]["enabled"] is False
+    assert config["temporal"]["enabled"] is True
+    assert config["temporal"]["max_keys"] == 10000
+    assert config["temporal"]["max_observations_per_key"] == 1000
+    assert config["temporal"]["window_duration_seconds"] == 3600
+    assert config["temporal"]["min_observations"] == 10
+    assert config["temporal"]["min_duration_seconds"] == 300
+    assert config["temporal"]["periodicity_threshold"] == 0.7
