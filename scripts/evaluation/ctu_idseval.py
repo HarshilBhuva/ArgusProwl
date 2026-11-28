@@ -313,11 +313,14 @@ class CTUIDSEvalRunner:
 
         if persisted is None or persisted.status.value != "AVAILABLE":
             raise EvaluationError(f"Alert persistence unavailable for {capture_id}")
-        alerted = {
-            alert.detection_source_event_id
-            for alert in persisted.alerts
-            if alert.detection_source_event_id is not None
-        }
+        # A detection can be based on an aggregate window. Count its direct
+        # trigger and only the explicitly persisted contributing event IDs;
+        # never infer positives from host/IP grouping or alert text.
+        alerted: set[Any] = set()
+        for alert in persisted.alerts:
+            if alert.detection_source_event_id is not None:
+                alerted.add(alert.detection_source_event_id)
+            alerted.update(alert.contributing_event_ids)
         predictions = [(label[0], event_id in alerted) for event_id, label in event_labels.items()]
         metrics = calculate_metrics(predictions)
         match_rate = len(event_labels) / reference_count if reference_count else 0.0
@@ -393,8 +396,9 @@ class CTUIDSEvalRunner:
             "zeek_version": zeek_version,
             "minimum_label_match": self.minimum_label_match,
             "metric_semantics": (
-                "Flow-level. Positive only when an alert names the exact flow as "
-                "detection_source_event_id. Background labels are excluded from binary metrics."
+                "Flow-level. Positive only when a persisted alert explicitly references the flow "
+                "as detection_source_event_id or contributing_event_ids. Background labels "
+                "are excluded from binary metrics."
             ),
             "captures": captures,
             "overall": totals,
