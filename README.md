@@ -9,7 +9,7 @@
 
 # ArgusProwl
 
-### Host-based threat detection · Evidence-led investigation · Local-first operations
+### Open-source-first threat hunting · Evidence-led investigation · Analyst assistance
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-8A6FDF?style=flat-square)](LICENSE)
@@ -17,11 +17,11 @@
 [![Backend CI](https://img.shields.io/github/actions/workflow/status/HarshilBhuva/ArgusProwl/backend-ci.yml?branch=main&style=flat-square&label=backend%20CI)](.github/workflows/backend-ci.yml)
 [![Frontend CI](https://img.shields.io/github/actions/workflow/status/HarshilBhuva/ArgusProwl/frontend-ci.yml?branch=main&style=flat-square&label=frontend%20CI)](.github/workflows/frontend-ci.yml)
 
-**Turn endpoint and network telemetry into explainable detections, correlated alerts, and investigation context.**
+**Bring security telemetry, existing security tools, and investigation evidence into one analyst workflow.**
 
-ArgusProwl is an open-source security monitoring and investigation platform with a FastAPI backend and React analyst interface. It normalizes supported telemetry, evaluates configurable detections, correlates activity, and presents alerts with the evidence available to the pipeline.
+ArgusProwl is an open-source-first threat-hunting and analyst-assistance suite with a FastAPI backend and React interface. It normalizes supported telemetry, correlates observations, manages evidence, and helps analysts investigate findings. It includes configurable native hunting rules, but it is not intended to replace specialist EDR, NDR, IDS, SIEM, or SOAR products.
 
-[Quick start](#quick-start) · [Capabilities](#capabilities) · [Architecture](#architecture) · [Security](#security-and-operational-boundaries) · [Development](#development)
+[Quick start](#quick-start) · [Capabilities](#capabilities) · [Architecture](#architecture) · [Product principles](docs/product-principles.md) · [Security](#security-and-operational-boundaries) · [Development](#development)
 
 </div>
 
@@ -39,6 +39,14 @@ ArgusProwl is designed around an analyst workflow:
 6. **Operate** the platform through its local web interface, API, CLI, and persistent SQLite storage.
 
 The platform is intended to make detection decisions inspectable. Behavioral scores and rule matches are investigative signals; they are not proof that an event is malicious.
+
+## Product direction
+
+ArgusProwl is an analyst-led threat-hunting suite, not an attempt to reimplement the entire security ecosystem. The project follows an **open-source-first integration policy**: prefer mature, maintained open-source tools for specialist capabilities, and build native functionality only when there is a clear gap or a material advantage.
+
+Optional model-backed assistance may help summarize evidence, explain findings, and suggest investigation pivots. Proprietary model weights and training assets are not part of the public ArgusProwl distribution; any such capability must be separately licensed, explicitly configured, and replaceable. The core platform must remain useful without a model. Model output is advisory and must preserve evidence provenance.
+
+See [Product principles and architectural boundaries](docs/product-principles.md) for the decision rules governing integrations, models, IP, and project scope.
 
 ## Capabilities
 
