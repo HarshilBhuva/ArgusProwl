@@ -52,6 +52,35 @@ model-based C2 detection. False positives on benign traffic and missed
 malicious flows remain visible. Do not tune thresholds against this evaluation
 set; use a separate training split and held-out test split for future tuning.
 
+## Observed CI report integrity issue (2026-11-28)
+
+The first post-provenance-fix CTU workflow (run
+[46132571003](https://github.com/HarshilBhuva/ArgusProwl/actions/runs/46132571003),
+artifact `ctu-idseval-6-report`) produced a report whose source commit was
+`c11e6d2adaaf88c49900e0e40544783b6eb56c0f`, a merge commit containing the
+evaluated PR code at `c7467d6db753d7a71faf1d8a7aef7c8461bfec0c).
+
+That report is **not accepted as a valid efficacy result**. For
+`malicious-malware-2`, it reports 185,506 generated flows but only 28,225
+matched labeled events, while also claiming zero unlabeled generated flows.
+Those fields do not reconcile. The evaluator stores labels by
+`NormalizedEvent.event_id`; a duplicate identity can overwrite an earlier
+label and make coverage appear complete when generated records were not
+individually represented. Its UID-first fallback matching also consumed the
+flow-key queue twice on fallback matches.
+
+The evaluator now fails closed on duplicate event IDs, consumes at most one
+reference row per generated flow, and checks the accounting identity:
+
+`processed = labeled_generated_flows + unlabeled_generated_flows`
+
+A rerun must complete on the corrected evaluator before any CTU precision,
+recall, F1, or false-positive rate is treated as a validated result. The
+previous run's low malware metrics remain a reason for caution, but they are
+not accepted as final detector-quality measurements until coverage integrity
+is established. The report's 71.3% aggregate F1 must not be used in marketing
+or project claims.
+
 ## Run locally
 
 Requirements: Docker, Python 3.13, project dependencies, and network access to
