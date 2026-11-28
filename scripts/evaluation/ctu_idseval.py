@@ -297,8 +297,17 @@ class CTUIDSEvalRunner:
                 f"  db_path: {(state_dir / 'alerts.db').as_posix()}",
                 "attck:",
                 "  enabled: false",
+                # Keep temporal detections enabled: disabling this service
+                # silently removes BeaconingDetector from the production path and
+                # makes this malware-focused efficacy replay blind to C2 periodicity.
                 "temporal:",
-                "  enabled: false",
+                "  enabled: true",
+                "  max_keys: 10000",
+                "  max_observations_per_key: 1000",
+                "  window_duration_seconds: 3600.0",
+                "  min_observations: 10",
+                "  min_duration_seconds: 300.0",
+                "  periodicity_threshold: 0.7",
                 "baseline:",
                 "  enabled: false",
                 "",
